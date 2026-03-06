@@ -59,69 +59,11 @@ Wait too long and the best players are gone.
 
 ---
 
-# 🖼 Platform Preview
-
-### Landing Experience
-
-![Landing](https://via.placeholder.com/1200x600/8a2be2/ffffff?text=BidStack+Landing+Page)
-
----
-
-### Live Auction Dashboard
-
-![Auction](https://via.placeholder.com/1200x600/1e1e1e/ffffff?text=Live+Auction+Interface)
-
----
-
-### Captain Reveal Round
-
-![Captain](https://via.placeholder.com/1200x600/6a0dad/ffffff?text=Captain+Reveal+Moment)
-
----
-
-### Team Overview
-
-![Teams](https://via.placeholder.com/1200x600/222222/ffffff?text=Team+Dashboard)
-
----
-
 # 🧩 Tech Stack
 
 <p align="center">
 
 <img src="https://skillicons.dev/icons?i=nextjs,react,ts,tailwind,nodejs,postgres,git,github&perline=8"/>
-
-</p>
-
----
-
-# 📊  Project Stats 
-
-<p align="center">
-
-![GitHub Stats](https://github-readme-stats.vercel.app/api?username=deep-kH\&show_icons=true\&theme=tokyonight)
-
-![Languages](https://github-readme-stats.vercel.app/api/top-langs/?username=deep-kH\&layout=compact\&theme=tokyonight)
-
-</p>
-
----
-
-# 📈 Activity Graph
-
-<p align="center">
-
-<img src="https://github-readme-activity-graph.vercel.app/graph?username=deep-kH&theme=tokyo-night"/>
-
-</p>
-
----
-
-# 👥 Contributors
-
-<p align="center">
-
-<img src="https://contrib.rocks/image?repo=cetmca26/BidStack"/>
 
 </p>
 
