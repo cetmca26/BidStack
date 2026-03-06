@@ -1,114 +1,113 @@
 <p align="center">
 
-<img src="https://capsule-render.vercel.app/api?type=waving&color=0:00c6ff,100:0072ff&height=220&section=header&text=DraftForge&fontSize=60&fontColor=ffffff&animation=fadeIn&fontAlignY=40&desc=Forge%20Teams%20%7C%20Win%20Auctions%20%7C%20Build%20Legends&descAlignY=65"/>
+<img src="https://capsule-render.vercel.app/api?type=waving&color=0:7F00FF,100:E100FF&height=230&section=header&text=BidStack&fontSize=60&fontColor=ffffff&animation=fadeIn&fontAlignY=40&desc=Forge%20Teams%20%7C%20Win%20Auctions%20%7C%20Build%20Legends&descAlignY=65"/>
+
+</p>
+
+<h1 align="center">
+<span style="color:#8a2be2;">✨ BidStack ✨</span>
+</h1>
+
+<p align="center">
+
+<img src="https://readme-typing-svg.demolab.com?font=Orbitron&size=28&duration=2500&pause=800&color=8A2BE2&center=true&vCenter=true&width=700&lines=Live+Sports+Auction+Platform;Forge+Your+Dream+Team;Bid+Smart+Win+Big;Strategy+Meets+Competition"/>
 
 </p>
 
 <p align="center">
 
-![GitHub repo size](https://img.shields.io/github/repo-size/cetmca26/draftforge)
-![GitHub stars](https://img.shields.io/github/stars/cetmca26/draftforge)
-![GitHub forks](https://img.shields.io/github/forks/cetmca26/draftforge)
-![GitHub issues](https://img.shields.io/github/issues/cetmca26/draftforge)
-![License](https://img.shields.io/badge/license-MIT-green)
+![Visitors](https://komarev.com/ghpvc/?username=deep-kH\&label=Visitors\&color=blueviolet\&style=for-the-badge)
+
+![Repo](https://img.shields.io/badge/Project-BidStack-purple?style=for-the-badge)
+![Status](https://img.shields.io/badge/Status-In%20Development-blue?style=for-the-badge)
+![Built For](https://img.shields.io/badge/Built%20For-MCA%20League-orange?style=for-the-badge)
 
 </p>
 
 ---
 
-# ⚡ DraftForge
+# 🚀 BidStack
 
-### Where Teams Are Forged and Legends Are Bid
+**BidStack** is a high-energy sports auction platform designed for competitive leagues.
+It transforms player selection into a **live strategic battle** where teams compete, bid, and build their ultimate squad.
 
-DraftForge is a **live sports auction platform** that transforms team selection into an exciting real-time event.
-
-No spreadsheets.
-No confusion.
-Just **pure auction adrenaline**.
-
-Build your squad.
-Outbid your rivals.
-Dominate the league.
+Instead of messy spreadsheets and confusion, BidStack delivers a **fast, exciting auction experience**.
 
 ---
 
-# 🔥 Features
+# 🎮 What Happens in BidStack
 
-🏟 **Live Player Auction**
-
-Real-time bidding system designed for sports tournaments.
-
-👑 **Captain Blind Bidding**
-
-Dramatic captain reveal before the auction begins.
-
-⚡ **Real-Time Updates**
-
-Every bid and team update appears instantly.
-
-📊 **Live Team Dashboard**
-
-Track team purse, players, and squad composition.
-
-🎯 **Audience Friendly**
-
-Designed for projection screens during live auction events.
+🔥 Teams battle in a **live auction**
+👑 Captains are decided in a **blind bid reveal round**
+⚡ Bids update **instantly**
+📊 Teams manage their **purse and squad strategy**
+🏆 The strongest team emerges
 
 ---
 
-# 🖼 Screenshots
+# 🧠 The Idea
 
-### Landing Page
+Every team starts equal.
 
-![Landing](https://via.placeholder.com/1200x600?text=Landing+Page)
+Same purse.
+Same opportunity.
+
+But only the **smartest bidding strategy wins**.
+
+Spend too much early and you're broke later.
+Wait too long and the best players are gone.
+
+---
+
+# 🖼 Platform Preview
+
+### Landing Experience
+
+![Landing](https://via.placeholder.com/1200x600/8a2be2/ffffff?text=BidStack+Landing+Page)
 
 ---
 
 ### Live Auction Dashboard
 
-![Auction](https://via.placeholder.com/1200x600?text=Live+Auction+Dashboard)
+![Auction](https://via.placeholder.com/1200x600/1e1e1e/ffffff?text=Live+Auction+Interface)
 
 ---
 
 ### Captain Reveal Round
 
-![Captain](https://via.placeholder.com/1200x600?text=Captain+Reveal)
+![Captain](https://via.placeholder.com/1200x600/6a0dad/ffffff?text=Captain+Reveal+Moment)
 
 ---
 
 ### Team Overview
 
-![Teams](https://via.placeholder.com/1200x600?text=Team+Dashboard)
+![Teams](https://via.placeholder.com/1200x600/222222/ffffff?text=Team+Dashboard)
 
 ---
 
-# 🧠 Auction Flow
-
-1️⃣ Players register for the event
-2️⃣ Teams prepare strategies
-3️⃣ Captains are revealed through blind bidding
-4️⃣ Players go under the hammer
-5️⃣ Teams build their ultimate squad
-
-Simple rule:
-
-**Bid smart. Build stronger.**
-
----
-
-# 📊 GitHub Stats
+# 🧩 Tech Stack
 
 <p align="center">
 
-<img src="https://github-readme-stats.vercel.app/api?username=deep-kH&show_icons=true&theme=tokyonight"/>
-
-<img src="https://github-readme-stats.vercel.app/api/top-langs/?username=deep-kH&layout=compact&theme=tokyonight"/>
+<img src="https://skillicons.dev/icons?i=nextjs,react,ts,tailwind,nodejs,postgres,git,github&perline=8"/>
 
 </p>
 
 ---
 
-# 🚀 Activity Graph
+# 📊  Project Stats 
+
+<p align="center">
+
+![GitHub Stats](https://github-readme-stats.vercel.app/api?username=deep-kH\&show_icons=true\&theme=tokyonight)
+
+![Languages](https://github-readme-stats.vercel.app/api/top-langs/?username=deep-kH\&layout=compact\&theme=tokyonight)
+
+</p>
+
+---
+
+# 📈 Activity Graph
 
 <p align="center">
 
@@ -118,11 +117,11 @@ Simple rule:
 
 ---
 
-# 🤝 Contributors
+# 👥 Contributors
 
 <p align="center">
 
-<img src="https://contrib.rocks/image?repo=deep-kH/draftforge"/>
+<img src="https://contrib.rocks/image?repo=cetmca26/BidStack"/>
 
 </p>
 
@@ -130,36 +129,36 @@ Simple rule:
 
 # 🏫 Perfect For
 
-• College sports leagues
-• Cricket auctions
-• Football drafts
-• Department tournaments
-• Friendly competitions
+• College Sports Leagues
+• Department Tournaments
+• Cricket Auctions
+• Football Drafts
+• Friendly Competitions
 
-Anywhere teams are built and bragging rights are on the line.
+Anywhere teams compete and **bragging rights are on the line**.
 
 ---
 
 # ⭐ Support the Project
 
-If you like this project:
+If you like the idea of BidStack:
 
 ⭐ Star the repository
 🍴 Fork the project
-🚀 Share it with others
+🚀 Share it with your friends
 
 ---
 
-# ⚔️ Ready to Forge Your Team?
+# ⚔️ Ready for the Auction?
 
 The auction floor is open.
 
 Prepare your strategy.
 Watch the bids rise.
-And forge the team that will dominate the league.
+And build the team that will dominate the league.
 
 <p align="center">
 
-<img src="https://capsule-render.vercel.app/api?type=waving&color=0:0072ff,100:00c6ff&height=120&section=footer"/>
+<img src="https://capsule-render.vercel.app/api?type=waving&color=0:E100FF,100:7F00FF&height=120&section=footer"/>
 
 </p>
