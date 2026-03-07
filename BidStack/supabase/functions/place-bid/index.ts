@@ -19,47 +19,43 @@ serve(async (req) => {
 
         const { auction_id, team_id } = await req.json()
 
-        // 1. Get current auction state
-        const { data: state, error: stateError } = await supabaseClient
-            .from('auction_state')
-            .select('*')
-            .eq('auction_id', auction_id)
-            .single()
+        // Parallelize all queries instead of sequential
+        const [stateRes, auctionRes, teamRes] = await Promise.all([
+            supabaseClient
+                .from('auction_state')
+                .select('current_bid,leading_team_id,current_player_id')
+                .eq('auction_id', auction_id)
+                .single(),
+            supabaseClient
+                .from('auctions')
+                .select('settings')
+                .eq('id', auction_id)
+                .single(),
+            supabaseClient
+                .from('teams')
+                .select('purse_remaining,slots_remaining')
+                .eq('id', team_id)
+                .single()
+        ])
+
+        const { data: state, error: stateError } = stateRes
+        const { data: auction, error: auctionError } = auctionRes
+        const { data: team, error: teamError } = teamRes
 
         if (stateError || !state || !state.current_player_id) {
             throw new Error('No active player for this auction')
         }
-
-        // 2. Get auction settings
-        const { data: auction, error: auctionError } = await supabaseClient
-            .from('auctions')
-            .select('settings')
-            .eq('id', auction_id)
-            .single()
-
         if (auctionError) throw auctionError
+        if (teamError) throw teamError
 
         const base_price = Number(auction.settings.base_price)
         const increment = Number(auction.settings.increment)
 
-        // 3. Get team info
-        const { data: team, error: teamError } = await supabaseClient
-            .from('teams')
-            .select('*')
-            .eq('id', team_id)
-            .single()
-
-        if (teamError) throw teamError
-
-        // 4. Calculate next bid
+        // Calculate next bid
         const current_bid = state.current_bid ?? base_price
         const next_bid = state.leading_team_id === null ? current_bid : current_bid + increment
 
-        // 5. Validation Logic
-        if (state.leading_team_id === team_id) {
-            throw new Error('Team is already leading the bid')
-        }
-
+        // Validation checks
         if (team.purse_remaining < next_bid) {
             throw new Error('Insufficient purse')
         }
@@ -72,10 +68,10 @@ serve(async (req) => {
         const required_money = remaining_slots_after * base_price
 
         if (team.purse_remaining - next_bid < required_money) {
-            throw new Error('Minimum squad rule (purse must cover remaining slots at base price)')
+            throw new Error('Minimum squad rule')
         }
 
-        // 6. Execute bid via RPC
+        // Execute bid via RPC
         const { data: updatedState, error: rpcError } = await supabaseClient
             .rpc('execute_bid', {
                 p_auction_id: auction_id,
@@ -97,3 +93,4 @@ serve(async (req) => {
         })
     }
 })
+

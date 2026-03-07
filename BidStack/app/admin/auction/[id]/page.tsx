@@ -190,13 +190,12 @@ export default function AdminAuctionPage({ params }: { params: Promise<{ id: str
   const handlePlaceBid = async (teamId: string) => {
     setLoadingAction(`bid_${teamId}`);
     try {
-      const { data: { session } } = await supabase.auth.getSession();
+      const url = `${process.env.NEXT_PUBLIC_SUPABASE_URL}/functions/v1/place-bid`;
 
-      const response = await fetch(`${process.env.NEXT_PUBLIC_SUPABASE_URL}/functions/v1/place-bid`, {
+      const response = await fetch(url, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          'Authorization': `Bearer ${session?.access_token}`,
           'apikey': process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || ''
         },
         body: JSON.stringify({
@@ -205,14 +204,17 @@ export default function AdminAuctionPage({ params }: { params: Promise<{ id: str
         })
       });
 
-      const result = await response.json();
-
       if (!response.ok) {
-        throw new Error(result.error || 'Bid failed');
+        const errorText = await response.text();
+        console.error('Edge Function error:', errorText);
+        throw new Error(`Bid failed: ${errorText || response.statusText}`);
       }
 
+      const result = await response.json();
+      console.log('Bid successful:', result);
+
     } catch (err: any) {
-      console.error("Critical bid error:", err);
+      console.error("Bid error:", err.message);
       window.alert(`Bid failed: ${err.message}`);
     } finally {
       setLoadingAction(null);
