@@ -23,7 +23,7 @@ export type Team = {
     auction_id: string;
     name: string;
     manager: string;
-    logo_url?: string;
+    logo_url: string | null;
     purse_remaining: number;
     slots_remaining: number;
     captain_id: string | null;
@@ -34,11 +34,11 @@ export type Player = {
     auction_id: string;
     name: string;
     role: string;
-    photo_url?: string;
-    status: "upcoming" | "live" | "sold" | "unsold" | "unsold_final" | "upcoming_phase2";
-    sold_price: number | null;
+    photo_url: string | null;
+    is_captain: boolean;
     sold_team_id: string | null;
-    is_captain?: boolean;
+    sold_price: number | null;
+    status: "sold" | "live" | "upcoming"; // Computed field
 };
 
 export type AuctionState = {

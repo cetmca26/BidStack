@@ -188,8 +188,19 @@ export default function AdminAuctionPage({ params }: { params: Promise<{ id: str
   };
 
   const handlePlaceBid = async (teamId: string) => {
+    if (!state?.current_player_id) {
+      window.alert('No player currently selected');
+      return;
+    }
+
     setLoadingAction(`bid_${teamId}`);
     try {
+      // Calculate next bid amount
+      const base_price = auction.settings.base_price;
+      const increment = auction.settings.increment;
+      const current_bid = state.current_bid ?? base_price;
+      const next_bid = state.leading_team_id === null ? current_bid : current_bid + increment;
+
       const url = `${process.env.NEXT_PUBLIC_SUPABASE_URL}/functions/v1/place-bid`;
 
       const response = await fetch(url, {
@@ -200,7 +211,8 @@ export default function AdminAuctionPage({ params }: { params: Promise<{ id: str
         },
         body: JSON.stringify({
           auction_id: auctionId,
-          team_id: teamId
+          team_id: teamId,
+          bid_amount: next_bid
         })
       });
 
@@ -260,8 +272,7 @@ export default function AdminAuctionPage({ params }: { params: Promise<{ id: str
     }
 
     const upcomingCount = players.filter(p => p.status === "upcoming").length;
-    const unsoldCount = players.filter(p => p.status === "unsold").length;
-    const totalRemaining = upcomingCount + unsoldCount;
+    const totalRemaining = upcomingCount;
     const emptySlots = teams.reduce((sum, team) => sum + team.slots_remaining, 0);
 
     const message = `Are you sure you want to permanently end this auction?\n\n• Participants left: ${totalRemaining}\n• Total empty team slots: ${emptySlots}\n\nThis action cannot be undone. Admins will be returned to the Admin Home.`;
@@ -491,8 +502,8 @@ export default function AdminAuctionPage({ params }: { params: Promise<{ id: str
           <h2 className="text-3xl font-semibold text-amber-500 tracking-tight">Phase 1 Complete!</h2>
           <div className="text-slate-400 leading-relaxed text-sm space-y-2">
             <p>The primary upcoming player pool has been entirely exhausted.</p>
-            <p><strong>({players.filter(p => p.status === "unsold").length})</strong> players remain Unsold.</p>
-            <p>Click below to transition to Phase 2. This will broadcast an intermission 'Hype' screen to the Audience and begin drawing from the Unsold pool.</p>
+            <p><strong>({players.filter(p => p.status === "upcoming").length})</strong> players remain for drawing.</p>
+            <p>Click below to transition to Phase 2. This will broadcast an intermission 'Hype' screen to the Audience and begin drawing from the remaining pool.</p>
           </div>
           <Button size="lg" className="bg-amber-600 hover:bg-amber-500 text-white font-medium shadow-md w-full" onClick={handleStartPhase2Hype} disabled={loadingAction === "start_phase2"}>
             {loadingAction === "start_phase2" ? "Starting..." : "Proceed to Phase 2 (Unsold Players)"}
@@ -502,14 +513,14 @@ export default function AdminAuctionPage({ params }: { params: Promise<{ id: str
     )
   }
   if (state?.phase === "phase_2_complete") {
-    const finalUnsolds = players.filter(p => p.status === "unsold").length;
+    const finalUnsolds = players.filter(p => p.status === "upcoming").length;
     return (
       <div className="min-h-screen bg-gradient-to-br from-slate-950 via-slate-900 to-slate-950 p-6 flex flex-col items-center justify-center animate-in fade-in duration-500">
         <div className="text-center space-y-6 bg-slate-900/50 p-10 rounded-2xl border border-rose-800 shadow-2xl shadow-rose-900/20 max-w-xl">
           <h2 className="text-3xl font-semibold text-rose-500 tracking-tight">Phase 2 Complete!</h2>
           <div className="text-slate-400 leading-relaxed text-sm space-y-2">
-            <p>The entire player pool (including Unsold redraws) has been exhausted.</p>
-            <p><strong>({finalUnsolds})</strong> players remain Unsold after Phase 2.</p>
+            <p>The entire player pool has been exhausted.</p>
+            <p><strong>({finalUnsolds})</strong> players were never drawn after Phase 2.</p>
             <p>You can now permanently End the Auction if minimum player requirements are met.</p>
           </div>
           <div className="flex flex-col gap-3 mt-4">

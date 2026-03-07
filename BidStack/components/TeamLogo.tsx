@@ -4,7 +4,7 @@ import { useState } from "react";
 
 interface TeamLogoProps {
   name: string;
-  logoUrl?: string;
+  logoUrl?: string | null;
   size?: "sm" | "md" | "lg" | "xl";
 }
 

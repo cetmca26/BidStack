@@ -58,7 +58,7 @@ export default function VerifyAuctionPage({ params }: { params: Promise<{ id: st
     }, [router]);
 
     const unsoldPlayers = useMemo(() =>
-        players.filter(p => p.status === "unsold"),
+        players.filter(p => p.status === "upcoming"),
         [players]
     );
 

@@ -144,17 +144,32 @@ export default function LiveAuctionPage({
                   Back
                 </button>
                 <div className="text-[7px] md:text-[9px] font-black text-slate-500 uppercase tracking-[0.15em] whitespace-nowrap">
-                  {Math.min(getPlayerRepositoryCount, players.length)}/
-                  {players.length}
+                  Showing all players • Scroll to browse
                 </div>
               </div>
-              <div className="flex-1 overflow-y-auto pr-2 custom-scrollbar">
-                <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-2 lg:grid-cols-3 gap-2 sm:gap-3 md:gap-4">
-                  {players
-                    .slice()
-                    .sort((a, b) => a.name.localeCompare(b.name))
-                    .slice(0, getPlayerRepositoryCount)
-                    .map((player) => {
+              <div className="flex-1 overflow-hidden flex flex-col">
+                <div className="flex-1 overflow-y-auto pr-2 custom-scrollbar">
+                  <style>{`
+                    .custom-scrollbar::-webkit-scrollbar {
+                      width: 6px;
+                    }
+                    .custom-scrollbar::-webkit-scrollbar-track {
+                      background: rgba(15, 23, 42, 0.4);
+                      border-radius: 10px;
+                    }
+                    .custom-scrollbar::-webkit-scrollbar-thumb {
+                      background: rgba(16, 185, 129, 0.4);
+                      border-radius: 10px;
+                    }
+                    .custom-scrollbar::-webkit-scrollbar-thumb:hover {
+                      background: rgba(16, 185, 129, 0.6);
+                    }
+                  `}</style>
+                  <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-2 lg:grid-cols-3 gap-2 sm:gap-3 md:gap-4">
+                    {players
+                      .slice()
+                      .sort((a, b) => a.name.localeCompare(b.name))
+                      .map((player) => {
                       const team = teams.find(
                         (t) => t.id === player.sold_team_id,
                       );
@@ -213,7 +228,8 @@ export default function LiveAuctionPage({
                           )}
                         </div>
                       );
-                    })}{" "}
+                    })}
+                  </div>
                 </div>
               </div>
             </div>

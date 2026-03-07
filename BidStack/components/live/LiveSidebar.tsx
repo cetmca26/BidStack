@@ -97,7 +97,7 @@ export function LiveSidebar({ teams, players, onTeamClick, onExpandPlayers, maxP
                 </div>
 
                 <div className="flex gap-2 overflow-x-auto pb-2 custom-scrollbar">
-                    {(["all", "upcoming", "live", "sold", "unsold"] as const).map((f) => (
+                    {(["all", "upcoming", "live", "sold"] as const).map((f) => (
                         <button
                             key={f}
                             onClick={() => setFilter(f)}
@@ -139,7 +139,7 @@ export function LiveSidebar({ teams, players, onTeamClick, onExpandPlayers, maxP
                                         </>
                                     ) : (
                                         <div className={`text-[10px] font-bold uppercase ${player.status === 'live' ? "text-amber-500 animate-pulse" :
-                                            player.status === 'unsold' ? "text-rose-500" : "text-slate-600"
+                                            player.status === 'upcoming' ? "text-rose-500" : "text-slate-600"
                                             }`}>
                                             {player.status}
                                         </div>

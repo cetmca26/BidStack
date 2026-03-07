@@ -6,7 +6,7 @@ interface PlayerAvatarProps {
   id: string;
   name: string;
   role: string;
-  photoUrl?: string;
+  photoUrl?: string | null;
   size?: "sm" | "md" | "lg" | "xl";
   showBadge?: boolean;
   isCaptain?: boolean;
