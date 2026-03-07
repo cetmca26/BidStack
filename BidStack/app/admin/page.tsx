@@ -53,7 +53,7 @@ export default function AdminDashboardPage() {
         .from("profiles")
         .select("role")
         .eq("id", session.user.id)
-        .single();
+        .maybeSingle();
 
       if (profile?.role !== "admin") {
         router.push("/");
@@ -149,8 +149,8 @@ export default function AdminDashboardPage() {
           max_players: maxVal,
           base_price: baseVal,
           increment: incVal,
+          captain_base_price: captBaseVal,
         },
-        captain_base_price: captBaseVal,
       });
 
       if (insertError) {

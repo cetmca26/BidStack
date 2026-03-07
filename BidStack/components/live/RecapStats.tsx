@@ -3,6 +3,7 @@
 import { useMemo } from "react";
 import { motion } from "framer-motion";
 import { Team, Player } from "@/lib/hooks/useAuctionState";
+import { formatPriceCompact, formatPrice } from "@/lib/utils";
 import { PlayerAvatar } from "@/components/PlayerAvatar";
 import { TeamLogo } from "@/components/TeamLogo";
 import { Trophy, Star, Target, Shield, Users } from "lucide-react";
@@ -19,7 +20,8 @@ export function RecapStats({ teams, players, sportType }: RecapStatsProps) {
 
     const mvp = useMemo(() => {
         if (soldPlayers.length === 0) return null;
-        return [...soldPlayers].sort((a, b) => (b.sold_price || 0) - (a.sold_price || 0))[0];
+        // Golden Signing excludes captains — only non-captain players qualify
+        return [...soldPlayers].filter(p => !p.is_captain).sort((a, b) => (b.sold_price || 0) - (a.sold_price || 0))[0] || null;
     }, [soldPlayers]);
 
     const roleMvps = useMemo(() => {
@@ -96,7 +98,7 @@ export function RecapStats({ teams, players, sportType }: RecapStatsProps) {
                                 <div className="mt-6 flex items-center gap-4">
                                     <div className="h-0.5 w-12 bg-slate-800" />
                                     <div className="text-3xl font-mono font-black text-white">
-                                        ₹{mvp.sold_price?.toLocaleString("en-IN")}
+                                        {formatPrice(mvp.sold_price)}
                                     </div>
                                     <div className="h-0.5 w-12 bg-slate-800" />
                                 </div>
@@ -137,7 +139,7 @@ export function RecapStats({ teams, players, sportType }: RecapStatsProps) {
                             />
                             <h4 className="mt-4 text-lg font-bold text-white uppercase italic">{player.name}</h4>
                             <div className="mt-2 font-mono text-emerald-500 font-bold">
-                                ₹{player.sold_price?.toLocaleString("en-IN")}
+                                {formatPrice(player.sold_price)}
                             </div>
                         </Card>
                     </motion.div>
@@ -159,7 +161,7 @@ export function RecapStats({ teams, players, sportType }: RecapStatsProps) {
                         <Target size={32} strokeWidth={2.5} className="mb-4 text-emerald-500" />
                         <div className="text-[10px] font-black uppercase tracking-widest text-slate-500">Gross Expenditure</div>
                         <div className="text-4xl font-black mt-1 text-white font-mono">
-                            ₹{soldPlayers.reduce((s, p) => s + (p.sold_price || 0), 0).toLocaleString("en-IN")}
+                            {formatPriceCompact(soldPlayers.reduce((s, p) => s + (p.sold_price || 0), 0))}
                         </div>
                     </Card>
                 </motion.div>
@@ -170,10 +172,19 @@ export function RecapStats({ teams, players, sportType }: RecapStatsProps) {
                         <div className="text-[10px] font-black uppercase tracking-widest opacity-70">Top Captain Pick</div>
                         {mostValuableCaptain ? (
                             <>
+                                <div className="mt-4 mb-2">
+                                    <PlayerAvatar
+                                        id={mostValuableCaptain.id}
+                                        name={mostValuableCaptain.name}
+                                        role={mostValuableCaptain.role}
+                                        photoUrl={mostValuableCaptain.photo_url}
+                                        size="lg"
+                                    />
+                                </div>
                                 <div className="text-2xl font-black mt-1 uppercase italic tracking-tighter truncate w-full">
                                     {mostValuableCaptain.name}
                                 </div>
-                                <div className="text-sm font-bold opacity-80 mt-1">₹{mostValuableCaptain.sold_price?.toLocaleString("en-IN")}</div>
+                                <div className="text-sm font-bold opacity-80 mt-1">{formatPrice(mostValuableCaptain.sold_price)}</div>
                             </>
                         ) : (
                             <div className="text-2xl font-black mt-1 uppercase italic tracking-tighter">N/A</div>

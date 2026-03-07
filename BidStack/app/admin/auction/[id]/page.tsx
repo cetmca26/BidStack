@@ -3,6 +3,7 @@
 import { use, useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import { supabase } from "@/lib/supabase";
+import { formatPrice } from "@/lib/utils";
 import {
   useAuctionState,
   Auction,
@@ -11,6 +12,7 @@ import {
   AuctionState,
   AuctionSettings
 } from "@/lib/hooks/useAuctionState";
+import { PlayerAvatar } from "@/components/PlayerAvatar";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -46,6 +48,23 @@ export default function AdminAuctionPage({ params }: { params: Promise<{ id: str
 
   const [captainBids, setCaptainBids] = useState<Record<string, { captainId: string; amount: string }>>({});
 
+  // Initialize captain bid amounts with captain_base_price for all unmatched teams
+  // to prevent uncontrolled→controlled input warning
+  useEffect(() => {
+    if (auction && teams.length > 0) {
+      const basePrice = String(auction.settings?.captain_base_price ?? auction.settings?.base_price ?? '');
+      setCaptainBids(prev => {
+        const updated = { ...prev };
+        teams.forEach(t => {
+          if (!t.captain_id && !updated[t.id]) {
+            updated[t.id] = { captainId: '', amount: basePrice };
+          }
+        });
+        return updated;
+      });
+    }
+  }, [auction, teams]);
+
   useEffect(() => {
     const checkAdmin = async () => {
       const { data: { session } } = await supabase.auth.getSession();
@@ -58,7 +77,7 @@ export default function AdminAuctionPage({ params }: { params: Promise<{ id: str
         .from("profiles")
         .select("role")
         .eq("id", session.user.id)
-        .single();
+        .maybeSingle();
 
       if (profile?.role !== "admin") {
         await supabase.auth.signOut();
@@ -195,47 +214,50 @@ export default function AdminAuctionPage({ params }: { params: Promise<{ id: str
 
     setLoadingAction(`bid_${teamId}`);
     try {
-      // 🔍 DEBUG SESSION
-      const { data: { session } } = await supabase.auth.getSession();
-      console.log("SESSION TOKEN:", session?.access_token?.slice(0, 20));
       // Calculate next bid amount
       const base_price = auction.settings.base_price;
       const increment = auction.settings.increment;
       const current_bid = state.current_bid ?? base_price;
       const next_bid = state.leading_team_id === null ? current_bid : current_bid + increment;
 
-      const { data: result, error: invokeError } = await supabase.functions.invoke('place-bid', {
-        body: {
-          auction_id: auctionId,
-          team_id: teamId,
-          bid_amount: next_bid
-        }
+      const { data: result, error: invokeError } = await supabase.rpc('execute_bid', {
+        p_auction_id: auctionId,
+        p_team_id: teamId,
+        p_next_bid: next_bid
       });
 
       if (invokeError) {
-        console.error('FULL INVOKE ERROR:', invokeError);
-        let errorBody = 'No body';
+        // Handle race condition: bid was outpaced, retry with fresh state
+        if (invokeError.message?.includes('must be higher than current bid')) {
+          console.warn('Bid outpaced, retrying with fresh state...');
+          const { data: freshState } = await supabase
+            .from('auction_state')
+            .select('current_bid, leading_team_id')
+            .eq('auction_id', auctionId)
+            .single();
 
-        try {
-          if (invokeError instanceof Error && 'context' in (invokeError as any)) {
-            const context = (invokeError as any).context;
-            if (context && typeof context.text === 'function') {
-              errorBody = await context.text();
+          if (freshState) {
+            const freshBid = freshState.leading_team_id === null
+              ? (freshState.current_bid ?? base_price)
+              : (freshState.current_bid ?? base_price) + increment;
+
+            const { error: retryError } = await supabase.rpc('execute_bid', {
+              p_auction_id: auctionId,
+              p_team_id: teamId,
+              p_next_bid: freshBid
+            });
+
+            if (retryError) {
+              window.alert(`Bid failed: ${retryError.message}`);
             }
           }
-        } catch (e) {
-          console.error('Failed to read error body:', e);
+        } else {
+          window.alert(`Bid failed: ${invokeError.message}`);
         }
-
-        const msg = `Status: ${invokeError.name}\nMessage: ${invokeError.message}\nBody: ${errorBody}`;
-        console.error('Detailed Bid Failure:', msg);
-        throw new Error(msg);
       }
 
-      console.log('Bid successful:', result);
-
     } catch (err: any) {
-      console.error("Bid error catch:", err);
+      console.error("Bid error:", err);
       window.alert(`Bid Execution Failed:\n\n${err.message}`);
     } finally {
       setLoadingAction(null);
@@ -272,33 +294,7 @@ export default function AdminAuctionPage({ params }: { params: Promise<{ id: str
   };
 
   const handleEndAuction = async () => {
-    const invalidTeams = teams.filter(t => (settings.max_players - t.slots_remaining) < settings.min_players);
-    if (invalidTeams.length > 0) {
-      if (window.confirm(`Some teams have not met the minimum player requirement (${settings.min_players}).\n\nRedirect to the Slot Filling Hub to manually assign unsold players?`)) {
-        router.push(`/admin/auction/${auctionId}/verify`);
-      }
-      return;
-    }
-
-    const upcomingCount = players.filter(p => p.status === "upcoming").length;
-    const totalRemaining = upcomingCount;
-    const emptySlots = teams.reduce((sum, team) => sum + team.slots_remaining, 0);
-
-    const message = `Are you sure you want to permanently end this auction?\n\n• Participants left: ${totalRemaining}\n• Total empty team slots: ${emptySlots}\n\nThis action cannot be undone. Admins will be returned to the Admin Home.`;
-
-    if (!window.confirm(message)) return;
-
-    setLoadingAction("end_auction");
-    try {
-      const { error } = await supabase.rpc("end_auction", { p_auction_id: auctionId });
-      if (error) {
-        window.alert("Failed to end auction: " + error.message);
-      } else {
-        router.push("/admin");
-      }
-    } finally {
-      setLoadingAction(null);
-    }
+    router.push(`/admin/auction/${auctionId}/verify`);
   };
 
   const handleToggleCaptain = async (playerId: string, currentVal: boolean) => {
@@ -331,7 +327,9 @@ export default function AdminAuctionPage({ params }: { params: Promise<{ id: str
 
   const handleMatchCaptain = async (teamId: string) => {
     const bidInfo = captainBids[teamId];
-    if (!bidInfo || !bidInfo.captainId || !bidInfo.amount) return;
+    if (!bidInfo || !bidInfo.captainId) return;
+
+    const matchPrice = bidInfo.amount ? Number(bidInfo.amount) : (auction.settings.captain_base_price ?? auction.settings.base_price);
 
     setLoadingAction(`match_${teamId}`);
     try {
@@ -339,7 +337,7 @@ export default function AdminAuctionPage({ params }: { params: Promise<{ id: str
         p_auction_id: auctionId,
         p_team_id: teamId,
         p_player_id: bidInfo.captainId,
-        p_price: Number(bidInfo.amount)
+        p_price: matchPrice
       });
       if (error) {
         alert("Failed to match captain: " + error.message);
@@ -434,7 +432,7 @@ export default function AdminAuctionPage({ params }: { params: Promise<{ id: str
                     <div key={`matched-${team.id}`} className="rounded-lg border border-emerald-800/50 bg-emerald-950/20 p-4">
                       <div className="font-semibold text-emerald-400">✓ {team.name}</div>
                       <div className="text-sm text-slate-300 mt-2">Captain: <span className="text-white font-medium">{c?.name}</span></div>
-                      <div className="text-xs text-slate-400 mt-1">Bid Amount: {c?.sold_price?.toLocaleString("en-IN")}</div>
+                      <div className="text-xs text-slate-400 mt-1">Bid Amount: {formatPrice(c?.sold_price)}</div>
                     </div>
                   );
                 }
@@ -442,7 +440,7 @@ export default function AdminAuctionPage({ params }: { params: Promise<{ id: str
                 return (
                   <div key={`unmatched-${team.id}`} className="rounded-lg border border-slate-700 bg-slate-800/40 p-4 space-y-3">
                     <div className="font-semibold">{team.name}</div>
-                    <div className="text-xs text-slate-400">Purse: {team.purse_remaining.toLocaleString("en-IN")}</div>
+                    <div className="text-xs text-slate-400">Purse: {formatPrice(team.purse_remaining)}</div>
 
                     <div className="space-y-1">
                       <Label className="text-xs text-slate-400">Select Captain</Label>
@@ -460,9 +458,10 @@ export default function AdminAuctionPage({ params }: { params: Promise<{ id: str
                       <Label className="text-xs text-slate-400">Winning Blind Bid</Label>
                       <Input
                         type="number"
+                        min={auction.settings.captain_base_price ?? auction.settings.base_price}
                         className="bg-slate-950 h-8 text-sm"
-                        placeholder={`Min: ${auction.settings.captain_base_price}`}
-                        value={captainBids[team.id]?.amount || ""}
+                        placeholder={`Min: ${auction.settings.captain_base_price ?? auction.settings.base_price}`}
+                        value={captainBids[team.id]?.amount ?? ''}
                         onChange={(e: React.ChangeEvent<HTMLInputElement>) => setCaptainBids(prev => ({ ...prev, [team.id]: { ...prev[team.id], amount: e.target.value } }))}
                       />
                     </div>
@@ -471,7 +470,7 @@ export default function AdminAuctionPage({ params }: { params: Promise<{ id: str
                       className="w-full mt-2"
                       size="sm"
                       variant="secondary"
-                      disabled={!captainBids[team.id]?.captainId || !captainBids[team.id]?.amount || loadingAction === `match_${team.id}`}
+                      disabled={!captainBids[team.id]?.captainId || loadingAction === `match_${team.id}`}
                       onClick={() => handleMatchCaptain(team.id)}
                     >
                       {loadingAction === `match_${team.id}` ? "Matching..." : "Confirm & Match"}
@@ -636,25 +635,38 @@ export default function AdminAuctionPage({ params }: { params: Promise<{ id: str
               Current Player
             </h2>
             {currentPlayer ? (
-              <div className="space-y-2">
-                <div className="text-xl font-semibold">{currentPlayer.name}</div>
-                <div className="text-sm text-slate-400">{currentPlayer.role}</div>
+              <div className="space-y-4">
+                <div className="flex items-center gap-4 bg-slate-950/40 p-3 rounded-xl border border-slate-800">
+                  <div className="scale-75 origin-left w-[80px]">
+                    <PlayerAvatar
+                      id={currentPlayer.id}
+                      name={currentPlayer.name}
+                      role={currentPlayer.role}
+                      photoUrl={currentPlayer.photo_url}
+                      size="sm"
+                    />
+                  </div>
+                  <div>
+                    <div className="text-xl font-bold text-white">{currentPlayer.name}</div>
+                    <div className="text-xs uppercase tracking-widest text-emerald-400 font-bold">{currentPlayer.role}</div>
+                  </div>
+                </div>
                 <div className="mt-4 grid grid-cols-2 gap-2 text-sm">
                   <div className="rounded-md bg-slate-900/80 px-3 py-2">
                     <div className="text-xs uppercase text-slate-400">Base Price</div>
                     <div className="text-lg font-semibold">
-                      {settings.base_price.toLocaleString("en-IN")}
+                      {formatPrice(settings.base_price)}
                     </div>
                   </div>
                   <div className="rounded-md bg-slate-900/80 px-3 py-2">
                     <div className="text-xs uppercase text-slate-400">Increment</div>
                     <div className="text-lg font-semibold">
-                      +{settings.increment.toLocaleString("en-IN")}
+                      +{formatPrice(settings.increment)}
                     </div>
                   </div>
                   <div className="rounded-md bg-emerald-900/40 px-3 py-2">
                     <div className="text-xs uppercase text-emerald-300">Current Bid</div>
-                    {(state?.current_bid ?? settings.base_price).toLocaleString("en-IN")}
+                    {formatPrice(state?.current_bid ?? settings.base_price)}
                   </div>
                   <div className="rounded-md bg-slate-900/80 px-3 py-2">
                     <div className="text-xs uppercase text-slate-400">Leading Team</div>
@@ -690,7 +702,7 @@ export default function AdminAuctionPage({ params }: { params: Promise<{ id: str
                 Click "Start Bid" to unlock team controls for the current player.
               </div>
             ) : (
-              <div className="grid grid-cols-2 gap-3 md:grid-cols-3">
+              <div className="grid grid-cols-2 gap-3 md:grid-cols-3 xl:grid-cols-4">
                 {teams.map((team) => {
                   const canBid = computeCanBid(team);
                   const isLeading = state?.leading_team_id === team.id;
@@ -699,36 +711,51 @@ export default function AdminAuctionPage({ params }: { params: Promise<{ id: str
                   return (
                     <Button
                       key={team.id}
-                      className={`flex h-auto flex-col items-start justify-between gap-1 rounded-xl border px-3 py-3 text-left text-sm shadow-sm transition ${isLeading ? 'border-emerald-500 bg-emerald-950/30' : 'border-slate-800 bg-slate-900/80 hover:border-emerald-500 hover:bg-slate-900'}`}
+                      className={`relative flex h-auto flex-col items-start justify-between gap-1.5 rounded-xl border px-3 py-3 text-left shadow-sm transition-all duration-300 ${isLeading ? 'border-emerald-500 bg-emerald-950/40 ring-1 ring-emerald-500/50 shadow-[0_0_15px_rgba(16,185,129,0.15)] scale-[1.02]' : 'border-slate-800 bg-slate-900/80 hover:border-emerald-500/50 hover:bg-slate-900'}`}
                       disabled={!canBid || isLoading || isLeading}
                       onClick={() => handlePlaceBid(team.id)}
                     >
-                      <span className="font-semibold flex items-center gap-2">
-                        {team.name}
-                        {isLeading && <span className="h-2 w-2 rounded-full bg-emerald-500 animate-pulse" />}
-                      </span>
-                      <span className="text-[11px] uppercase tracking-wide text-slate-400">
-                        {team.manager}
-                      </span>
-                      <span className="mt-1 text-xs text-slate-300">
-                        Purse:{" "}
-                        <span className="font-semibold">
-                          {team.purse_remaining.toLocaleString("en-IN")}
+                      <div className="w-full">
+                        <span className="font-bold flex items-center justify-between gap-2 text-sm text-slate-100 truncate w-full">
+                          <span className="truncate">{team.name}</span>
+                          {isLeading && <span className="h-2 w-2 rounded-full bg-emerald-500 animate-pulse flex-shrink-0 shadow-[0_0_8px_rgba(16,185,129,0.8)]" />}
                         </span>
-                      </span>
-                      <span className="text-xs text-slate-300">
-                        Slots: <span className="font-semibold">{team.slots_remaining}</span>
-                      </span>
-                      {!canBid && !isLeading && (
-                        <span className="mt-1 text-[10px] font-medium uppercase text-amber-300">
-                          Cannot Bid
+                        <span className="text-[10px] uppercase font-semibold tracking-wider text-slate-400 block truncate mt-0.5">
+                          {team.manager}
                         </span>
-                      )}
-                      {isLeading && (
-                        <span className="mt-1 text-[10px] font-medium uppercase text-emerald-400">
-                          Current Highest
+                      </div>
+                      <div className="flex flex-col gap-0.5 w-full mt-1">
+                        <span className="text-xs text-slate-300 flex justify-between">
+                          <span>Purse:</span>
+                          <span className="font-mono font-bold text-emerald-400">
+                            {formatPrice(team.purse_remaining)}
+                          </span>
                         </span>
-                      )}
+                        <span className="text-xs text-slate-300 flex justify-between">
+                          <span>Slots:</span>
+                          <span className="font-bold">{team.slots_remaining}</span>
+                        </span>
+                      </div>
+
+                      <div className="mt-2 w-full">
+                        {isLoading ? (
+                          <div className="text-[10px] font-bold uppercase tracking-widest text-emerald-400 animate-pulse bg-emerald-950/50 py-1 px-2 rounded w-full text-center">
+                            Bidding...
+                          </div>
+                        ) : isLeading ? (
+                          <div className="text-[10px] font-bold uppercase tracking-widest text-emerald-400 bg-emerald-900/40 py-1 px-2 rounded border border-emerald-800/50 w-full text-center shadow-sm">
+                            Current Highest
+                          </div>
+                        ) : !canBid ? (
+                          <div className="text-[10px] font-bold uppercase tracking-widest text-amber-500/80 bg-amber-950/30 py-1 px-2 rounded border border-amber-900/30 w-full text-center">
+                            Cannot Bid
+                          </div>
+                        ) : (
+                          <div className="text-[10px] font-bold uppercase tracking-widest text-slate-400 bg-slate-800/50 py-1 px-2 rounded opacity-0 group-hover:opacity-100 transition-opacity w-full text-center hidden md:block">
+                            Place Bid
+                          </div>
+                        )}
+                      </div>
                     </Button>
                   );
                 })}

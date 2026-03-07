@@ -1,6 +1,8 @@
 "use client";
 
 import { use, useEffect, useMemo, useState } from "react";
+import { Wallet, Shield, Users, Search, Target, Info, Crown, Plus, Eye, UserPlus, GripHorizontal } from "lucide-react";
+import { formatPrice } from "@/lib/utils";
 import { useRouter } from "next/navigation";
 import { supabase } from "@/lib/supabase";
 import { Card } from "@/components/ui/card";
@@ -122,7 +124,7 @@ export default function ManageTeamsPage({ params }: { params: Promise<{ id: stri
       // Upload logo to team-logos bucket
       const fileExt = logoFile.name.split('.').pop();
       const fileName = `${auction.id}/${Date.now()}.${fileExt}`;
-      
+
       const { error: uploadError } = await supabase.storage
         .from("team-logos")
         .upload(fileName, logoFile);
@@ -136,7 +138,7 @@ export default function ManageTeamsPage({ params }: { params: Promise<{ id: stri
       const { data: urlData } = supabase.storage
         .from("team-logos")
         .getPublicUrl(fileName);
-      
+
       const logoUrl = urlData?.publicUrl;
 
       const { error: insertError } = await supabase.from("teams").insert({
@@ -339,7 +341,7 @@ export default function ManageTeamsPage({ params }: { params: Promise<{ id: stri
               <p className="text-xs text-slate-400">
                 Each new team starts with a purse of{" "}
                 <span className="font-semibold text-slate-100">
-                  {auction.settings.purse.toLocaleString("en-IN")}
+                  {formatPrice(auction.settings.purse)}
                 </span>{" "}
                 and{" "}
                 <span className="font-semibold text-slate-100">
@@ -381,7 +383,7 @@ export default function ManageTeamsPage({ params }: { params: Promise<{ id: stri
                           <div>
                             Purse:{" "}
                             <span className="font-semibold">
-                              {team.purse_remaining.toLocaleString("en-IN")}
+                              {formatPrice(team.purse_remaining)}
                             </span>
                           </div>
                           <div>

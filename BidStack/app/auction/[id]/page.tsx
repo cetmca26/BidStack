@@ -135,12 +135,23 @@ export default function AuctionDetailPage({ params }: { params: Promise<{ id: st
     setError(null);
     setSuccess(null);
     setPhotoError(null);
-    
+
     try {
+      let ipAddress = null;
+      try {
+        const ipReq = await fetch("https://api.ipify.org?format=json");
+        const ipData = await ipReq.json();
+        ipAddress = ipData.ip;
+      } catch (err) {
+        console.warn("Could not fetch IP", err);
+      }
+
+      const playerId = crypto.randomUUID();
+
       // Upload photo to player-photos bucket
       const fileExt = photoFile.name.split('.').pop();
-      const fileName = `${auction.id}/${Date.now()}.${fileExt}`;
-      
+      const fileName = `originals/player_${playerId}_${Date.now()}.${fileExt}`;
+
       const { error: uploadError } = await supabase.storage
         .from("player-photos")
         .upload(fileName, photoFile);
@@ -154,19 +165,11 @@ export default function AuctionDetailPage({ params }: { params: Promise<{ id: st
       const { data: urlData } = supabase.storage
         .from("player-photos")
         .getPublicUrl(fileName);
-      
+
       const photoUrl = urlData?.publicUrl;
 
-      let ipAddress = null;
-      try {
-        const ipReq = await fetch("https://api.ipify.org?format=json");
-        const ipData = await ipReq.json();
-        ipAddress = ipData.ip;
-      } catch (err) {
-        console.warn("Could not fetch IP", err);
-      }
-
       const { error: insertError } = await supabase.from("players").insert({
+        id: playerId,
         auction_id: auction.id,
         name: name.trim(),
         role,

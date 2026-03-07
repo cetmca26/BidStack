@@ -3,6 +3,8 @@
 import { motion, AnimatePresence } from "framer-motion";
 import { Player, Team } from "@/lib/hooks/useAuctionState";
 import { PlayerAvatar } from "@/components/PlayerAvatar";
+import { TeamLogo } from "@/components/TeamLogo";
+import { formatPrice } from "@/lib/utils";
 import { Trophy } from "lucide-react";
 
 interface SaleFeedbackProps {
@@ -29,7 +31,7 @@ export function SaleFeedback({ player, team, price, isVisible }: SaleFeedbackPro
 
                     {/* Particle fragments logic omitted for brevity, but could be added here */}
                     <div className="absolute inset-0">
-                        <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[600px] h-[600px] bg-emerald-500/10 blur-[120px] rounded-full animate-pulse" />
+                        <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[150vw] h-[150vw] md:w-[600px] md:h-[600px] max-w-[800px] max-h-[800px] bg-emerald-500/10 blur-[80px] md:blur-[120px] rounded-full animate-pulse" />
                     </div>
 
                     <div className="relative z-10 flex flex-col items-center text-center max-w-2xl w-full">
@@ -57,7 +59,7 @@ export function SaleFeedback({ player, team, price, isVisible }: SaleFeedbackPro
                             transition={{ delay: 0.4 }}
                             className="space-y-4"
                         >
-                            <h2 className="text-8xl font-black italic tracking-tighter text-white uppercase drop-shadow-[0_0_20px_rgba(255,255,255,0.3)] italic italic">
+                            <h2 className="text-6xl md:text-8xl lg:text-9xl font-black italic tracking-tighter text-white uppercase drop-shadow-[0_0_20px_rgba(255,255,255,0.3)]">
                                 Sold!
                             </h2>
 
@@ -65,19 +67,19 @@ export function SaleFeedback({ player, team, price, isVisible }: SaleFeedbackPro
                                 <div className="text-amber-500 font-bold uppercase tracking-[0.4em] text-sm animate-pulse">
                                     New Signing for
                                 </div>
-                                <div className="text-4xl font-black text-white italic tracking-tight uppercase">
+                                <div className="text-3xl md:text-4xl lg:text-5xl font-black text-white italic tracking-tight uppercase break-words text-center px-4 w-full">
                                     {team.name}
                                 </div>
                             </div>
 
                             <div className="mt-8 flex flex-col items-center">
-                                <div className="px-10 py-4 bg-emerald-500 text-slate-950 rounded-2xl shadow-[0_0_50px_rgba(16,185,129,0.5)] border-2 border-white/20">
+                                <div className="px-6 md:px-10 py-3 md:py-4 bg-emerald-500 text-slate-950 rounded-2xl shadow-[0_0_50px_rgba(16,185,129,0.5)] border-2 border-white/20">
                                     <div className="text-[10px] font-black uppercase tracking-widest mb-1 opacity-70 flex items-center justify-center gap-2">
                                         <Trophy size={12} strokeWidth={3} />
                                         Final Hammer Price
                                     </div>
-                                    <div className="text-5xl font-black font-mono">
-                                        ₹{price.toLocaleString("en-IN")}
+                                    <div className="text-4xl md:text-5xl lg:text-6xl font-black font-mono">
+                                        {formatPrice(price)}
                                     </div>
                                 </div>
                             </div>

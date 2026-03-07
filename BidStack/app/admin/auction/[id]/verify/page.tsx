@@ -4,6 +4,8 @@ import { use, useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import { supabase } from "@/lib/supabase";
 import { useAuctionState } from "@/lib/hooks/useAuctionState";
+import { TeamLogo } from "@/components/TeamLogo";
+import { formatPrice } from "@/lib/utils";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
@@ -33,6 +35,7 @@ export default function VerifyAuctionPage({ params }: { params: Promise<{ id: st
     const [authLoading, setAuthLoading] = useState(true);
     const [processing, setProcessing] = useState<string | null>(null);
     const [expandUnsoldList, setExpandUnsoldList] = useState(false);
+    const [activeTab, setActiveTab] = useState<"all" | "unsold" | "never_drawn">("all");
     const UNSOLD_DISPLAY_LIMIT = 5;
 
     useEffect(() => {
@@ -47,7 +50,7 @@ export default function VerifyAuctionPage({ params }: { params: Promise<{ id: st
                 .from("profiles")
                 .select("role")
                 .eq("id", session.user.id)
-                .single();
+                .maybeSingle();
 
             if (profile?.role !== "admin") {
                 router.push("/");
@@ -59,15 +62,23 @@ export default function VerifyAuctionPage({ params }: { params: Promise<{ id: st
         checkAuth();
     }, [router]);
 
-    const unsoldPlayers = useMemo(() =>
-        players.filter(p => p.status === "upcoming"),
+    const nonSoldPlayers = useMemo(() =>
+        players.filter(p => !["sold", "live"].includes(p.status)),
         [players]
     );
 
+    const displayedPlayers = useMemo(() => {
+        if (activeTab === "all") return nonSoldPlayers;
+        if (activeTab === "unsold") return nonSoldPlayers.filter(p => ["unsold", "unsold_final"].includes(p.status));
+        if (activeTab === "never_drawn") return nonSoldPlayers.filter(p => ["upcoming", "upcoming_phase2"].includes(p.status));
+        return nonSoldPlayers;
+    }, [nonSoldPlayers, activeTab]);
+
     const allTeamsSatisfied = useMemo(() => {
-        if (!auction || teams.length === 0) return false;
-        const min = auction.settings.min_players;
-        return teams.every(t => (auction.settings.max_players - t.slots_remaining) >= min);
+        if (!auction || !auction.settings || teams.length === 0) return false;
+        const min = auction.settings.min_players ?? 0;
+        const max = auction.settings.max_players ?? 0;
+        return teams.every(t => (max - t.slots_remaining) >= min);
     }, [auction, teams]);
 
     const handleAssign = async (playerId: string, teamId: string) => {
@@ -245,7 +256,7 @@ export default function VerifyAuctionPage({ params }: { params: Promise<{ id: st
                                             </div>
                                             <div className="space-y-1">
                                                 <span className="text-slate-500 text-xs block">Remaining Purse</span>
-                                                <p className="text-white font-mono font-medium">₹{team.purse_remaining.toLocaleString("en-IN")}</p>
+                                                <p className="text-white font-mono font-medium">{formatPrice(team.purse_remaining)}</p>
                                             </div>
                                         </div>
 
@@ -274,27 +285,49 @@ export default function VerifyAuctionPage({ params }: { params: Promise<{ id: st
 
                     {/* Unsold Players Section */}
                     <div className="space-y-6 lg:col-span-1">
-                        <div className="flex items-center justify-between">
-                            <h2 className="text-sm font-semibold uppercase tracking-[0.2em] text-slate-500 flex items-center gap-2">
-                                <UserPlus className="h-4 w-4" /> Unsold Pool ({unsoldPlayers.length})
-                            </h2>
+                        <div className="flex flex-col gap-3">
+                            <div className="flex items-center justify-between">
+                                <h2 className="text-sm font-semibold uppercase tracking-[0.2em] text-slate-500 flex items-center gap-2">
+                                    <UserPlus className="h-4 w-4" /> Unsold Pool ({nonSoldPlayers.length})
+                                </h2>
+                            </div>
+                            <div className="flex bg-slate-900 rounded-lg p-1 border border-slate-800 text-xs font-semibold">
+                                <button
+                                    onClick={() => setActiveTab("all")}
+                                    className={`flex-1 py-1.5 rounded-md transition-all ${activeTab === "all" ? "bg-emerald-600/20 text-emerald-400" : "text-slate-500 hover:text-slate-300"}`}
+                                >
+                                    All
+                                </button>
+                                <button
+                                    onClick={() => setActiveTab("unsold")}
+                                    className={`flex-1 py-1.5 rounded-md transition-all ${activeTab === "unsold" ? "bg-amber-500/20 text-amber-400" : "text-slate-500 hover:text-slate-300"}`}
+                                >
+                                    Unsold
+                                </button>
+                                <button
+                                    onClick={() => setActiveTab("never_drawn")}
+                                    className={`flex-1 py-1.5 rounded-md transition-all ${activeTab === "never_drawn" ? "bg-blue-500/20 text-blue-400" : "text-slate-500 hover:text-slate-300"}`}
+                                >
+                                    Never Drawn
+                                </button>
+                            </div>
                         </div>
 
                         <Card className="border-slate-800 bg-slate-900/60 p-2 shadow-2xl overflow-hidden flex flex-col max-h-fit md:max-h-[calc(100vh-400px)]">
                             <div className="overflow-y-auto pr-1 space-y-2 p-2 custom-scrollbar max-h-[600px]">
-                                {unsoldPlayers.length === 0 ? (
+                                {displayedPlayers.length === 0 ? (
                                     <div className="flex flex-col items-center justify-center py-12 text-center space-y-4">
                                         <div className="h-16 w-16 rounded-full bg-slate-800/50 flex items-center justify-center">
                                             <CheckCircle2 className="h-8 w-8 text-emerald-500/50" />
                                         </div>
                                         <div>
-                                            <h4 className="font-semibold text-slate-300">All Players Allocated</h4>
-                                            <p className="text-xs text-slate-500 mt-1">There are no more players in the unsold pool.</p>
+                                            <h4 className="font-semibold text-slate-300">No Players Found</h4>
+                                            <p className="text-xs text-slate-500 mt-1">There are no players matching this category.</p>
                                         </div>
                                     </div>
                                 ) : (
                                     <>
-                                        {unsoldPlayers.slice(0, expandUnsoldList ? unsoldPlayers.length : UNSOLD_DISPLAY_LIMIT).map((player) => (
+                                        {displayedPlayers.slice(0, expandUnsoldList ? displayedPlayers.length : UNSOLD_DISPLAY_LIMIT).map((player) => (
                                             <div key={player.id} className="p-3 rounded-lg border border-slate-800 bg-slate-950/40 hover:bg-slate-800/40 transition-all duration-200">
                                                 <div className="flex justify-between items-start gap-2 mb-3">
                                                     <div>
@@ -302,7 +335,7 @@ export default function VerifyAuctionPage({ params }: { params: Promise<{ id: st
                                                         <p className="text-[10px] uppercase tracking-wider text-slate-500">{player.role}</p>
                                                     </div>
                                                     <div className="px-2 py-0.5 rounded border border-slate-700 text-[9px] uppercase tracking-widest bg-slate-900 text-slate-400 h-5 flex items-center whitespace-nowrap">
-                                                        Unsold
+                                                        {player.status.replace(/_/g, " ")}
                                                     </div>
                                                 </div>
 
@@ -332,7 +365,7 @@ export default function VerifyAuctionPage({ params }: { params: Promise<{ id: st
                                     </>
                                 )}
                             </div>
-                            {unsoldPlayers.length > UNSOLD_DISPLAY_LIMIT && (
+                            {displayedPlayers.length > UNSOLD_DISPLAY_LIMIT && (
                                 <Button
                                     variant="ghost"
                                     size="sm"
@@ -345,7 +378,7 @@ export default function VerifyAuctionPage({ params }: { params: Promise<{ id: st
                                         </>
                                     ) : (
                                         <>
-                                            ↓ Show More ({unsoldPlayers.length - UNSOLD_DISPLAY_LIMIT} more)
+                                            ↓ Show More ({displayedPlayers.length - UNSOLD_DISPLAY_LIMIT} more)
                                         </>
                                     )}
                                 </Button>
@@ -355,7 +388,7 @@ export default function VerifyAuctionPage({ params }: { params: Promise<{ id: st
                         <div className="flex items-center gap-2 text-slate-600">
                             <AlertCircle className="h-4 w-4" />
                             <span className="text-xs italic">
-                                Matching a player will deduct {auction.settings.base_price.toLocaleString("en-IN")} from the team purse.
+                                Matching a player will deduct {formatPrice(auction.settings.base_price)} from the team purse.
                             </span>
                         </div>
                     </div>

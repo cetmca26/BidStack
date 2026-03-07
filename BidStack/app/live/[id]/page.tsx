@@ -10,7 +10,10 @@ import { LiveSidebar } from "@/components/live/LiveSidebar";
 import { TeamFormation } from "@/components/live/TeamFormation";
 import { BiddingPIP } from "@/components/live/BiddingPIP";
 import { SaleFeedback } from "@/components/live/SaleFeedback";
-import { Gavel, LayoutDashboard, Menu, X } from "lucide-react";
+import { UnsoldFeedback } from "@/components/live/UnsoldFeedback";
+import { formatPrice, formatPriceCompact } from "@/lib/utils";
+import { Gavel, LayoutDashboard, Menu, X, Search } from "lucide-react";
+import { Input } from "@/components/ui/input";
 
 export default function LiveAuctionPage({
   params,
@@ -29,34 +32,46 @@ export default function LiveAuctionPage({
     loading,
   } = useAuctionState(auctionId);
   const [selectedTeam, setSelectedTeam] = useState<Team | null>(null);
-  const [showSoldAnimation, setShowSoldAnimation] = useState(false);
+  const [showFeedbackOverlay, setShowFeedbackOverlay] = useState<"sold" | "unsold" | null>(null);
   const [lastSoldPlayer, setLastSoldPlayer] = useState<any>(null);
   const [lastSoldTeam, setLastSoldTeam] = useState<any>(null);
   const [lastSoldPrice, setLastSoldPrice] = useState<number | null>(null);
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
   const [showPlayerRepository, setShowPlayerRepository] = useState(false);
-  const getPlayerRepositoryCount = useMemo(() => {
-    if (typeof window === "undefined") return players.length;
-    const width = window.innerWidth;
-    if (width < 640) return Math.min(4, players.length);
-    if (width < 1024) return Math.min(8, players.length);
-    if (width < 1280) return Math.min(12, players.length);
-    return Math.min(20, players.length);
-  }, [players.length]);
+  const [repositorySearch, setRepositorySearch] = useState("");
+  const [repositoryFilter, setRepositoryFilter] = useState<Player["status"] | "all">("all");
+
+  const filteredRepositoryPlayers = useMemo(() => {
+    return players.filter((p) => {
+      const matchesSearch = p.name.toLowerCase().includes(repositorySearch.toLowerCase());
+      const matchesFilter = repositoryFilter === "all" ? true : p.status.includes(repositoryFilter);
+      return matchesSearch && matchesFilter;
+    });
+  }, [players, repositorySearch, repositoryFilter]);
   useEffect(() => {
-    if (state?.phase === "completed_sale") {
-      const soldPlayer = players.find((p) => p.id === state.current_player_id);
-      const soldTeam = teams.find((t) => t.id === state.leading_team_id);
-      if (soldPlayer && soldTeam) {
-        setLastSoldPlayer(soldPlayer);
-        setLastSoldTeam(soldTeam);
-        setLastSoldPrice(state.current_bid || 0);
-        setShowSoldAnimation(true);
-        const timer = setTimeout(() => {
-          setShowSoldAnimation(false);
-        }, 3500);
-        return () => clearTimeout(timer);
+    if (state?.phase === "completed_sale" || state?.phase === "completed_unsold") {
+      const currentPlayerEntity = players.find((p) => p.id === state.current_player_id);
+
+      if (state.phase === "completed_sale") {
+        const soldTeam = teams.find((t) => t.id === state.leading_team_id);
+        if (currentPlayerEntity && soldTeam) {
+          setLastSoldPlayer(currentPlayerEntity);
+          setLastSoldTeam(soldTeam);
+          setLastSoldPrice(state.current_bid || 0);
+          setShowFeedbackOverlay("sold");
+        }
+      } else if (state.phase === "completed_unsold" && currentPlayerEntity) {
+        setLastSoldPlayer(currentPlayerEntity);
+        setShowFeedbackOverlay("unsold");
       }
+
+      // 4-second synchronized hold for either Sold or Unsold
+      const timer = setTimeout(() => {
+        setShowFeedbackOverlay(null);
+      }, 4000);
+      return () => clearTimeout(timer);
+    } else {
+      setShowFeedbackOverlay(null);
     }
   }, [
     state?.phase,
@@ -66,6 +81,13 @@ export default function LiveAuctionPage({
     players,
     teams,
   ]);
+
+  useEffect(() => {
+    if (auction?.status === "completed") {
+      router.replace(`/live/${auctionId}/recap`);
+    }
+  }, [auction?.status, auctionId, router]);
+
   if (loading || !auction) {
     return (
       <div className="min-h-screen bg-slate-950 flex flex-col items-center justify-center">
@@ -76,8 +98,8 @@ export default function LiveAuctionPage({
       </div>
     );
   }
+
   if (auction.status === "completed") {
-    router.replace(`/live/${auctionId}/recap`);
     return null;
   }
   return (
@@ -135,38 +157,53 @@ export default function LiveAuctionPage({
             </div>
           ) : showPlayerRepository ? (
             <div className="flex-1 flex flex-col h-full bg-slate-900/20 rounded-2xl border border-slate-800/50 p-fluid-md overflow-hidden" data-density="compact">
-              <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-fluid-sm mb-fluid-md flex-shrink-0">
+              <div className="flex flex-col sm:flex-row items-center justify-between gap-fluid-sm mb-fluid-md flex-shrink-0">
                 <button
                   onClick={() => setShowPlayerRepository(false)}
-                  className="flex items-center gap-1.5 text-slate-500 hover:text-emerald-400 font-bold text-xs uppercase tracking-widest transition-colors"
+                  className="flex items-center gap-1.5 text-slate-500 hover:text-emerald-400 font-bold text-xs uppercase tracking-widest transition-colors w-full sm:w-auto"
                 >
                   <LayoutDashboard size={10} />
                   Back
                 </button>
-                <div className="text-[10px] font-bold text-slate-500 uppercase tracking-widest whitespace-nowrap">
-                  Showing all players • Scroll to browse
+                <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2 sm:gap-4 w-full sm:w-auto">
+                  <div className="relative w-full sm:w-64">
+                    <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-500" size={14} />
+                    <Input
+                      placeholder="Search players..."
+                      value={repositorySearch}
+                      onChange={(e) => setRepositorySearch(e.target.value)}
+                      className="pl-9 bg-slate-950/50 border-slate-800 text-sm h-9 ring-offset-slate-950 focus-visible:ring-emerald-500"
+                    />
+                  </div>
+                  <div className="flex gap-2 overflow-x-auto custom-scrollbar pb-1 sm:pb-0">
+                    {(["all", "upcoming", "live", "sold"] as const).map((f) => (
+                      <button
+                        key={f}
+                        onClick={() => setRepositoryFilter(f)}
+                        className={`px-3 py-1 rounded-full text-[10px] font-bold uppercase tracking-wider transition-all whitespace-nowrap border ${repositoryFilter === f
+                          ? "bg-emerald-500/20 border-emerald-500 text-emerald-400"
+                          : "bg-slate-950/40 border-slate-800 text-slate-500 hover:border-slate-700"
+                          }`}
+                      >
+                        {f}
+                      </button>
+                    ))}
+                  </div>
                 </div>
               </div>
               <div className="flex-1 overflow-hidden flex flex-col">
                 <div className="flex-1 overflow-y-auto pr-2 custom-scrollbar">
-                  <style>{`
-                    .custom-scrollbar::-webkit-scrollbar {
-                      width: 6px;
-                    }
-                    .custom-scrollbar::-webkit-scrollbar-track {
-                      background: rgba(15, 23, 42, 0.4);
-                      border-radius: 10px;
-                    }
-                    .custom-scrollbar::-webkit-scrollbar-thumb {
-                      background: rgba(16, 185, 129, 0.4);
-                      border-radius: 10px;
-                    }
-                    .custom-scrollbar::-webkit-scrollbar-thumb:hover {
-                      background: rgba(16, 185, 129, 0.6);
-                    }
-                  `}</style>
-                  <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-2 lg:grid-cols-3 gap-2 sm:gap-3 md:gap-4">
-                    {players
+                  {/* custom scrollbar styles reused here */}
+                  <motion.div
+                    className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-2 sm:gap-3 md:gap-4"
+                    initial="hidden"
+                    animate="visible"
+                    variants={{
+                      hidden: { opacity: 0 },
+                      visible: { opacity: 1, transition: { staggerChildren: 0.02 } }
+                    }}
+                  >
+                    {filteredRepositoryPlayers
                       .slice()
                       .sort((a, b) => a.name.localeCompare(b.name))
                       .map((player) => {
@@ -174,11 +211,16 @@ export default function LiveAuctionPage({
                           (t) => t.id === player.sold_team_id,
                         );
                         return (
-                          <div
+                          <motion.div
                             key={player.id}
-                            className="p-2 sm:p-3 rounded-lg sm:rounded-xl border border-slate-800 bg-slate-900/40 flex items-center gap-2 sm:gap-3 group hover:border-emerald-500/30 transition-all shadow-lg"
+                            variants={{
+                              hidden: { opacity: 0, y: 10 },
+                              visible: { opacity: 1, y: 0 }
+                            }}
+                            className="p-3 sm:p-4 rounded-xl sm:rounded-2xl border border-slate-800/80 bg-slate-900/60 backdrop-blur-sm flex items-center gap-3 group hover:border-emerald-500/50 hover:shadow-[0_0_15px_rgba(16,185,129,0.15)] transition-all duration-300"
                           >
-                            <div className="flex-shrink-0">
+                            <div className="flex-shrink-0 relative">
+                              {player.status === "live" && <div className="absolute inset-0 bg-amber-500/20 blur-xl rounded-full animate-pulse" />}
                               <PlayerAvatar
                                 id={player.id}
                                 name={player.name}
@@ -190,43 +232,45 @@ export default function LiveAuctionPage({
                             </div>
                             <div className="flex-1 min-w-0 flex flex-col justify-between">
                               <div>
-                                <div className="text-[9px] sm:text-xs font-bold text-white truncate">
+                                <div className="text-sm font-bold text-white truncate group-hover:text-emerald-300 transition-colors">
                                   {player.name}
                                 </div>
-                                <div className="text-[7px] md:text-[8px] font-black text-slate-500 uppercase tracking-tighter">
+                                <div className="text-[9px] font-black text-slate-500 uppercase tracking-widest mt-0.5">
                                   {player.role}
                                 </div>
                               </div>
                               {player.status === "sold" ? (
                                 team && (
-                                  <div className="mt-1 flex items-center gap-1 min-w-0">
+                                  <div className="mt-2 flex items-center gap-1.5 min-w-0 bg-emerald-950/20 px-2 py-0.5 rounded border border-emerald-900/40 w-max">
                                     <TeamLogo
                                       name={team.name}
                                       logoUrl={team.logo_url}
                                       size="sm"
                                     />
-                                    <div className="text-[7px] md:text-[8px] font-black text-emerald-400 uppercase truncate">
+                                    <div className="text-[9px] font-black text-emerald-400 uppercase truncate">
                                       {team.name}
                                     </div>
                                   </div>
                                 )
                               ) : (
                                 <div
-                                  className={`mt-1 text-[7px] md:text-[8px] font-black uppercase tracking-widest ${player.status === "live" ? "text-amber-500 animate-pulse" : "text-slate-600"}`}
+                                  className={`mt-2 text-[9px] font-black uppercase tracking-widest px-2 py-0.5 rounded border w-max ${player.status === "live" ? "text-amber-400 bg-amber-500/10 border-amber-500/30 animate-pulse" :
+                                    player.status.includes("unsold") ? "text-rose-400 bg-rose-500/10 border-rose-500/30" : "text-slate-500 bg-slate-800/50 border-slate-700/50"
+                                    }`}
                                 >
-                                  {player.status}
+                                  {player.status.replace("_", " ")}
                                 </div>
                               )}
                             </div>
                             {player.status === "sold" && (
-                              <div className="text-right flex-shrink-0 text-[8px] sm:text-xs font-mono font-bold text-slate-300">
-                                ₹{player.sold_price?.toLocaleString("en-IN")}
+                              <div className="text-right flex-shrink-0 text-sm font-mono font-black text-emerald-300">
+                                {formatPrice(player.sold_price)}
                               </div>
                             )}
-                          </div>
+                          </motion.div>
                         );
                       })}
-                  </div>
+                  </motion.div>
                 </div>
               </div>
             </div>
@@ -314,7 +358,7 @@ export default function LiveAuctionPage({
                                       {matchedTeam.captain_id
                                         ? Math.round(
                                           captain.sold_price!,
-                                        ) 
+                                        )
                                         : 0}
                                     </div>
                                   </div>
@@ -364,10 +408,7 @@ export default function LiveAuctionPage({
                             Base
                           </div>
                           <div className="text-sm md:text-lg lg:text-xl font-mono font-black text-white">
-                            ₹
-                            {auction.settings.base_price.toLocaleString(
-                              "en-IN",
-                            )}
+                            {formatPrice(auction.settings.base_price)}
                           </div>
                         </div>
                       </div>
@@ -379,11 +420,7 @@ export default function LiveAuctionPage({
                           <div className="absolute inset-0 bg-emerald-500/20 blur-[40px] rounded-full animate-bounce" />
                           <div className="relative bg-emerald-500 text-slate-950 px-4 sm:px-6 md:px-8 lg:px-12 py-2 sm:py-3 md:py-4 lg:py-6 rounded-lg sm:rounded-2xl md:rounded-3xl shadow-[0_0_80px_rgba(16,185,129,0.4)] border-2 md:border-4 border-white/20">
                             <div className="text-2xl sm:text-3xl md:text-5xl lg:text-8xl font-black font-mono tracking-tighter italic">
-                              ₹
-                              {(
-                                state?.current_bid ||
-                                auction.settings.base_price
-                              ).toLocaleString("en-IN")}
+                              {formatPrice(state?.current_bid || auction.settings.base_price)}
                             </div>
                           </div>
                         </div>
@@ -455,11 +492,7 @@ export default function LiveAuctionPage({
                     Total
                   </div>
                   <div className="text-sm md:text-lg lg:text-2xl font-black text-emerald-500 italic">
-                    ₹
-                    {Math.round(
-                      players.reduce((sum, p) => sum + (p.sold_price || 0), 0)
-                    )}
-                    L
+                    {formatPriceCompact(players.reduce((sum, p) => sum + (p.sold_price || 0), 0))}
                   </div>
                 </div>
               </div>
@@ -489,19 +522,25 @@ export default function LiveAuctionPage({
         </div>
       </main>
       <AnimatePresence>
-        {(selectedTeam || showPlayerRepository) && (
+        {(selectedTeam || showPlayerRepository || showFeedbackOverlay) && (
           <BiddingPIP
-            player={currentPlayer}
-            leadingTeam={leadingTeam}
-            currentBid={state?.current_bid ?? null}
+            player={showFeedbackOverlay ? lastSoldPlayer : currentPlayer}
+            leadingTeam={showFeedbackOverlay ? lastSoldTeam : leadingTeam}
+            currentBid={showFeedbackOverlay ? lastSoldPrice : state?.current_bid ?? null}
+            phase={showFeedbackOverlay || "bidding"}
           />
         )}
       </AnimatePresence>
       <SaleFeedback
-        player={lastSoldPlayer}
-        team={lastSoldTeam}
-        price={lastSoldPrice}
-        isVisible={showSoldAnimation}
+        player={lastSoldPlayer || currentPlayer}
+        team={lastSoldTeam || leadingTeam || null}
+        price={lastSoldPrice || state?.current_bid || null}
+        isVisible={showFeedbackOverlay === "sold" && !selectedTeam && !showPlayerRepository}
+      />
+
+      <UnsoldFeedback
+        player={lastSoldPlayer || currentPlayer}
+        isVisible={showFeedbackOverlay === "unsold" && !selectedTeam && !showPlayerRepository}
       />
     </div>
   );

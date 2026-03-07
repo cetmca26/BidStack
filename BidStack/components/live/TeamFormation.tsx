@@ -6,6 +6,7 @@ import { Team, Player } from "@/lib/hooks/useAuctionState";
 import { PlayerAvatar } from "@/components/PlayerAvatar";
 import { TeamLogo } from "@/components/TeamLogo";
 import { Star, TrendingUp, UserCheck, Wallet } from "lucide-react";
+import { formatPrice } from "@/lib/utils";
 import { Card } from "@/components/ui/card";
 
 interface TeamFormationProps {
@@ -75,7 +76,7 @@ export function TeamFormation({ team, players, sportType }: TeamFormationProps) 
                             Remaining
                         </div>
                         <div className="text-xl font-mono font-bold text-emerald-400">
-                            ₹{team.purse_remaining.toLocaleString("en-IN")}
+                            {formatPrice(team.purse_remaining)}
                         </div>
                     </div>
                     <div className="bg-slate-950/60 rounded-xl p-3 border border-slate-800/50 min-w-[140px]">
@@ -85,7 +86,7 @@ export function TeamFormation({ team, players, sportType }: TeamFormationProps) 
                         </div>
                         <div className="text-xl font-mono font-bold text-amber-400">
                             ₹{teamPlayers.length > 0
-                                ? Math.round(teamPlayers.reduce((s, p) => s + (p.sold_price || 0), 0) / teamPlayers.length).toLocaleString("en-IN")
+                                ? formatPrice(Math.round(teamPlayers.reduce((s, p) => s + (p.sold_price || 0), 0) / teamPlayers.length))
                                 : "0"}
                         </div>
                     </div>
@@ -151,7 +152,7 @@ export function TeamFormation({ team, players, sportType }: TeamFormationProps) 
                                                         {player.name}
                                                     </div>
                                                     <div className="text-[10px] font-mono text-emerald-500/80">
-                                                        ₹{player.sold_price?.toLocaleString("en-IN")}
+                                                        {formatPrice(player.sold_price)}
                                                     </div>
                                                 </div>
                                             </motion.div>
@@ -202,7 +203,7 @@ export function TeamFormation({ team, players, sportType }: TeamFormationProps) 
                                         {teamStar.role}
                                     </div>
                                     <div className="mt-4 px-6 py-2 rounded-full bg-slate-950 border border-amber-500/50 text-amber-400 font-mono font-bold text-lg shadow-lg shadow-amber-900/20">
-                                        ₹{teamStar.sold_price?.toLocaleString("en-IN")}
+                                        {formatPrice(teamStar.sold_price)}
                                     </div>
                                 </motion.div>
                             ) : (
@@ -226,7 +227,7 @@ export function TeamFormation({ team, players, sportType }: TeamFormationProps) 
                                         <div className="text-[10px] text-slate-500 uppercase font-black">{p.role}</div>
                                     </div>
                                     <div className="text-right font-mono text-emerald-500 font-bold">
-                                        ₹{p.sold_price?.toLocaleString("en-IN")}
+                                        {formatPrice(p.sold_price)}
                                     </div>
                                 </div>
                             ))}
