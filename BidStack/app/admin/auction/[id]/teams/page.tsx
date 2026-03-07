@@ -7,6 +7,8 @@ import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { ImageUploadField } from "@/components/ImageUploadField";
+import { ImageViewerModal } from "@/components/ImageViewerModal";
 
 type AuctionSettings = {
   purse: number;
@@ -31,6 +33,7 @@ type Team = {
   auction_id: string;
   name: string;
   manager: string;
+  logo_url?: string;
   purse_remaining: number;
   slots_remaining: number;
   captain_id: string | null;
@@ -41,6 +44,7 @@ type Player = {
   auction_id: string;
   name: string;
   role: string;
+  photo_url?: string;
   phone_number: string | null;
   ip_address: string | null;
   status: "upcoming" | "live" | "sold" | "unsold";
@@ -58,6 +62,9 @@ export default function ManageTeamsPage({ params }: { params: Promise<{ id: stri
   const [players, setPlayers] = useState<Player[]>([]);
   const [teamName, setTeamName] = useState("");
   const [teamManager, setTeamManager] = useState("");
+  const [logoFile, setLogoFile] = useState<File | null>(null);
+  const [logoPreview, setLogoPreview] = useState<string | null>(null);
+  const [logoError, setLogoError] = useState<string | null>(null);
   const [creatingTeam, setCreatingTeam] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -65,6 +72,9 @@ export default function ManageTeamsPage({ params }: { params: Promise<{ id: stri
   const [lockingAuction, setLockingAuction] = useState(false);
   const [selectedPlayerIds, setSelectedPlayerIds] = useState<Set<string>>(new Set());
   const [deletingPlayers, setDeletingPlayers] = useState(false);
+  const [imageViewerOpen, setImageViewerOpen] = useState(false);
+  const [selectedImageUrl, setSelectedImageUrl] = useState<string | null>(null);
+  const [selectedImageTitle, setSelectedImageTitle] = useState("");
 
   useEffect(() => {
     if (!auctionId) return;
@@ -101,13 +111,39 @@ export default function ManageTeamsPage({ params }: { params: Promise<{ id: stri
       setError("Team name and manager are required.");
       return;
     }
+    if (!logoFile) {
+      setLogoError("Please upload a team logo.");
+      return;
+    }
     setCreatingTeam(true);
     setError(null);
+    setLogoError(null);
     try {
+      // Upload logo to team-logos bucket
+      const fileExt = logoFile.name.split('.').pop();
+      const fileName = `${auction.id}/${Date.now()}.${fileExt}`;
+      
+      const { error: uploadError } = await supabase.storage
+        .from("team-logos")
+        .upload(fileName, logoFile);
+
+      if (uploadError) {
+        setLogoError(`Logo upload failed: ${uploadError.message}`);
+        return;
+      }
+
+      // Get the public URL
+      const { data: urlData } = supabase.storage
+        .from("team-logos")
+        .getPublicUrl(fileName);
+      
+      const logoUrl = urlData?.publicUrl;
+
       const { error: insertError } = await supabase.from("teams").insert({
         auction_id: auction.id,
         name: teamName.trim(),
         manager: teamManager.trim(),
+        logo_url: logoUrl,
         purse_remaining: auction.settings.purse,
         slots_remaining: auction.settings.max_players,
       });
@@ -116,6 +152,8 @@ export default function ManageTeamsPage({ params }: { params: Promise<{ id: stri
       } else {
         setTeamName("");
         setTeamManager("");
+        setLogoFile(null);
+        setLogoPreview(null);
         const { data: teamData } = await supabase.from("teams").select("*").eq("auction_id", auctionId);
         setTeams((teamData ?? []) as Team[]);
       }
@@ -213,6 +251,26 @@ export default function ManageTeamsPage({ params }: { params: Promise<{ id: stri
             <p className="text-sm text-slate-300">
               Verify registered participants and create teams. Lock participants to proceed to the Live Controller.
             </p>
+            <div className="mt-3 flex items-center gap-2 text-sm bg-slate-900/50 p-2 rounded-lg border border-slate-800 w-fit">
+              <span className="text-slate-400 font-medium">Registration Link:</span>
+              <code className="text-emerald-400 font-mono text-xs select-all">
+                {typeof window !== 'undefined' ? `${window.location.origin}/auction/${auction.id}` : ''}
+              </code>
+              <Button
+                size="sm"
+                variant="outline"
+                className="h-6 px-2 ml-2 border-slate-700 bg-slate-800 text-[10px] text-slate-300 hover:bg-slate-700 uppercase tracking-wider"
+                onClick={(e) => {
+                  navigator.clipboard.writeText(`${window.location.origin}/auction/${auction.id}`);
+                  const btn = e.currentTarget;
+                  const originalText = btn.innerText;
+                  btn.innerText = "Copied!";
+                  setTimeout(() => { btn.innerText = originalText; }, 2000);
+                }}
+              >
+                Copy Link
+              </Button>
+            </div>
           </div>
           <div className="flex items-center gap-3">
             <Button
@@ -227,15 +285,17 @@ export default function ManageTeamsPage({ params }: { params: Promise<{ id: stri
                   ? "Force Close Registration"
                   : "Re-open Registration"}
             </Button>
-            <Button
-              variant="default"
-              size="sm"
-              onClick={handleLockAndProceed}
-              disabled={lockingAuction || players.length === 0 || teams.length === 0}
-              className="bg-emerald-600 hover:bg-emerald-500 text-white"
-            >
-              {lockingAuction ? "Locking..." : "Lock Participants & Proceed"}
-            </Button>
+            {auction.status === "upcoming" && (
+              <Button
+                variant="default"
+                size="sm"
+                onClick={handleLockAndProceed}
+                disabled={lockingAuction || players.length === 0 || teams.length === 0}
+                className="bg-emerald-600 hover:bg-emerald-500 text-white"
+              >
+                {lockingAuction ? "Locking..." : "Lock Participants & Proceed"}
+              </Button>
+            )}
           </div>
         </header>
 
@@ -267,6 +327,15 @@ export default function ManageTeamsPage({ params }: { params: Promise<{ id: stri
                   className="bg-slate-950/80 text-slate-50"
                 />
               </div>
+              <ImageUploadField
+                label="Team Logo"
+                value={logoFile}
+                onChange={setLogoFile}
+                preview={logoPreview}
+                onPreviewChange={setLogoPreview}
+                error={logoError}
+                required
+              />
               <p className="text-xs text-slate-400">
                 Each new team starts with a purse of{" "}
                 <span className="font-semibold text-slate-100">
@@ -416,16 +485,34 @@ export default function ManageTeamsPage({ params }: { params: Promise<{ id: stri
                           </div>
                         </td>
                         <td className="px-4 py-3 text-right">
-                          <span
-                            className={`rounded-full px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wider ${p.status === "upcoming"
-                              ? "bg-blue-900/30 text-blue-400"
-                              : p.status === "sold"
-                                ? "bg-emerald-900/30 text-emerald-400"
-                                : "bg-slate-800 text-slate-400"
-                              }`}
-                          >
-                            {p.status}
-                          </span>
+                          <div className="flex items-center justify-end gap-2">
+                            {p.photo_url && (
+                              <Button
+                                size="sm"
+                                variant="outline"
+                                className="h-7 px-2 border-slate-700 bg-slate-800 text-[10px] text-slate-300 hover:bg-slate-700 uppercase tracking-wider"
+                                onClick={() => {
+                                  if (p.photo_url) {
+                                    setSelectedImageUrl(p.photo_url);
+                                    setSelectedImageTitle(p.name);
+                                    setImageViewerOpen(true);
+                                  }
+                                }}
+                              >
+                                👁 View
+                              </Button>
+                            )}
+                            <span
+                              className={`inline-block rounded-full px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wider ${p.status === "upcoming"
+                                ? "bg-blue-900/30 text-blue-400"
+                                : p.status === "sold"
+                                  ? "bg-emerald-900/30 text-emerald-400"
+                                  : "bg-slate-800 text-slate-400"
+                                }`}
+                            >
+                              {p.status}
+                            </span>
+                          </div>
                         </td>
                       </tr>
                     );
@@ -436,6 +523,15 @@ export default function ManageTeamsPage({ params }: { params: Promise<{ id: stri
           </div>
         </Card>
       </div>
+
+      {/* Image Viewer Modal */}
+      <ImageViewerModal
+        isOpen={imageViewerOpen}
+        onClose={() => setImageViewerOpen(false)}
+        imageUrl={selectedImageUrl || undefined}
+        title={selectedImageTitle}
+        subtitle="Player Photo Verification"
+      />
     </div>
   );
 }

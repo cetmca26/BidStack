@@ -7,6 +7,7 @@ import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { ImageUploadField } from "@/components/ImageUploadField";
 
 type AuctionSettings = {
   purse: number;
@@ -30,6 +31,7 @@ type Player = {
   auction_id: string;
   name: string;
   role: string;
+  photo_url?: string;
   status: "upcoming" | "live" | "sold" | "unsold";
   sold_price: number | null;
   sold_team_id: string | null;
@@ -44,6 +46,9 @@ export default function AuctionDetailPage({ params }: { params: Promise<{ id: st
   const [name, setName] = useState("");
   const [role, setRole] = useState("");
   const [phoneNumber, setPhoneNumber] = useState("");
+  const [photoFile, setPhotoFile] = useState<File | null>(null);
+  const [photoPreview, setPhotoPreview] = useState<string | null>(null);
+  const [photoError, setPhotoError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
@@ -121,11 +126,37 @@ export default function AuctionDetailPage({ params }: { params: Promise<{ id: st
       setSuccess(null);
       return;
     }
+    if (!photoFile) {
+      setPhotoError("Please upload a player photo.");
+      return;
+    }
 
     setSubmitting(true);
     setError(null);
     setSuccess(null);
+    setPhotoError(null);
+    
     try {
+      // Upload photo to player-photos bucket
+      const fileExt = photoFile.name.split('.').pop();
+      const fileName = `${auction.id}/${Date.now()}.${fileExt}`;
+      
+      const { error: uploadError } = await supabase.storage
+        .from("player-photos")
+        .upload(fileName, photoFile);
+
+      if (uploadError) {
+        setPhotoError(`Photo upload failed: ${uploadError.message}`);
+        return;
+      }
+
+      // Get the public URL
+      const { data: urlData } = supabase.storage
+        .from("player-photos")
+        .getPublicUrl(fileName);
+      
+      const photoUrl = urlData?.publicUrl;
+
       let ipAddress = null;
       try {
         const ipReq = await fetch("https://api.ipify.org?format=json");
@@ -141,6 +172,7 @@ export default function AuctionDetailPage({ params }: { params: Promise<{ id: st
         role,
         phone_number: phoneNumber.trim(),
         ip_address: ipAddress,
+        photo_url: photoUrl,
       });
 
       if (insertError) {
@@ -154,6 +186,8 @@ export default function AuctionDetailPage({ params }: { params: Promise<{ id: st
         setName("");
         setRole("");
         setPhoneNumber("");
+        setPhotoFile(null);
+        setPhotoPreview(null);
         if (typeof window !== "undefined") {
           window.localStorage.setItem(`registered_${auctionId}`, "true");
         }
@@ -178,6 +212,16 @@ export default function AuctionDetailPage({ params }: { params: Promise<{ id: st
   return (
     <div className="min-h-screen bg-gradient-to-br from-slate-950 via-slate-900 to-slate-950 px-6 py-10 text-slate-50">
       <div className="mx-auto flex max-w-6xl flex-col gap-6">
+        <div className="mb-2">
+          <Button
+            variant="ghost"
+            size="sm"
+            className="text-slate-400 hover:text-slate-100 hover:bg-slate-800/50 -ml-2"
+            onClick={() => router.push("/")}
+          >
+            ← Back to Home
+          </Button>
+        </div>
         <header className="flex flex-col justify-between gap-2 md:flex-row md:items-end">
           <div>
             <div className="flex items-center gap-3">
@@ -191,6 +235,11 @@ export default function AuctionDetailPage({ params }: { params: Promise<{ id: st
                     <span className="relative inline-flex h-2 w-2 rounded-full bg-rose-500"></span>
                   </span>
                   Live
+                </span>
+              )}
+              {auction.status === "completed" && (
+                <span className="bg-emerald-500/10 text-emerald-500 text-[10px] uppercase font-bold tracking-widest px-2 py-0.5 rounded border border-emerald-500/20">
+                  Concluded
                 </span>
               )}
             </div>
@@ -243,7 +292,19 @@ export default function AuctionDetailPage({ params }: { params: Promise<{ id: st
             <h2 className="mb-3 text-sm font-semibold uppercase tracking-[0.18em] text-slate-400">
               Register for this Auction
             </h2>
-            {hasRegistered ? (
+            {auction.status === "completed" ? (
+              <div className="flex flex-col h-40 items-center justify-center rounded-lg border border-emerald-900/50 bg-emerald-900/10 px-4 text-center space-y-3">
+                <div className="text-sm font-medium text-emerald-400">This auction has concluded.</div>
+                <Button
+                  size="sm"
+                  variant="outline"
+                  className="border-emerald-500/30 hover:bg-emerald-950/50 text-emerald-300"
+                  onClick={() => router.push(`/live/${auctionId}`)}
+                >
+                  View Final Rosters
+                </Button>
+              </div>
+            ) : hasRegistered ? (
               <div className="flex h-32 items-center justify-center rounded-lg border border-emerald-900/50 bg-emerald-900/20 px-4 text-center text-sm font-medium text-emerald-400">
                 You have already submitted a registration for this auction.
               </div>
@@ -290,6 +351,15 @@ export default function AuctionDetailPage({ params }: { params: Promise<{ id: st
                     ))}
                   </select>
                 </div>
+                <ImageUploadField
+                  label="Player Photo"
+                  value={photoFile}
+                  onChange={setPhotoFile}
+                  preview={photoPreview}
+                  onPreviewChange={setPhotoPreview}
+                  error={photoError}
+                  required
+                />
                 <div className="text-xs text-slate-400">
                   Upcoming players registered here will enter the{" "}
                   <span className="font-medium text-slate-200">upcoming pool</span> for the auction.

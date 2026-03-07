@@ -42,13 +42,27 @@ export default function AdminDashboardPage() {
   const [showCreateForm, setShowCreateForm] = useState(false);
 
   useEffect(() => {
-    if (typeof window === "undefined") return;
-    const authed = window.localStorage.getItem("admin_auth") === "true";
-    if (!authed) {
-      router.replace("/admin/login");
-      return;
-    }
-    setCheckingAuth(false);
+    const checkAuth = async () => {
+      const { data: { session } } = await supabase.auth.getSession();
+      if (!session) {
+        router.push("/admin/login");
+        return;
+      }
+
+      const { data: profile } = await supabase
+        .from("profiles")
+        .select("role")
+        .eq("id", session.user.id)
+        .single();
+
+      if (profile?.role !== "admin") {
+        router.push("/");
+        return;
+      }
+      setCheckingAuth(false);
+    };
+
+    checkAuth();
   }, [router]);
 
   useEffect(() => {
@@ -373,7 +387,7 @@ export default function AdminDashboardPage() {
                         </div>
                       </div>
                       <div className="flex flex-wrap gap-2">
-                        {canStart && (
+                        {auction.statusEffective === "upcoming" && (
                           <Button
                             size="sm"
                             variant="default"
@@ -382,17 +396,24 @@ export default function AdminDashboardPage() {
                             Verify & Teams
                           </Button>
                         )}
-                        {!canStart && (
+                        {auction.statusEffective === "live" && (
                           <Link href={`/admin/auction/${auction.id}/teams`}>
                             <Button size="sm" variant="outline">
                               Verify & Teams
                             </Button>
                           </Link>
                         )}
-                        {!canStart && (
+                        {auction.statusEffective === "live" && (
                           <Link href={`/admin/auction/${auction.id}`}>
-                            <Button size="sm" variant="ghost">
+                            <Button size="sm" variant="outline" className="text-emerald-400 border-emerald-900/50 hover:bg-emerald-950/50">
                               Open Controller
+                            </Button>
+                          </Link>
+                        )}
+                        {auction.statusEffective === "completed" && (
+                          <Link href={`/admin/auction/${auction.id}`}>
+                            <Button size="sm" variant="default" className="bg-amber-600 hover:bg-amber-500 text-amber-50">
+                              View Squads
                             </Button>
                           </Link>
                         )}

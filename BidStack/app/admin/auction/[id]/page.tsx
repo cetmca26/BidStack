@@ -3,65 +3,37 @@
 import { use, useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import { supabase } from "@/lib/supabase";
+import {
+  useAuctionState,
+  Auction,
+  Team,
+  Player,
+  AuctionState,
+  AuctionSettings
+} from "@/lib/hooks/useAuctionState";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-
-type AuctionSettings = {
-  purse: number;
-  min_players: number;
-  max_players: number;
-  base_price: number;
-  increment: number;
-  captain_base_price?: number;
-};
-
-type Auction = {
-  id: string;
-  name: string;
-  sport_type: string;
-  settings: AuctionSettings;
-};
-
-type Team = {
-  id: string;
-  auction_id: string;
-  name: string;
-  manager: string;
-  purse_remaining: number;
-  slots_remaining: number;
-  captain_id: string | null;
-};
-
-type Player = {
-  id: string;
-  auction_id: string;
-  name: string;
-  role: string;
-  status: "upcoming" | "live" | "sold" | "unsold";
-  sold_price: number | null;
-  sold_team_id: string | null;
-  is_captain?: boolean;
-};
-
-type AuctionState = {
-  id: string;
-  auction_id: string;
-  current_player_id: string | null;
-  current_bid: number | null;
-  leading_team_id: string | null;
-  phase: string;
-};
+import ConsolidatedTeamRoster from "@/components/ConsolidatedTeamRoster";
 
 export default function AdminAuctionPage({ params }: { params: Promise<{ id: string }> }) {
   const router = useRouter();
   const { id: auctionId } = use(params);
 
-  const [auction, setAuction] = useState<Auction | null>(null);
-  const [teams, setTeams] = useState<Team[]>([]);
-  const [players, setPlayers] = useState<Player[]>([]);
-  const [state, setState] = useState<AuctionState | null>(null);
+  const {
+    auction,
+    teams,
+    players,
+    state,
+    currentPlayer,
+    leadingTeam,
+    loading: dataLoading,
+    setPlayers,
+    setTeams,
+    setState
+  } = useAuctionState(auctionId);
+
   const [loadingAction, setLoadingAction] = useState<string | null>(null);
   const [checkingAuth, setCheckingAuth] = useState(true);
   const [isAuthed, setIsAuthed] = useState(false);
@@ -74,86 +46,48 @@ export default function AdminAuctionPage({ params }: { params: Promise<{ id: str
 
   const [captainBids, setCaptainBids] = useState<Record<string, { captainId: string; amount: string }>>({});
 
-  const currentPlayer = useMemo(
-    () => players.find((p) => p.id === state?.current_player_id) ?? null,
-    [players, state?.current_player_id],
-  );
-
-  const leadingTeam = useMemo(
-    () => teams.find((t) => t.id === state?.leading_team_id) ?? null,
-    [teams, state?.leading_team_id],
-  );
-
   useEffect(() => {
-    if (typeof window === "undefined") return;
-    const authed = window.localStorage.getItem("admin_auth") === "true";
-    if (!authed) {
-      router.replace("/admin/login");
-    } else {
-      setIsAuthed(true);
-    }
-    setCheckingAuth(false);
-  }, [router]);
-
-  useEffect(() => {
-    if (!auctionId) return;
-    const loadInitial = async () => {
-      const [{ data: auctionData }, { data: teamsData }, { data: playersData }, { data: stateData }] =
-        await Promise.all([
-          supabase.from("auctions").select("*").eq("id", auctionId).single(),
-          supabase.from("teams").select("*").eq("auction_id", auctionId),
-          supabase.from("players").select("*").eq("auction_id", auctionId),
-          supabase.from("auction_state").select("*").eq("auction_id", auctionId).maybeSingle(),
-        ]);
-      if (!auctionData) {
-        router.push("/");
+    const checkAdmin = async () => {
+      const { data: { session } } = await supabase.auth.getSession();
+      if (!session) {
+        router.replace("/admin/login");
         return;
       }
 
-      setAuction(auctionData as Auction);
-      setTeams((teamsData ?? []) as Team[]);
-      setPlayers((playersData ?? []) as Player[]);
-      if (stateData) setState(stateData as AuctionState);
+      const { data: profile } = await supabase
+        .from("profiles")
+        .select("role")
+        .eq("id", session.user.id)
+        .single();
+
+      if (profile?.role !== "admin") {
+        await supabase.auth.signOut();
+        router.replace("/admin/login");
+        return;
+      }
+
+      setIsAuthed(true);
+      setCheckingAuth(false);
     };
 
-    loadInitial();
-  }, [auctionId, router]);
+    checkAdmin();
+  }, [router]);
 
   useEffect(() => {
-    if (!auctionId) return;
-    const channel = supabase
-      .channel("auction")
-      .on(
-        "postgres_changes",
-        { event: "*", schema: "public", table: "auction_state", filter: `auction_id=eq.${auctionId}` },
-        (payload) => {
-          if (payload.new) setState(payload.new as AuctionState);
-        },
-      )
-      .on(
-        "postgres_changes",
-        { event: "*", schema: "public", table: "teams", filter: `auction_id=eq.${auctionId}` },
-        () => {
-          supabase.from("teams").select("*").eq("auction_id", auctionId).then(({ data }) => {
-            if (data) setTeams(data as Team[]);
-          });
-        },
-      )
-      .on(
-        "postgres_changes",
-        { event: "*", schema: "public", table: "players", filter: `auction_id=eq.${auctionId}` },
-        () => {
-          supabase.from("players").select("*").eq("auction_id", auctionId).then(({ data }) => {
-            if (data) setPlayers(data as Player[]);
-          });
-        },
-      )
-      .subscribe();
-
-    return () => {
-      supabase.removeChannel(channel);
-    };
-  }, [auctionId]);
+    if (state?.phase === "completed_sale" || state?.phase === "completed_unsold" || state?.phase === "phase_2_hype") {
+      const timer = setTimeout(async () => {
+        setLoadingAction("next_player");
+        try {
+          await supabase.rpc("next_player", { p_auction_id: auctionId });
+        } catch (e) {
+          console.error("Auto-advance failed:", e);
+        } finally {
+          setLoadingAction(null);
+        }
+      }, 3500);
+      return () => clearTimeout(timer);
+    }
+  }, [state?.phase, auctionId]);
 
   if (checkingAuth) {
     return <div className="p-6 text-lg text-slate-50">Checking admin access...</div>;
@@ -167,6 +101,30 @@ export default function AdminAuctionPage({ params }: { params: Promise<{ id: str
     return <div className="p-6 text-lg">Loading auction...</div>;
   }
 
+  if (auction.status === "completed") {
+    return (
+      <div className="min-h-screen bg-slate-950 flex flex-col">
+        <div className="p-4 border-b border-slate-800 bg-slate-900/50 flex justify-between items-center">
+          <div className="flex items-center gap-4">
+            <h1 className="text-xl font-bold text-slate-100">{auction.name} - Results</h1>
+            <span className="bg-emerald-500/10 text-emerald-500 text-[10px] uppercase font-bold tracking-widest px-2 py-0.5 rounded border border-emerald-500/20">Auction Completed</span>
+          </div>
+          <Button
+            variant="outline"
+            size="sm"
+            className="border-slate-700 hover:bg-slate-800 text-slate-300 gap-2"
+            onClick={() => router.push(`/admin`)}
+          >
+            ← Return to Dashboard
+          </Button>
+        </div>
+        <div className="flex-1 overflow-auto">
+          <ConsolidatedTeamRoster auction={auction} teams={teams} players={players} />
+        </div>
+      </div>
+    );
+  }
+
   const settings = auction.settings;
   const allTeamsHaveCaptain = teams.length > 0 && teams.every((t) => t.captain_id);
 
@@ -174,11 +132,15 @@ export default function AdminAuctionPage({ params }: { params: Promise<{ id: str
     if (!settings) return false;
     if (!state) return false;
     if (!state.current_player_id) return false;
+    if (state.leading_team_id === team.id) return false;
 
     const basePrice = Number(settings.base_price ?? 0);
     const increment = Number(settings.increment ?? 0);
     const currentBid = state.current_bid ?? basePrice;
-    const nextBid = currentBid + increment;
+
+    // THE FIX: If no leading team, next bid IS the current_bid (base_price).
+    // Otherwise, it's current_bid + increment.
+    const nextBid = state.leading_team_id === null ? currentBid : currentBid + increment;
 
     const purse = Number(team.purse_remaining ?? 0);
     const slots = team.slots_remaining ?? 0;
@@ -196,7 +158,11 @@ export default function AdminAuctionPage({ params }: { params: Promise<{ id: str
   const handleNextPlayer = async () => {
     setLoadingAction("next_player");
     try {
-      await supabase.rpc("next_player", { p_auction_id: auctionId });
+      const { error } = await supabase.rpc("next_player", { p_auction_id: auctionId });
+      if (error) window.alert(`Next player failed: ${error.message}`);
+    } catch (e: any) {
+      console.error("Auto-advance failed:", e);
+      window.alert(`Critical error: ${e.message}`);
     } finally {
       setLoadingAction(null);
     }
@@ -205,7 +171,17 @@ export default function AdminAuctionPage({ params }: { params: Promise<{ id: str
   const handleStartBid = async () => {
     setLoadingAction("start_bid");
     try {
-      await supabase.rpc("start_bid", { p_auction_id: auctionId });
+      const { error } = await supabase.rpc("start_bid", { p_auction_id: auctionId });
+      if (error) window.alert(`Start bid failed: ${error.message}`);
+    } finally {
+      setLoadingAction(null);
+    }
+  };
+
+  const handleStartPhase2Hype = async () => {
+    setLoadingAction("start_phase2");
+    try {
+      await supabase.rpc("start_phase2", { p_auction_id: auctionId });
     } finally {
       setLoadingAction(null);
     }
@@ -214,7 +190,30 @@ export default function AdminAuctionPage({ params }: { params: Promise<{ id: str
   const handlePlaceBid = async (teamId: string) => {
     setLoadingAction(`bid_${teamId}`);
     try {
-      await supabase.rpc("place_bid", { p_auction_id: auctionId, p_team_id: teamId });
+      const { data: { session } } = await supabase.auth.getSession();
+
+      const response = await fetch(`${process.env.NEXT_PUBLIC_SUPABASE_URL}/functions/v1/place-bid`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${session?.access_token}`,
+          'apikey': process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || ''
+        },
+        body: JSON.stringify({
+          auction_id: auctionId,
+          team_id: teamId
+        })
+      });
+
+      const result = await response.json();
+
+      if (!response.ok) {
+        throw new Error(result.error || 'Bid failed');
+      }
+
+    } catch (err: any) {
+      console.error("Critical bid error:", err);
+      window.alert(`Bid failed: ${err.message}`);
     } finally {
       setLoadingAction(null);
     }
@@ -223,16 +222,8 @@ export default function AdminAuctionPage({ params }: { params: Promise<{ id: str
   const handleUndoBid = async () => {
     setLoadingAction("undo_bid");
     try {
-      await supabase.rpc("undo_bid", { p_auction_id: auctionId });
-    } finally {
-      setLoadingAction(null);
-    }
-  };
-
-  const handleEndBid = async () => {
-    setLoadingAction("end_bid");
-    try {
-      await supabase.rpc("end_bid", { p_auction_id: auctionId });
+      const { error } = await supabase.rpc("undo_bid", { p_auction_id: auctionId });
+      if (error) window.alert(`Undo bid failed: ${error.message}`);
     } finally {
       setLoadingAction(null);
     }
@@ -247,15 +238,41 @@ export default function AdminAuctionPage({ params }: { params: Promise<{ id: str
     }
   };
 
-  const handleAutoAllocate = async () => {
-    if (!window.confirm("Are you sure you want to automatically distribute all remaining unsold players for base price?")) return;
-    setLoadingAction("auto_allocate");
+  const handleEndBid = async () => {
+    setLoadingAction("end_bid");
     try {
-      const { error } = await supabase.rpc("auto_allocate_unsold", { p_auction_id: auctionId });
+      const { error } = await supabase.rpc("end_bid", { p_auction_id: auctionId });
+      if (error) window.alert(`End bid failed: ${error.message}`);
+    } finally {
+      setLoadingAction(null);
+    }
+  };
+
+  const handleEndAuction = async () => {
+    const invalidTeams = teams.filter(t => (settings.max_players - t.slots_remaining) < settings.min_players);
+    if (invalidTeams.length > 0) {
+      if (window.confirm(`Some teams have not met the minimum player requirement (${settings.min_players}).\n\nRedirect to the Slot Filling Hub to manually assign unsold players?`)) {
+        router.push(`/admin/auction/${auctionId}/verify`);
+      }
+      return;
+    }
+
+    const upcomingCount = players.filter(p => p.status === "upcoming").length;
+    const unsoldCount = players.filter(p => p.status === "unsold").length;
+    const totalRemaining = upcomingCount + unsoldCount;
+    const emptySlots = teams.reduce((sum, team) => sum + team.slots_remaining, 0);
+
+    const message = `Are you sure you want to permanently end this auction?\n\n• Participants left: ${totalRemaining}\n• Total empty team slots: ${emptySlots}\n\nThis action cannot be undone. Admins will be returned to the Admin Home.`;
+
+    if (!window.confirm(message)) return;
+
+    setLoadingAction("end_auction");
+    try {
+      const { error } = await supabase.rpc("end_auction", { p_auction_id: auctionId });
       if (error) {
-        window.alert("Auto-allocation failed: " + error.message);
+        window.alert("Failed to end auction: " + error.message);
       } else {
-        window.alert("Auto-allocation complete!");
+        router.push("/admin");
       }
     } finally {
       setLoadingAction(null);
@@ -313,7 +330,7 @@ export default function AdminAuctionPage({ params }: { params: Promise<{ id: str
   const handleConcludeCaptainPhase = async () => {
     setLoadingAction("conclude_captain_phase");
     try {
-      await supabase.from("auction_state").update({ phase: "idle" }).eq("auction_id", auctionId);
+      await supabase.rpc("next_player", { p_auction_id: auctionId });
     } finally {
       setLoadingAction(null);
     }
@@ -438,7 +455,7 @@ export default function AdminAuctionPage({ params }: { params: Promise<{ id: str
                       {loadingAction === `match_${team.id}` ? "Matching..." : "Confirm & Match"}
                     </Button>
                   </div>
-                )
+                );
               })}
             </div>
           </Card>
@@ -465,6 +482,43 @@ export default function AdminAuctionPage({ params }: { params: Promise<{ id: str
     )
   }
 
+  if (state?.phase === "phase_1_complete") {
+    return (
+      <div className="min-h-screen bg-gradient-to-br from-slate-950 via-slate-900 to-slate-950 p-6 flex flex-col items-center justify-center animate-in fade-in duration-500">
+        <div className="text-center space-y-6 bg-slate-900/50 p-10 rounded-2xl border border-amber-800 shadow-2xl shadow-amber-900/20 max-w-xl">
+          <h2 className="text-3xl font-semibold text-amber-500 tracking-tight">Phase 1 Complete!</h2>
+          <div className="text-slate-400 leading-relaxed text-sm space-y-2">
+            <p>The primary upcoming player pool has been entirely exhausted.</p>
+            <p><strong>({players.filter(p => p.status === "unsold").length})</strong> players remain Unsold.</p>
+            <p>Click below to transition to Phase 2. This will broadcast an intermission 'Hype' screen to the Audience and begin drawing from the Unsold pool.</p>
+          </div>
+          <Button size="lg" className="bg-amber-600 hover:bg-amber-500 text-white font-medium shadow-md w-full" onClick={handleStartPhase2Hype} disabled={loadingAction === "start_phase2"}>
+            {loadingAction === "start_phase2" ? "Starting..." : "Proceed to Phase 2 (Unsold Players)"}
+          </Button>
+        </div>
+      </div>
+    )
+  }
+  if (state?.phase === "phase_2_complete") {
+    const finalUnsolds = players.filter(p => p.status === "unsold").length;
+    return (
+      <div className="min-h-screen bg-gradient-to-br from-slate-950 via-slate-900 to-slate-950 p-6 flex flex-col items-center justify-center animate-in fade-in duration-500">
+        <div className="text-center space-y-6 bg-slate-900/50 p-10 rounded-2xl border border-rose-800 shadow-2xl shadow-rose-900/20 max-w-xl">
+          <h2 className="text-3xl font-semibold text-rose-500 tracking-tight">Phase 2 Complete!</h2>
+          <div className="text-slate-400 leading-relaxed text-sm space-y-2">
+            <p>The entire player pool (including Unsold redraws) has been exhausted.</p>
+            <p><strong>({finalUnsolds})</strong> players remain Unsold after Phase 2.</p>
+            <p>You can now permanently End the Auction if minimum player requirements are met.</p>
+          </div>
+          <div className="flex flex-col gap-3 mt-4">
+            <Button size="lg" className="bg-rose-600 hover:bg-rose-500 text-white font-medium w-full" onClick={handleEndAuction} disabled={loadingAction === "end_auction"}>
+              {loadingAction === "end_auction" ? "Ending..." : "End Auction"}
+            </Button>
+          </div>
+        </div>
+      </div>
+    )
+  }
   return (
     <div className="min-h-screen bg-gradient-to-br from-slate-950 via-slate-900 to-slate-950 p-6 text-slate-50">
       <div className="mx-auto flex max-w-6xl flex-col gap-6">
@@ -484,19 +538,11 @@ export default function AdminAuctionPage({ params }: { params: Promise<{ id: str
           </div>
           <div className="flex flex-wrap gap-2">
             <Button
-              variant="outline"
-              size="sm"
-              onClick={handleNextPlayer}
-              disabled={loadingAction === "next_player" || !allTeamsHaveCaptain}
-            >
-              Next Player
-            </Button>
-            <Button
               variant="default"
               size="sm"
               onClick={handleStartBid}
               disabled={
-                loadingAction === "start_bid" || !state?.current_player_id || !allTeamsHaveCaptain
+                loadingAction === "start_bid" || !state?.current_player_id || !allTeamsHaveCaptain || state?.current_bid !== null
               }
             >
               Start Bid
@@ -505,7 +551,7 @@ export default function AdminAuctionPage({ params }: { params: Promise<{ id: str
               variant="secondary"
               size="sm"
               onClick={handleUndoBid}
-              disabled={loadingAction === "undo_bid"}
+              disabled={loadingAction === "undo_bid" || state?.current_bid === null || state?.previous_bid === null || !['phase1', 'phase2'].includes(state?.phase || '')}
             >
               Undo Bid
             </Button>
@@ -521,21 +567,46 @@ export default function AdminAuctionPage({ params }: { params: Promise<{ id: str
               variant="destructive"
               size="sm"
               onClick={handleUndoSale}
-              disabled={loadingAction === "undo_sale" || !state?.phase?.startsWith("completed")}
+              disabled={
+                loadingAction === "undo_sale" ||
+                !(
+                  (state?.phase?.startsWith("completed") && state?.current_player_id) ||
+                  ((state?.phase === "phase1" || state?.phase === "phase2") && state?.current_bid === null && state?.previous_player_id)
+                )
+              }
             >
               Undo Sale
             </Button>
             <Button
-              variant="outline"
+              variant="default"
               size="sm"
-              className="border-amber-700 text-amber-500 hover:bg-amber-950/50"
-              onClick={handleAutoAllocate}
-              disabled={loadingAction === "auto_allocate"}
+              className="bg-rose-600 font-bold text-white hover:bg-rose-500 shadow-md shadow-rose-900/50"
+              onClick={handleEndAuction}
+              disabled={loadingAction === "end_auction"}
             >
-              Auto-Allocate Unsold
+              {loadingAction === "end_auction" ? "Ending..." : "End Auction"}
             </Button>
           </div>
         </header>
+
+        {state?.show_undo_notice && (
+          <div className="animate-in fade-in slide-in-from-top-4 duration-500">
+            <div className="flex items-center gap-4 rounded-xl border border-amber-500/30 bg-amber-950/40 p-4 shadow-2xl shadow-amber-900/20 ring-1 ring-amber-500/20">
+              <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-full bg-amber-500 text-slate-950 text-xl font-black shadow-lg">!</div>
+              <div className="flex-1">
+                <h3 className="text-lg font-bold text-amber-400">SALE REVERSED</h3>
+                <p className="text-sm text-amber-200/80 leading-snug">The previous transaction was undone. The player has been restored. You can now start the bidding again.</p>
+              </div>
+              <Button
+                size="lg"
+                className="bg-amber-600 hover:bg-amber-500 text-white font-bold px-6 shadow-lg shadow-amber-900/40"
+                onClick={handleStartBid}
+              >
+                RESTORE BIDDING
+              </Button>
+            </div>
+          </div>
+        )}
 
         <div className="grid gap-6 md:grid-cols-[2fr,3fr]">
           <Card className="border-slate-800 bg-slate-900/60 p-5 shadow-xl shadow-slate-950/50">
@@ -561,9 +632,7 @@ export default function AdminAuctionPage({ params }: { params: Promise<{ id: str
                   </div>
                   <div className="rounded-md bg-emerald-900/40 px-3 py-2">
                     <div className="text-xs uppercase text-emerald-300">Current Bid</div>
-                    <div className="text-lg font-semibold text-emerald-200">
-                      {(state?.current_bid ?? settings.base_price).toLocaleString("en-IN")}
-                    </div>
+                    {(state?.current_bid ?? settings.base_price).toLocaleString("en-IN")}
                   </div>
                   <div className="rounded-md bg-slate-900/80 px-3 py-2">
                     <div className="text-xs uppercase text-slate-400">Leading Team</div>
@@ -593,44 +662,60 @@ export default function AdminAuctionPage({ params }: { params: Promise<{ id: str
             <h2 className="mb-3 text-sm font-semibold uppercase tracking-[0.15em] text-slate-400">
               Teams · Bid Controls
             </h2>
-            <div className="grid grid-cols-2 gap-3 md:grid-cols-3">
-              {teams.map((team) => {
-                const canBid = computeCanBid(team);
-                const isLoading = loadingAction === `bid_${team.id}`;
 
-                return (
-                  <Button
-                    key={team.id}
-                    className="flex h-auto flex-col items-start justify-between gap-1 rounded-xl border border-slate-800 bg-slate-900/80 px-3 py-3 text-left text-sm shadow-sm transition hover:border-emerald-500 hover:bg-slate-900"
-                    disabled={!canBid || isLoading}
-                    onClick={() => handlePlaceBid(team.id)}
-                  >
-                    <span className="font-semibold">{team.name}</span>
-                    <span className="text-[11px] uppercase tracking-wide text-slate-400">
-                      {team.manager}
-                    </span>
-                    <span className="mt-1 text-xs text-slate-300">
-                      Purse:{" "}
-                      <span className="font-semibold">
-                        {team.purse_remaining.toLocaleString("en-IN")}
+            {state?.current_bid === null ? (
+              <div className="flex h-32 items-center justify-center text-sm text-slate-500 rounded-xl border border-dashed border-slate-800 bg-slate-900/40">
+                Click "Start Bid" to unlock team controls for the current player.
+              </div>
+            ) : (
+              <div className="grid grid-cols-2 gap-3 md:grid-cols-3">
+                {teams.map((team) => {
+                  const canBid = computeCanBid(team);
+                  const isLeading = state?.leading_team_id === team.id;
+                  const isLoading = loadingAction === `bid_${team.id}`;
+
+                  return (
+                    <Button
+                      key={team.id}
+                      className={`flex h-auto flex-col items-start justify-between gap-1 rounded-xl border px-3 py-3 text-left text-sm shadow-sm transition ${isLeading ? 'border-emerald-500 bg-emerald-950/30' : 'border-slate-800 bg-slate-900/80 hover:border-emerald-500 hover:bg-slate-900'}`}
+                      disabled={!canBid || isLoading || isLeading}
+                      onClick={() => handlePlaceBid(team.id)}
+                    >
+                      <span className="font-semibold flex items-center gap-2">
+                        {team.name}
+                        {isLeading && <span className="h-2 w-2 rounded-full bg-emerald-500 animate-pulse" />}
                       </span>
-                    </span>
-                    <span className="text-xs text-slate-300">
-                      Slots: <span className="font-semibold">{team.slots_remaining}</span>
-                    </span>
-                    {!canBid && (
-                      <span className="mt-1 text-[10px] font-medium uppercase text-amber-300">
-                        Cannot Bid
+                      <span className="text-[11px] uppercase tracking-wide text-slate-400">
+                        {team.manager}
                       </span>
-                    )}
-                  </Button>
-                );
-              })}
-            </div>
+                      <span className="mt-1 text-xs text-slate-300">
+                        Purse:{" "}
+                        <span className="font-semibold">
+                          {team.purse_remaining.toLocaleString("en-IN")}
+                        </span>
+                      </span>
+                      <span className="text-xs text-slate-300">
+                        Slots: <span className="font-semibold">{team.slots_remaining}</span>
+                      </span>
+                      {!canBid && !isLeading && (
+                        <span className="mt-1 text-[10px] font-medium uppercase text-amber-300">
+                          Cannot Bid
+                        </span>
+                      )}
+                      {isLeading && (
+                        <span className="mt-1 text-[10px] font-medium uppercase text-emerald-400">
+                          Current Highest
+                        </span>
+                      )}
+                    </Button>
+                  );
+                })}
+              </div>
+            )}
           </Card>
         </div>
       </div>
+
     </div>
   );
 }
-

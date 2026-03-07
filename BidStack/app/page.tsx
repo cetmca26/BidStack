@@ -197,11 +197,19 @@ export default function Home() {
                         </div>
                       </div>
                       <div className="flex gap-2">
-                        <Link href={`/auction/${auction.id}`}>
-                          <Button size="sm" variant="outline">
-                            View &amp; Register
-                          </Button>
-                        </Link>
+                        {status === "completed" ? (
+                          <Link href={`/live/${auction.id}`}>
+                            <Button size="sm" variant="default" className="bg-amber-600 hover:bg-amber-500 text-amber-50">
+                              View Squads
+                            </Button>
+                          </Link>
+                        ) : (
+                          <Link href={`/auction/${auction.id}`}>
+                            <Button size="sm" variant="outline">
+                              View &amp; Register
+                            </Button>
+                          </Link>
+                        )}
                         {isLive && (
                           <Link href={`/live/${auction.id}`}>
                             <Button size="sm" variant="ghost">
@@ -218,6 +226,6 @@ export default function Home() {
           </Card>
         </section>
       </div>
-    </div>
+    </div >
   );
 }

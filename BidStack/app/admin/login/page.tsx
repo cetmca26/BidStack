@@ -7,33 +7,46 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 
-// Simple hard-coded admin password (can be overridden via NEXT_PUBLIC_ADMIN_PASSWORD)
-const ADMIN_PASSWORD =
-  process.env.NEXT_PUBLIC_ADMIN_PASSWORD && process.env.NEXT_PUBLIC_ADMIN_PASSWORD.length > 0
-    ? process.env.NEXT_PUBLIC_ADMIN_PASSWORD
-    : "admin123";
+import { supabase } from "@/lib/supabase";
 
 export default function AdminLoginPage() {
   const router = useRouter();
+  const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setSubmitting(true);
     setError(null);
 
-    if (password === ADMIN_PASSWORD) {
-      if (typeof window !== "undefined") {
-        window.localStorage.setItem("admin_auth", "true");
-      }
-      router.push("/admin");
-    } else {
-      setError("Incorrect admin password.");
-    }
+    try {
+      const { data, error: authError } = await supabase.auth.signInWithPassword({
+        email,
+        password,
+      });
 
-    setSubmitting(false);
+      if (authError) throw authError;
+
+      // Check if user is an admin
+      const { data: profile, error: profileError } = await supabase
+        .from("profiles")
+        .select("role")
+        .eq("id", data.user.id)
+        .single();
+
+      if (profileError || profile?.role !== "admin") {
+        await supabase.auth.signOut();
+        throw new Error("Access denied: Admin role required.");
+      }
+
+      router.push("/admin");
+    } catch (err: any) {
+      setError(err.message || "An error occurred during login.");
+    } finally {
+      setSubmitting(false);
+    }
   };
 
   return (
@@ -41,11 +54,25 @@ export default function AdminLoginPage() {
       <Card className="w-full max-w-sm border-slate-800 bg-slate-900/80 p-6 shadow-2xl shadow-black/60">
         <h1 className="mb-1 text-xl text-white font-semibold tracking-tight">Admin Login</h1>
         <p className="mb-5 text-sm text-slate-400">
-          Enter the admin password to access auction control panels.
+          Sign in with your admin credentials to access auction control.
         </p>
         <form className="space-y-4" onSubmit={handleSubmit}>
           <div className="space-y-1 text-slate-100">
-            <Label htmlFor="password" className="text-slate-100">
+            <Label htmlFor="email" className="text-slate-100">
+              Email
+            </Label>
+            <Input
+              id="email"
+              type="email"
+              placeholder="admin@example.com"
+              value={email}
+              onChange={(e) => setEmail(e.target.value)}
+              className="bg-slate-950/80 text-slate-50 placeholder:text-slate-400"
+              required
+            />
+          </div>
+          <div className="space-y-1 text-slate-100">
+            <Label htmlFor="password" title="Password" className="text-slate-100">
               Password
             </Label>
             <Input
@@ -54,11 +81,12 @@ export default function AdminLoginPage() {
               value={password}
               onChange={(e) => setPassword(e.target.value)}
               className="bg-slate-950/80 text-slate-50 placeholder:text-slate-400"
+              required
             />
           </div>
           {error && <p className="text-xs text-rose-400">{error}</p>}
           <Button type="submit" disabled={submitting} className="w-full">
-            {submitting ? "Checking..." : "Login as Admin"}
+            {submitting ? "Signing in..." : "Login as Admin"}
           </Button>
         </form>
         <p className="mt-4 text-[11px] text-slate-500">

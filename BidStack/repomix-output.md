@@ -37,6 +37,7 @@ The content is organized as follows:
 .gitignore
 app/admin/auction/[id]/page.tsx
 app/admin/auction/[id]/teams/page.tsx
+app/admin/auction/[id]/verify/page.tsx
 app/admin/login/page.tsx
 app/admin/page.tsx
 app/auction/[id]/page.tsx
@@ -46,14 +47,20 @@ app/layout.tsx
 app/live/[id]/page.tsx
 app/page.tsx
 components.json
+components/ConsolidatedTeamRoster.tsx
+components/ImageUploadField.tsx
+components/ImageViewerModal.tsx
+components/PlayerAvatar.tsx
+components/TeamLogo.tsx
 components/ui/button.tsx
 components/ui/card.tsx
+components/ui/checkbox.tsx
 components/ui/dialog.tsx
-components/ui/form.tsx
 components/ui/input.tsx
 components/ui/label.tsx
 components/ui/table.tsx
 eslint.config.mjs
+lib/imageCompression.ts
 lib/supabase.ts
 lib/utils.ts
 next.config.ts
@@ -70,20 +77,94 @@ supabase/config.toml
 supabase/migrations/0001_auction_engine.sql
 supabase/migrations/0002_captain_round.sql
 supabase/migrations/0003_auction_status.sql
+supabase/migrations/0004_registration_control.sql
+supabase/migrations/0005_audit_fixes.sql
+supabase/migrations/0006_end_bid_fixes.sql
+supabase/migrations/0007_captain_flow.sql
+supabase/migrations/0008_auto_allocation.sql
+supabase/migrations/0009_enable_realtime.sql
+supabase/migrations/0010_end_auction.sql
+supabase/migrations/0011_auction_phase_enum.sql
+supabase/migrations/0012_explicit_phases.sql
+supabase/migrations/0013_explicit_phases_fix.sql
+supabase/migrations/0014_explicit_phases_typecast.sql
+supabase/migrations/0015_phase_start.sql
+supabase/migrations/0016_undo_sale_rework.sql
+supabase/migrations/0017_phase2_statuses.sql
+supabase/migrations/0018_undo_sale_notice_and_first_bid.sql
+supabase/migrations/0019_add_image_urls.sql
+supabase/migrations/0020_storage_buckets_setup.sql
+supabase/migrations/0021_fix_rpc_bugs.sql
+supabase/migrations/0022_fix_enum_typecasts.sql
+supabase/migrations/0023_fix_player_status_casts.sql
+supabase/migrations/0024_manual_slot_filling.sql
 tsconfig.json
 ```
 
 # Files
 
+## File: .gitignore
+````
+# See https://help.github.com/articles/ignoring-files/ for more about ignoring files.
+
+# dependencies
+/node_modules
+/.pnp
+.pnp.*
+.yarn/*
+!.yarn/patches
+!.yarn/plugins
+!.yarn/releases
+!.yarn/versions
+
+# testing
+/coverage
+
+# next.js
+/.next/
+/out/
+
+# production
+/build
+
+# misc
+.DS_Store
+*.pem
+
+# debug
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+.pnpm-debug.log*
+
+# env files (can opt-in for committing if needed)
+.env*
+
+# vercel
+.vercel
+
+# typescript
+*.tsbuildinfo
+next-env.d.ts
+.env
+.env.local
+scripts/seed_players.mjs
+repomix-output.md
+/repomix-output.md
+````
+
 ## File: app/admin/auction/[id]/page.tsx
 ````typescript
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
-import { useParams, useRouter } from "next/navigation";
+import { use, useEffect, useMemo, useState } from "react";
+import { useRouter } from "next/navigation";
 import { supabase } from "@/lib/supabase";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import ConsolidatedTeamRoster from "@/components/ConsolidatedTeamRoster";
 
 type AuctionSettings = {
   purse: number;
@@ -91,12 +172,14 @@ type AuctionSettings = {
   max_players: number;
   base_price: number;
   increment: number;
+  captain_base_price?: number;
 };
 
 type Auction = {
   id: string;
   name: string;
   sport_type: string;
+  status: "upcoming" | "live" | "completed";
   settings: AuctionSettings;
 };
 
@@ -118,6 +201,7 @@ type Player = {
   status: "upcoming" | "live" | "sold" | "unsold";
   sold_price: number | null;
   sold_team_id: string | null;
+  is_captain?: boolean;
 };
 
 type AuctionState = {
@@ -126,13 +210,16 @@ type AuctionState = {
   current_player_id: string | null;
   current_bid: number | null;
   leading_team_id: string | null;
+  previous_bid: number | null;
+  previous_leading_team_id: string | null;
+  previous_player_id: string | null;
   phase: string;
+  show_undo_notice?: boolean;
 };
 
-export default function AdminAuctionPage() {
+export default function AdminAuctionPage({ params }: { params: Promise<{ id: string }> }) {
   const router = useRouter();
-  const params = useParams<{ id: string }>();
-  const auctionId = params?.id as string;
+  const { id: auctionId } = use(params);
 
   const [auction, setAuction] = useState<Auction | null>(null);
   const [teams, setTeams] = useState<Team[]>([]);
@@ -141,6 +228,14 @@ export default function AdminAuctionPage() {
   const [loadingAction, setLoadingAction] = useState<string | null>(null);
   const [checkingAuth, setCheckingAuth] = useState(true);
   const [isAuthed, setIsAuthed] = useState(false);
+
+  const selectedCaptains = useMemo(() => players.filter((p) => p.is_captain), [players]);
+  const unassignedCaptains = useMemo(
+    () => selectedCaptains.filter((c) => c.status === "upcoming"),
+    [selectedCaptains]
+  );
+
+  const [captainBids, setCaptainBids] = useState<Record<string, { captainId: string; amount: string }>>({});
 
   const currentPlayer = useMemo(
     () => players.find((p) => p.id === state?.current_player_id) ?? null,
@@ -164,6 +259,7 @@ export default function AdminAuctionPage() {
   }, [router]);
 
   useEffect(() => {
+    if (!auctionId) return;
     const loadInitial = async () => {
       const [{ data: auctionData }, { data: teamsData }, { data: playersData }, { data: stateData }] =
         await Promise.all([
@@ -187,6 +283,7 @@ export default function AdminAuctionPage() {
   }, [auctionId, router]);
 
   useEffect(() => {
+    if (!auctionId) return;
     const channel = supabase
       .channel("auction")
       .on(
@@ -221,6 +318,22 @@ export default function AdminAuctionPage() {
     };
   }, [auctionId]);
 
+  useEffect(() => {
+    if (state?.phase === "completed_sale" || state?.phase === "completed_unsold" || state?.phase === "phase_2_hype") {
+      const timer = setTimeout(async () => {
+        setLoadingAction("next_player");
+        try {
+          await supabase.rpc("next_player", { p_auction_id: auctionId });
+        } catch (e) {
+          console.error("Auto-advance failed:", e);
+        } finally {
+          setLoadingAction(null);
+        }
+      }, 3500);
+      return () => clearTimeout(timer);
+    }
+  }, [state?.phase, auctionId]);
+
   if (checkingAuth) {
     return <div className="p-6 text-lg text-slate-50">Checking admin access...</div>;
   }
@@ -233,6 +346,30 @@ export default function AdminAuctionPage() {
     return <div className="p-6 text-lg">Loading auction...</div>;
   }
 
+  if (auction.status === "completed") {
+    return (
+      <div className="min-h-screen bg-slate-950 flex flex-col">
+        <div className="p-4 border-b border-slate-800 bg-slate-900/50 flex justify-between items-center">
+          <div className="flex items-center gap-4">
+            <h1 className="text-xl font-bold text-slate-100">{auction.name} - Results</h1>
+            <span className="bg-emerald-500/10 text-emerald-500 text-[10px] uppercase font-bold tracking-widest px-2 py-0.5 rounded border border-emerald-500/20">Auction Completed</span>
+          </div>
+          <Button
+            variant="outline"
+            size="sm"
+            className="border-slate-700 hover:bg-slate-800 text-slate-300 gap-2"
+            onClick={() => router.push(`/admin`)}
+          >
+            ← Return to Dashboard
+          </Button>
+        </div>
+        <div className="flex-1 overflow-auto">
+          <ConsolidatedTeamRoster auction={auction} teams={teams} players={players} />
+        </div>
+      </div>
+    );
+  }
+
   const settings = auction.settings;
   const allTeamsHaveCaptain = teams.length > 0 && teams.every((t) => t.captain_id);
 
@@ -240,11 +377,15 @@ export default function AdminAuctionPage() {
     if (!settings) return false;
     if (!state) return false;
     if (!state.current_player_id) return false;
+    if (state.leading_team_id === team.id) return false;
 
     const basePrice = Number(settings.base_price ?? 0);
     const increment = Number(settings.increment ?? 0);
     const currentBid = state.current_bid ?? basePrice;
-    const nextBid = currentBid + increment;
+
+    // THE FIX: If no leading team, next bid IS the current_bid (base_price).
+    // Otherwise, it's current_bid + increment.
+    const nextBid = state.leading_team_id === null ? currentBid : currentBid + increment;
 
     const purse = Number(team.purse_remaining ?? 0);
     const slots = team.slots_remaining ?? 0;
@@ -262,7 +403,11 @@ export default function AdminAuctionPage() {
   const handleNextPlayer = async () => {
     setLoadingAction("next_player");
     try {
-      await supabase.rpc("next_player", { p_auction_id: auctionId });
+      const { error } = await supabase.rpc("next_player", { p_auction_id: auctionId });
+      if (error) window.alert(`Next player failed: ${error.message}`);
+    } catch (e: any) {
+      console.error("Auto-advance failed:", e);
+      window.alert(`Critical error: ${e.message}`);
     } finally {
       setLoadingAction(null);
     }
@@ -271,7 +416,17 @@ export default function AdminAuctionPage() {
   const handleStartBid = async () => {
     setLoadingAction("start_bid");
     try {
-      await supabase.rpc("start_bid", { p_auction_id: auctionId });
+      const { error } = await supabase.rpc("start_bid", { p_auction_id: auctionId });
+      if (error) window.alert(`Start bid failed: ${error.message}`);
+    } finally {
+      setLoadingAction(null);
+    }
+  };
+
+  const handleStartPhase2Hype = async () => {
+    setLoadingAction("start_phase2");
+    try {
+      await supabase.rpc("start_phase2", { p_auction_id: auctionId });
     } finally {
       setLoadingAction(null);
     }
@@ -280,7 +435,14 @@ export default function AdminAuctionPage() {
   const handlePlaceBid = async (teamId: string) => {
     setLoadingAction(`bid_${teamId}`);
     try {
-      await supabase.rpc("place_bid", { p_auction_id: auctionId, p_team_id: teamId });
+      const { error } = await supabase.rpc("place_bid", { p_auction_id: auctionId, p_team_id: teamId });
+      if (error) {
+        console.error("Bid failed:", error);
+        window.alert(`Bid failed: ${error.message} (${error.code})`);
+      }
+    } catch (err: any) {
+      console.error("Critical bid error:", err);
+      window.alert(`Critical bid error: ${err.message}`);
     } finally {
       setLoadingAction(null);
     }
@@ -289,7 +451,17 @@ export default function AdminAuctionPage() {
   const handleUndoBid = async () => {
     setLoadingAction("undo_bid");
     try {
-      await supabase.rpc("undo_bid", { p_auction_id: auctionId });
+      const { error } = await supabase.rpc("undo_bid", { p_auction_id: auctionId });
+      if (error) window.alert(`Undo bid failed: ${error.message}`);
+    } finally {
+      setLoadingAction(null);
+    }
+  };
+
+  const handleUndoSale = async () => {
+    setLoadingAction("undo_sale");
+    try {
+      await supabase.rpc("undo_sale", { p_auction_id: auctionId });
     } finally {
       setLoadingAction(null);
     }
@@ -298,12 +470,284 @@ export default function AdminAuctionPage() {
   const handleEndBid = async () => {
     setLoadingAction("end_bid");
     try {
-      await supabase.rpc("end_bid", { p_auction_id: auctionId });
+      const { error } = await supabase.rpc("end_bid", { p_auction_id: auctionId });
+      if (error) window.alert(`End bid failed: ${error.message}`);
     } finally {
       setLoadingAction(null);
     }
   };
 
+  const handleEndAuction = async () => {
+    const invalidTeams = teams.filter(t => (settings.max_players - t.slots_remaining) < settings.min_players);
+    if (invalidTeams.length > 0) {
+      if (window.confirm(`Some teams have not met the minimum player requirement (${settings.min_players}).\n\nRedirect to the Slot Filling Hub to manually assign unsold players?`)) {
+        router.push(`/admin/auction/${auctionId}/verify`);
+      }
+      return;
+    }
+
+    const upcomingCount = players.filter(p => p.status === "upcoming").length;
+    const unsoldCount = players.filter(p => p.status === "unsold").length;
+    const totalRemaining = upcomingCount + unsoldCount;
+    const emptySlots = teams.reduce((sum, team) => sum + team.slots_remaining, 0);
+
+    const message = `Are you sure you want to permanently end this auction?\n\n• Participants left: ${totalRemaining}\n• Total empty team slots: ${emptySlots}\n\nThis action cannot be undone. Admins will be returned to the Admin Home.`;
+
+    if (!window.confirm(message)) return;
+
+    setLoadingAction("end_auction");
+    try {
+      const { error } = await supabase.rpc("end_auction", { p_auction_id: auctionId });
+      if (error) {
+        window.alert("Failed to end auction: " + error.message);
+      } else {
+        router.push("/admin");
+      }
+    } finally {
+      setLoadingAction(null);
+    }
+  };
+
+  const handleToggleCaptain = async (playerId: string, currentVal: boolean) => {
+    setPlayers(prev => prev.map(p => p.id === playerId ? { ...p, is_captain: !currentVal } : p));
+    const { error } = await supabase.from("players").update({ is_captain: !currentVal }).eq("id", playerId);
+    if (error) {
+      console.error("Failed to toggle captain:", error);
+      alert("Failed to toggle captain: " + error.message);
+      setPlayers(prev => prev.map(p => p.id === playerId ? { ...p, is_captain: currentVal } : p));
+    }
+  };
+
+  const handleStartCaptainRound = async () => {
+    setLoadingAction("start_captain_round");
+    try {
+      if (state) {
+        await supabase
+          .from("auction_state")
+          .update({ phase: "captain_round", current_player_id: null, current_bid: null, leading_team_id: null })
+          .eq("auction_id", auctionId);
+      } else {
+        await supabase
+          .from("auction_state")
+          .insert({ auction_id: auctionId, phase: "captain_round" });
+      }
+    } finally {
+      setLoadingAction(null);
+    }
+  };
+
+  const handleMatchCaptain = async (teamId: string) => {
+    const bidInfo = captainBids[teamId];
+    if (!bidInfo || !bidInfo.captainId || !bidInfo.amount) return;
+
+    setLoadingAction(`match_${teamId}`);
+    try {
+      const { error } = await supabase.rpc("match_captain_blind_bid", {
+        p_auction_id: auctionId,
+        p_team_id: teamId,
+        p_player_id: bidInfo.captainId,
+        p_price: Number(bidInfo.amount)
+      });
+      if (error) {
+        alert("Failed to match captain: " + error.message);
+      }
+    } finally {
+      setLoadingAction(null);
+    }
+  };
+
+  const handleConcludeCaptainPhase = async () => {
+    setLoadingAction("conclude_captain_phase");
+    try {
+      await supabase.rpc("next_player", { p_auction_id: auctionId });
+    } finally {
+      setLoadingAction(null);
+    }
+  };
+
+  if (!allTeamsHaveCaptain && state?.phase !== "captain_round") {
+    return (
+      <div className="min-h-screen bg-gradient-to-br from-slate-950 via-slate-900 to-slate-950 p-6 text-slate-50">
+        <div className="mx-auto flex max-w-6xl flex-col gap-6">
+          <header className="flex flex-col items-start justify-between gap-3 md:flex-row md:items-center">
+            <div>
+              <h1 className="text-2xl font-semibold tracking-tight">Captain Selection Phase</h1>
+              <p className="text-sm text-slate-400">
+                {auction.name} · {auction.sport_type.toUpperCase()}
+              </p>
+              <p className="mt-1 text-xs text-amber-300">
+                You must mark exactly {teams.length} players as Captains before proceeding to the Live Hype reveal.
+              </p>
+            </div>
+            <div className="flex flex-wrap gap-2">
+              <Button
+                variant="default"
+                size="sm"
+                className="bg-emerald-600 hover:bg-emerald-500 text-white"
+                onClick={handleStartCaptainRound}
+                disabled={selectedCaptains.length !== teams.length || loadingAction === "start_captain_round"}
+              >
+                {loadingAction === "start_captain_round" ? "Starting..." : "Start Captain Reveal Hype"}
+              </Button>
+            </div>
+          </header>
+
+          <Card className="border-slate-800 bg-slate-900/60 p-5 shadow-xl shadow-slate-950/50">
+            <div className="flex items-center justify-between mb-4">
+              <h2 className="text-sm font-semibold uppercase tracking-[0.15em] text-slate-400">
+                Select Captains ({selectedCaptains.length} / {teams.length})
+              </h2>
+            </div>
+            <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-5 gap-3 max-h-[600px] overflow-y-auto pr-2 pb-2">
+              {players.filter(p => p.status === "upcoming").map(p => (
+                <Button
+                  key={p.id}
+                  variant={p.is_captain ? "default" : "outline"}
+                  size="sm"
+                  className={`h-auto flex flex-col w-full items-start justify-start p-3 ${p.is_captain ? 'bg-amber-600 hover:bg-amber-500 text-white border-amber-500' : 'border-slate-700 bg-slate-900/50 text-slate-300'}`}
+                  onClick={() => handleToggleCaptain(p.id, !!p.is_captain)}
+                >
+                  <span className="font-semibold text-left">{p.name}</span>
+                  <span className="text-[10px] uppercase opacity-70 mt-1 break-words line-clamp-1 text-left">{p.role}</span>
+                </Button>
+              ))}
+            </div>
+          </Card>
+        </div>
+      </div>
+    );
+  }
+
+  if (!allTeamsHaveCaptain && state?.phase === "captain_round") {
+    return (
+      <div className="min-h-screen bg-gradient-to-br from-slate-950 via-slate-900 to-slate-950 p-6 text-slate-50">
+        <div className="mx-auto flex max-w-6xl flex-col gap-6">
+          <header className="flex flex-col items-start justify-between gap-3 md:flex-row md:items-center">
+            <div>
+              <h1 className="text-2xl font-semibold text-emerald-400 tracking-tight">Captain Blind Bidding Setup</h1>
+              <p className="text-sm text-slate-400 mt-1">The Live Screen is currently portraying the Blind Bidding animation. Match captains to proceed.</p>
+            </div>
+          </header>
+
+          <Card className="border-slate-800 bg-slate-900/60 p-5 shadow-xl shadow-slate-950/50">
+            <h2 className="mb-4 text-sm font-semibold uppercase tracking-[0.15em] text-slate-400">
+              Match Captains to Teams
+            </h2>
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+              {teams.map(team => {
+                if (team.captain_id) {
+                  const c = players.find(p => p.id === team.captain_id);
+                  return (
+                    <div key={`matched-${team.id}`} className="rounded-lg border border-emerald-800/50 bg-emerald-950/20 p-4">
+                      <div className="font-semibold text-emerald-400">✓ {team.name}</div>
+                      <div className="text-sm text-slate-300 mt-2">Captain: <span className="text-white font-medium">{c?.name}</span></div>
+                      <div className="text-xs text-slate-400 mt-1">Bid Amount: {c?.sold_price?.toLocaleString("en-IN")}</div>
+                    </div>
+                  );
+                }
+
+                return (
+                  <div key={`unmatched-${team.id}`} className="rounded-lg border border-slate-700 bg-slate-800/40 p-4 space-y-3">
+                    <div className="font-semibold">{team.name}</div>
+                    <div className="text-xs text-slate-400">Purse: {team.purse_remaining.toLocaleString("en-IN")}</div>
+
+                    <div className="space-y-1">
+                      <Label className="text-xs text-slate-400">Select Captain</Label>
+                      <select
+                        className="w-full bg-slate-950 border border-slate-700 rounded px-2 py-1.5 text-sm outline-none focus:border-amber-500"
+                        value={captainBids[team.id]?.captainId || ""}
+                        onChange={(e: React.ChangeEvent<HTMLSelectElement>) => setCaptainBids(prev => ({ ...prev, [team.id]: { ...prev[team.id], captainId: e.target.value, amount: prev[team.id]?.amount || '' } }))}
+                      >
+                        <option value="">-- Choose --</option>
+                        {unassignedCaptains.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
+                      </select>
+                    </div>
+
+                    <div className="space-y-1">
+                      <Label className="text-xs text-slate-400">Winning Blind Bid</Label>
+                      <Input
+                        type="number"
+                        className="bg-slate-950 h-8 text-sm"
+                        placeholder={`Min: ${auction.settings.captain_base_price}`}
+                        value={captainBids[team.id]?.amount || ""}
+                        onChange={(e: React.ChangeEvent<HTMLInputElement>) => setCaptainBids(prev => ({ ...prev, [team.id]: { ...prev[team.id], amount: e.target.value } }))}
+                      />
+                    </div>
+
+                    <Button
+                      className="w-full mt-2"
+                      size="sm"
+                      variant="secondary"
+                      disabled={!captainBids[team.id]?.captainId || !captainBids[team.id]?.amount || loadingAction === `match_${team.id}`}
+                      onClick={() => handleMatchCaptain(team.id)}
+                    >
+                      {loadingAction === `match_${team.id}` ? "Matching..." : "Confirm & Match"}
+                    </Button>
+                  </div>
+                );
+              })}
+            </div>
+          </Card>
+        </div>
+      </div>
+    );
+  }
+
+  if (allTeamsHaveCaptain && state?.phase === "captain_round") {
+    return (
+      <div className="min-h-screen bg-gradient-to-br from-slate-950 via-slate-900 to-slate-950 p-6 flex flex-col items-center justify-center">
+        <div className="text-center space-y-6 bg-slate-900/50 p-10 rounded-2xl border border-slate-800">
+          <h2 className="text-3xl font-semibold text-emerald-400 tracking-tight">Captain Matching Complete!</h2>
+          <p className="text-slate-400 max-w-lg mx-auto leading-relaxed">
+            All teams have their captains assigned successfully via Blind Bidding.
+            The audience is currently watching the Blind Bidding screen.
+            You can now conclude the captain phase and begin the regular player auction.
+          </p>
+          <Button size="lg" className="bg-emerald-600 hover:bg-emerald-500 text-white font-medium" onClick={handleConcludeCaptainPhase} disabled={loadingAction === "conclude_captain_phase"}>
+            {loadingAction === "conclude_captain_phase" ? "Transitioning..." : "Conclude Setup & Start Auction"}
+          </Button>
+        </div>
+      </div>
+    )
+  }
+
+  if (state?.phase === "phase_1_complete") {
+    return (
+      <div className="min-h-screen bg-gradient-to-br from-slate-950 via-slate-900 to-slate-950 p-6 flex flex-col items-center justify-center animate-in fade-in duration-500">
+        <div className="text-center space-y-6 bg-slate-900/50 p-10 rounded-2xl border border-amber-800 shadow-2xl shadow-amber-900/20 max-w-xl">
+          <h2 className="text-3xl font-semibold text-amber-500 tracking-tight">Phase 1 Complete!</h2>
+          <div className="text-slate-400 leading-relaxed text-sm space-y-2">
+            <p>The primary upcoming player pool has been entirely exhausted.</p>
+            <p><strong>({players.filter(p => p.status === "unsold").length})</strong> players remain Unsold.</p>
+            <p>Click below to transition to Phase 2. This will broadcast an intermission 'Hype' screen to the Audience and begin drawing from the Unsold pool.</p>
+          </div>
+          <Button size="lg" className="bg-amber-600 hover:bg-amber-500 text-white font-medium shadow-md w-full" onClick={handleStartPhase2Hype} disabled={loadingAction === "start_phase2"}>
+            {loadingAction === "start_phase2" ? "Starting..." : "Proceed to Phase 2 (Unsold Players)"}
+          </Button>
+        </div>
+      </div>
+    )
+  }
+  if (state?.phase === "phase_2_complete") {
+    const finalUnsolds = players.filter(p => p.status === "unsold").length;
+    return (
+      <div className="min-h-screen bg-gradient-to-br from-slate-950 via-slate-900 to-slate-950 p-6 flex flex-col items-center justify-center animate-in fade-in duration-500">
+        <div className="text-center space-y-6 bg-slate-900/50 p-10 rounded-2xl border border-rose-800 shadow-2xl shadow-rose-900/20 max-w-xl">
+          <h2 className="text-3xl font-semibold text-rose-500 tracking-tight">Phase 2 Complete!</h2>
+          <div className="text-slate-400 leading-relaxed text-sm space-y-2">
+            <p>The entire player pool (including Unsold redraws) has been exhausted.</p>
+            <p><strong>({finalUnsolds})</strong> players remain Unsold after Phase 2.</p>
+            <p>You can now permanently End the Auction if minimum player requirements are met.</p>
+          </div>
+          <div className="flex flex-col gap-3 mt-4">
+            <Button size="lg" className="bg-rose-600 hover:bg-rose-500 text-white font-medium w-full" onClick={handleEndAuction} disabled={loadingAction === "end_auction"}>
+              {loadingAction === "end_auction" ? "Ending..." : "End Auction"}
+            </Button>
+          </div>
+        </div>
+      </div>
+    )
+  }
   return (
     <div className="min-h-screen bg-gradient-to-br from-slate-950 via-slate-900 to-slate-950 p-6 text-slate-50">
       <div className="mx-auto flex max-w-6xl flex-col gap-6">
@@ -323,19 +767,11 @@ export default function AdminAuctionPage() {
           </div>
           <div className="flex flex-wrap gap-2">
             <Button
-              variant="outline"
-              size="sm"
-              onClick={handleNextPlayer}
-              disabled={loadingAction === "next_player" || !allTeamsHaveCaptain}
-            >
-              Next Player
-            </Button>
-            <Button
               variant="default"
               size="sm"
               onClick={handleStartBid}
               disabled={
-                loadingAction === "start_bid" || !state?.current_player_id || !allTeamsHaveCaptain
+                loadingAction === "start_bid" || !state?.current_player_id || !allTeamsHaveCaptain || state?.current_bid !== null
               }
             >
               Start Bid
@@ -344,7 +780,7 @@ export default function AdminAuctionPage() {
               variant="secondary"
               size="sm"
               onClick={handleUndoBid}
-              disabled={loadingAction === "undo_bid"}
+              disabled={loadingAction === "undo_bid" || state?.current_bid === null || state?.previous_bid === null || !['phase1', 'phase2'].includes(state?.phase || '')}
             >
               Undo Bid
             </Button>
@@ -352,12 +788,54 @@ export default function AdminAuctionPage() {
               variant="destructive"
               size="sm"
               onClick={handleEndBid}
-              disabled={loadingAction === "end_bid" || !state?.current_player_id}
+              disabled={loadingAction === "end_bid" || !state?.current_player_id || state?.phase?.startsWith("completed")}
             >
               End Bid
             </Button>
+            <Button
+              variant="destructive"
+              size="sm"
+              onClick={handleUndoSale}
+              disabled={
+                loadingAction === "undo_sale" ||
+                !(
+                  (state?.phase?.startsWith("completed") && state?.current_player_id) ||
+                  ((state?.phase === "phase1" || state?.phase === "phase2") && state?.current_bid === null && state?.previous_player_id)
+                )
+              }
+            >
+              Undo Sale
+            </Button>
+            <Button
+              variant="default"
+              size="sm"
+              className="bg-rose-600 font-bold text-white hover:bg-rose-500 shadow-md shadow-rose-900/50"
+              onClick={handleEndAuction}
+              disabled={loadingAction === "end_auction"}
+            >
+              {loadingAction === "end_auction" ? "Ending..." : "End Auction"}
+            </Button>
           </div>
         </header>
+
+        {state?.show_undo_notice && (
+          <div className="animate-in fade-in slide-in-from-top-4 duration-500">
+            <div className="flex items-center gap-4 rounded-xl border border-amber-500/30 bg-amber-950/40 p-4 shadow-2xl shadow-amber-900/20 ring-1 ring-amber-500/20">
+              <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-full bg-amber-500 text-slate-950 text-xl font-black shadow-lg">!</div>
+              <div className="flex-1">
+                <h3 className="text-lg font-bold text-amber-400">SALE REVERSED</h3>
+                <p className="text-sm text-amber-200/80 leading-snug">The previous transaction was undone. The player has been restored. You can now start the bidding again.</p>
+              </div>
+              <Button
+                size="lg"
+                className="bg-amber-600 hover:bg-amber-500 text-white font-bold px-6 shadow-lg shadow-amber-900/40"
+                onClick={handleStartBid}
+              >
+                RESTORE BIDDING
+              </Button>
+            </div>
+          </div>
+        )}
 
         <div className="grid gap-6 md:grid-cols-[2fr,3fr]">
           <Card className="border-slate-800 bg-slate-900/60 p-5 shadow-xl shadow-slate-950/50">
@@ -383,9 +861,7 @@ export default function AdminAuctionPage() {
                   </div>
                   <div className="rounded-md bg-emerald-900/40 px-3 py-2">
                     <div className="text-xs uppercase text-emerald-300">Current Bid</div>
-                    <div className="text-lg font-semibold text-emerald-200">
-                      {(state?.current_bid ?? settings.base_price).toLocaleString("en-IN")}
-                    </div>
+                    {(state?.current_bid ?? settings.base_price).toLocaleString("en-IN")}
                   </div>
                   <div className="rounded-md bg-slate-900/80 px-3 py-2">
                     <div className="text-xs uppercase text-slate-400">Leading Team</div>
@@ -393,6 +869,15 @@ export default function AdminAuctionPage() {
                       {leadingTeam ? leadingTeam.name : "—"}
                     </div>
                   </div>
+                </div>
+              </div>
+            ) : state?.phase === "completed_sale" || state?.phase === "completed_unsold" ? (
+              <div className="flex h-40 flex-col items-center justify-center space-y-4">
+                <div className={`text-3xl font-bold uppercase tracking-widest ${state.phase === "completed_sale" ? "text-emerald-400" : "text-slate-500"}`}>
+                  {state.phase === "completed_sale" ? "Sold!" : "Unsold!"}
+                </div>
+                <div className="text-sm text-slate-400">
+                  Select &quot;Next Player&quot; to continue, or &quot;Undo Sale&quot; to reverse this result.
                 </div>
               </div>
             ) : (
@@ -406,43 +891,60 @@ export default function AdminAuctionPage() {
             <h2 className="mb-3 text-sm font-semibold uppercase tracking-[0.15em] text-slate-400">
               Teams · Bid Controls
             </h2>
-            <div className="grid grid-cols-2 gap-3 md:grid-cols-3">
-              {teams.map((team) => {
-                const canBid = computeCanBid(team);
-                const isLoading = loadingAction === `bid_${team.id}`;
 
-                return (
-                  <Button
-                    key={team.id}
-                    className="flex h-auto flex-col items-start justify-between gap-1 rounded-xl border border-slate-800 bg-slate-900/80 px-3 py-3 text-left text-sm shadow-sm transition hover:border-emerald-500 hover:bg-slate-900"
-                    disabled={!canBid || isLoading}
-                    onClick={() => handlePlaceBid(team.id)}
-                  >
-                    <span className="font-semibold">{team.name}</span>
-                    <span className="text-[11px] uppercase tracking-wide text-slate-400">
-                      {team.manager}
-                    </span>
-                    <span className="mt-1 text-xs text-slate-300">
-                      Purse:{" "}
-                      <span className="font-semibold">
-                        {team.purse_remaining.toLocaleString("en-IN")}
+            {state?.current_bid === null ? (
+              <div className="flex h-32 items-center justify-center text-sm text-slate-500 rounded-xl border border-dashed border-slate-800 bg-slate-900/40">
+                Click "Start Bid" to unlock team controls for the current player.
+              </div>
+            ) : (
+              <div className="grid grid-cols-2 gap-3 md:grid-cols-3">
+                {teams.map((team) => {
+                  const canBid = computeCanBid(team);
+                  const isLeading = state?.leading_team_id === team.id;
+                  const isLoading = loadingAction === `bid_${team.id}`;
+
+                  return (
+                    <Button
+                      key={team.id}
+                      className={`flex h-auto flex-col items-start justify-between gap-1 rounded-xl border px-3 py-3 text-left text-sm shadow-sm transition ${isLeading ? 'border-emerald-500 bg-emerald-950/30' : 'border-slate-800 bg-slate-900/80 hover:border-emerald-500 hover:bg-slate-900'}`}
+                      disabled={!canBid || isLoading || isLeading}
+                      onClick={() => handlePlaceBid(team.id)}
+                    >
+                      <span className="font-semibold flex items-center gap-2">
+                        {team.name}
+                        {isLeading && <span className="h-2 w-2 rounded-full bg-emerald-500 animate-pulse" />}
                       </span>
-                    </span>
-                    <span className="text-xs text-slate-300">
-                      Slots: <span className="font-semibold">{team.slots_remaining}</span>
-                    </span>
-                    {!canBid && (
-                      <span className="mt-1 text-[10px] font-medium uppercase text-amber-300">
-                        Cannot Bid
+                      <span className="text-[11px] uppercase tracking-wide text-slate-400">
+                        {team.manager}
                       </span>
-                    )}
-                  </Button>
-                );
-              })}
-            </div>
+                      <span className="mt-1 text-xs text-slate-300">
+                        Purse:{" "}
+                        <span className="font-semibold">
+                          {team.purse_remaining.toLocaleString("en-IN")}
+                        </span>
+                      </span>
+                      <span className="text-xs text-slate-300">
+                        Slots: <span className="font-semibold">{team.slots_remaining}</span>
+                      </span>
+                      {!canBid && !isLeading && (
+                        <span className="mt-1 text-[10px] font-medium uppercase text-amber-300">
+                          Cannot Bid
+                        </span>
+                      )}
+                      {isLeading && (
+                        <span className="mt-1 text-[10px] font-medium uppercase text-emerald-400">
+                          Current Highest
+                        </span>
+                      )}
+                    </Button>
+                  );
+                })}
+              </div>
+            )}
           </Card>
         </div>
       </div>
+
     </div>
   );
 }
@@ -452,13 +954,15 @@ export default function AdminAuctionPage() {
 ````typescript
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
-import { useParams, useRouter } from "next/navigation";
+import { use, useEffect, useMemo, useState } from "react";
+import { useRouter } from "next/navigation";
 import { supabase } from "@/lib/supabase";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { ImageUploadField } from "@/components/ImageUploadField";
+import { ImageViewerModal } from "@/components/ImageViewerModal";
 
 type AuctionSettings = {
   purse: number;
@@ -466,12 +970,15 @@ type AuctionSettings = {
   max_players: number;
   base_price: number;
   increment: number;
+  captain_base_price?: number;
 };
 
 type Auction = {
   id: string;
   name: string;
   sport_type: string;
+  is_registration_open: boolean;
+  status?: "upcoming" | "live" | "completed";
   settings: AuctionSettings;
 };
 
@@ -480,6 +987,7 @@ type Team = {
   auction_id: string;
   name: string;
   manager: string;
+  logo_url?: string;
   purse_remaining: number;
   slots_remaining: number;
   captain_id: string | null;
@@ -490,28 +998,40 @@ type Player = {
   auction_id: string;
   name: string;
   role: string;
+  photo_url?: string;
+  phone_number: string | null;
+  ip_address: string | null;
   status: "upcoming" | "live" | "sold" | "unsold";
   sold_price: number | null;
   sold_team_id: string | null;
+  is_captain?: boolean;
 };
 
-export default function ManageTeamsPage() {
+export default function ManageTeamsPage({ params }: { params: Promise<{ id: string }> }) {
   const router = useRouter();
-  const params = useParams<{ id: string }>();
-  const auctionId = params?.id as string;
+  const { id: auctionId } = use(params);
 
   const [auction, setAuction] = useState<Auction | null>(null);
   const [teams, setTeams] = useState<Team[]>([]);
   const [players, setPlayers] = useState<Player[]>([]);
   const [teamName, setTeamName] = useState("");
   const [teamManager, setTeamManager] = useState("");
+  const [logoFile, setLogoFile] = useState<File | null>(null);
+  const [logoPreview, setLogoPreview] = useState<string | null>(null);
+  const [logoError, setLogoError] = useState<string | null>(null);
   const [creatingTeam, setCreatingTeam] = useState(false);
-  const [assigningCaptain, setAssigningCaptain] = useState<string | null>(null);
-  const [captainPrice, setCaptainPrice] = useState<Record<string, string>>({});
-  const [captainPlayer, setCaptainPlayer] = useState<Record<string, string>>({});
   const [error, setError] = useState<string | null>(null);
 
+  const [togglingRegistration, setTogglingRegistration] = useState(false);
+  const [lockingAuction, setLockingAuction] = useState(false);
+  const [selectedPlayerIds, setSelectedPlayerIds] = useState<Set<string>>(new Set());
+  const [deletingPlayers, setDeletingPlayers] = useState(false);
+  const [imageViewerOpen, setImageViewerOpen] = useState(false);
+  const [selectedImageUrl, setSelectedImageUrl] = useState<string | null>(null);
+  const [selectedImageTitle, setSelectedImageTitle] = useState("");
+
   useEffect(() => {
+    if (!auctionId) return;
     const load = async () => {
       const [{ data: auctionData, error: auctionError }, { data: teamData }, { data: playerData }] =
         await Promise.all([
@@ -545,13 +1065,39 @@ export default function ManageTeamsPage() {
       setError("Team name and manager are required.");
       return;
     }
+    if (!logoFile) {
+      setLogoError("Please upload a team logo.");
+      return;
+    }
     setCreatingTeam(true);
     setError(null);
+    setLogoError(null);
     try {
+      // Upload logo to team-logos bucket
+      const fileExt = logoFile.name.split('.').pop();
+      const fileName = `${auction.id}/${Date.now()}.${fileExt}`;
+      
+      const { error: uploadError } = await supabase.storage
+        .from("team-logos")
+        .upload(fileName, logoFile);
+
+      if (uploadError) {
+        setLogoError(`Logo upload failed: ${uploadError.message}`);
+        return;
+      }
+
+      // Get the public URL
+      const { data: urlData } = supabase.storage
+        .from("team-logos")
+        .getPublicUrl(fileName);
+      
+      const logoUrl = urlData?.publicUrl;
+
       const { error: insertError } = await supabase.from("teams").insert({
         auction_id: auction.id,
         name: teamName.trim(),
         manager: teamManager.trim(),
+        logo_url: logoUrl,
         purse_remaining: auction.settings.purse,
         slots_remaining: auction.settings.max_players,
       });
@@ -560,6 +1106,8 @@ export default function ManageTeamsPage() {
       } else {
         setTeamName("");
         setTeamManager("");
+        setLogoFile(null);
+        setLogoPreview(null);
         const { data: teamData } = await supabase.from("teams").select("*").eq("auction_id", auctionId);
         setTeams((teamData ?? []) as Team[]);
       }
@@ -568,40 +1116,82 @@ export default function ManageTeamsPage() {
     }
   };
 
-  const handleAssignCaptain = async (teamId: string) => {
-    const playerId = captainPlayer[teamId];
-    const priceStr = captainPrice[teamId];
-    if (!playerId || !priceStr) {
-      setError("Select a player and enter a price for each captain assignment.");
-      return;
-    }
-    const price = Number(priceStr);
-    setAssigningCaptain(teamId);
-    setError(null);
+  const handleToggleRegistration = async () => {
+    if (!auction) return;
+    setTogglingRegistration(true);
+    const newVal = !auction.is_registration_open;
     try {
-      const { error: rpcError } = await supabase.rpc("assign_captain", {
-        p_auction_id: auctionId,
-        p_team_id: teamId,
-        p_player_id: playerId,
-        p_price: price,
-      });
-      if (rpcError) {
-        setError(rpcError.message);
-      } else {
-        const [{ data: teamData }, { data: playerData }] = await Promise.all([
-          supabase.from("teams").select("*").eq("auction_id", auctionId),
-          supabase.from("players").select("*").eq("auction_id", auctionId),
-        ]);
-        setTeams((teamData ?? []) as Team[]);
-        setPlayers((playerData ?? []) as Player[]);
+      const { error: updateError } = await supabase
+        .from("auctions")
+        .update({ is_registration_open: newVal })
+        .eq("id", auctionId);
+      if (!updateError) {
+        setAuction((prev) => prev ? { ...prev, is_registration_open: newVal } : null);
       }
     } finally {
-      setAssigningCaptain(null);
+      setTogglingRegistration(false);
     }
   };
 
+  const handleTogglePlayerSelection = (playerId: string) => {
+    setSelectedPlayerIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(playerId)) next.delete(playerId);
+      else next.add(playerId);
+      return next;
+    });
+  };
+
+  const handleBatchDelete = async () => {
+    if (selectedPlayerIds.size === 0) return;
+    setDeletingPlayers(true);
+    try {
+      const { error: deleteError } = await supabase
+        .from("players")
+        .delete()
+        .in("id", Array.from(selectedPlayerIds));
+      if (!deleteError) {
+        setPlayers((prev) => prev.filter((p) => !selectedPlayerIds.has(p.id)));
+        setSelectedPlayerIds(new Set());
+      }
+    } finally {
+      setDeletingPlayers(false);
+    }
+  };
+
+  const handleLockAndProceed = async () => {
+    if (!auction) return;
+    setLockingAuction(true);
+    try {
+      // Close Registration and Set Status to Live
+      const { error: updateError } = await supabase
+        .from("auctions")
+        .update({
+          is_registration_open: false,
+          status: "live"
+        })
+        .eq("id", auctionId);
+
+      if (!updateError) {
+        router.push(`/admin/auction/${auction.id}`);
+      }
+    } finally {
+      setLockingAuction(false);
+    }
+  };
+
+  const farmIps = useMemo(() => {
+    const counts = players.reduce((acc, p) => {
+      if (p.ip_address) {
+        acc[p.ip_address] = (acc[p.ip_address] || 0) + 1;
+      }
+      return acc;
+    }, {} as Record<string, number>);
+    return new Set(Object.entries(counts).filter(([_, count]) => count > 1).map(([ip]) => ip));
+  }, [players]);
+
   if (!auction) {
-    return <div className="p-6 text-slate-50">Loading auction teams...</div>;
+    return <div className="p-6 text-slate-50">Loading Verification Hub...</div>;
   }
 
   return (
@@ -610,16 +1200,57 @@ export default function ManageTeamsPage() {
         <header className="flex flex-col justify-between gap-2 md:flex-row md:items-end">
           <div>
             <h1 className="text-2xl font-semibold tracking-tight md:text-3xl">
-              Teams &amp; Captains · {auction.name}
+              Verification Hub · {auction.name}
             </h1>
             <p className="text-sm text-slate-300">
-              Configure teams for this auction and assign one captain per team before starting the
-              live auction.
+              Verify registered participants and create teams. Lock participants to proceed to the Live Controller.
             </p>
+            <div className="mt-3 flex items-center gap-2 text-sm bg-slate-900/50 p-2 rounded-lg border border-slate-800 w-fit">
+              <span className="text-slate-400 font-medium">Registration Link:</span>
+              <code className="text-emerald-400 font-mono text-xs select-all">
+                {typeof window !== 'undefined' ? `${window.location.origin}/auction/${auction.id}` : ''}
+              </code>
+              <Button
+                size="sm"
+                variant="outline"
+                className="h-6 px-2 ml-2 border-slate-700 bg-slate-800 text-[10px] text-slate-300 hover:bg-slate-700 uppercase tracking-wider"
+                onClick={(e) => {
+                  navigator.clipboard.writeText(`${window.location.origin}/auction/${auction.id}`);
+                  const btn = e.currentTarget;
+                  const originalText = btn.innerText;
+                  btn.innerText = "Copied!";
+                  setTimeout(() => { btn.innerText = originalText; }, 2000);
+                }}
+              >
+                Copy Link
+              </Button>
+            </div>
           </div>
-          <Button variant="outline" size="sm" onClick={() => router.push(`/admin/auction/${auction.id}`)}>
-            Go to Auction Control
-          </Button>
+          <div className="flex items-center gap-3">
+            <Button
+              variant={auction.is_registration_open ? "destructive" : "secondary"}
+              size="sm"
+              onClick={handleToggleRegistration}
+              disabled={togglingRegistration}
+            >
+              {togglingRegistration
+                ? "Toggling..."
+                : auction.is_registration_open
+                  ? "Force Close Registration"
+                  : "Re-open Registration"}
+            </Button>
+            {auction.status === "upcoming" && (
+              <Button
+                variant="default"
+                size="sm"
+                onClick={handleLockAndProceed}
+                disabled={lockingAuction || players.length === 0 || teams.length === 0}
+                className="bg-emerald-600 hover:bg-emerald-500 text-white"
+              >
+                {lockingAuction ? "Locking..." : "Lock Participants & Proceed"}
+              </Button>
+            )}
+          </div>
         </header>
 
         <div className="grid gap-6 md:grid-cols-[2fr,3fr]">
@@ -650,6 +1281,15 @@ export default function ManageTeamsPage() {
                   className="bg-slate-950/80 text-slate-50"
                 />
               </div>
+              <ImageUploadField
+                label="Team Logo"
+                value={logoFile}
+                onChange={setLogoFile}
+                preview={logoPreview}
+                onPreviewChange={setLogoPreview}
+                error={logoError}
+                required
+              />
               <p className="text-xs text-slate-400">
                 Each new team starts with a purse of{" "}
                 <span className="font-semibold text-slate-100">
@@ -670,7 +1310,7 @@ export default function ManageTeamsPage() {
 
           <Card className="border-slate-800 bg-slate-900/70 p-5 shadow-xl shadow-black/60">
             <h2 className="mb-3 text-sm font-semibold uppercase tracking-[0.18em] text-slate-400">
-              Teams &amp; Captains
+              Verified Teams
             </h2>
             {teams.length === 0 ? (
               <p className="text-sm text-slate-400">
@@ -679,8 +1319,6 @@ export default function ManageTeamsPage() {
             ) : (
               <div className="space-y-3 text-sm">
                 {teams.map((team) => {
-                  const captain = players.find((p) => p.id === team.captain_id);
-                  const hasCaptain = Boolean(captain);
                   return (
                     <div
                       key={team.id}
@@ -705,73 +1343,8 @@ export default function ManageTeamsPage() {
                           </div>
                         </div>
                       </div>
-                      <div className="mt-3 border-t border-slate-800 pt-3 text-xs">
-                        {hasCaptain ? (
-                          <div className="flex items-center justify-between">
-                            <div>
-                              <div className="text-slate-300">
-                                Captain:{" "}
-                                <span className="font-semibold text-slate-50">
-                                  {captain?.name}
-                                </span>{" "}
-                                ({captain?.role})
-                              </div>
-                              <div className="text-slate-400">
-                                Price:{" "}
-                                <span className="font-semibold">
-                                  {captain?.sold_price?.toLocaleString("en-IN")}
-                                </span>
-                              </div>
-                            </div>
-                            <span className="rounded-full bg-emerald-600/20 px-3 py-0.5 text-[11px] font-semibold text-emerald-300">
-                              Captain Assigned
-                            </span>
-                          </div>
-                        ) : (
-                          <div className="grid gap-2 md:grid-cols-[2fr,1fr,auto] md:items-end">
-                            <div className="space-y-1">
-                              <Label className="text-slate-100 text-xs">Select Captain</Label>
-                              <select
-                                value={captainPlayer[team.id] ?? ""}
-                                onChange={(e) =>
-                                  setCaptainPlayer((prev) => ({
-                                    ...prev,
-                                    [team.id]: e.target.value,
-                                  }))
-                                }
-                                className="w-full rounded-md border border-slate-700 bg-slate-950/80 px-3 py-2 text-xs text-slate-50 outline-none focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500"
-                              >
-                                <option value="">Choose upcoming player</option>
-                                {upcomingPlayers.map((p) => (
-                                  <option key={p.id} value={p.id}>
-                                    {p.name} · {p.role}
-                                  </option>
-                                ))}
-                              </select>
-                            </div>
-                            <div className="space-y-1">
-                              <Label className="text-slate-100 text-xs">Captain Price</Label>
-                              <Input
-                                type="number"
-                                value={captainPrice[team.id] ?? ""}
-                                onChange={(e) =>
-                                  setCaptainPrice((prev) => ({
-                                    ...prev,
-                                    [team.id]: e.target.value,
-                                  }))
-                                }
-                                className="bg-slate-950/80 text-slate-50"
-                              />
-                            </div>
-                            <Button
-                              size="sm"
-                              disabled={assigningCaptain === team.id}
-                              onClick={() => handleAssignCaptain(team.id)}
-                            >
-                              {assigningCaptain === team.id ? "Assigning..." : "Assign Captain"}
-                            </Button>
-                          </div>
-                        )}
+                      <div className="mt-3 border-t border-slate-800 pt-3 text-xs text-slate-400 italic text-center">
+                        Captain matching will be performed in the Live Control portal.
                       </div>
                     </div>
                   );
@@ -780,9 +1353,502 @@ export default function ManageTeamsPage() {
             )}
           </Card>
         </div>
+
+        {/* Registered Players Cleanup UI */}
+        <Card className="border-slate-800 bg-slate-900/70 p-5 shadow-xl shadow-black/60">
+          <div className="mb-4 flex flex-col justify-between gap-3 md:flex-row md:items-end">
+            <div>
+              <h2 className="text-sm font-semibold uppercase tracking-[0.18em] text-slate-400">
+                Registered Players Cleanup
+              </h2>
+              <p className="text-xs text-slate-400 mt-1">
+                Select unwanted or duplicate players directly to remove them from the auction pool. Entries from the same IP are highlighted.
+              </p>
+            </div>
+            <Button
+              variant="destructive"
+              size="sm"
+              disabled={selectedPlayerIds.size === 0 || deletingPlayers}
+              onClick={handleBatchDelete}
+            >
+              {deletingPlayers ? "Deleting..." : `Delete Selected (${selectedPlayerIds.size})`}
+            </Button>
+          </div>
+
+          <div className="max-h-[400px] overflow-y-auto rounded-md border border-slate-800">
+            <table className="w-full text-left text-sm text-slate-300">
+              <thead className="sticky top-0 bg-slate-950 px-4 py-3 text-xs uppercase tracking-wider text-slate-400">
+                <tr>
+                  <th className="px-4 py-3 font-medium w-10">
+                    <input
+                      type="checkbox"
+                      className="rounded border-slate-700 bg-slate-900 accent-emerald-500"
+                      checked={players.length > 0 && selectedPlayerIds.size === players.length}
+                      onChange={(e) => {
+                        if (e.target.checked) {
+                          setSelectedPlayerIds(new Set(players.map((p) => p.id)));
+                        } else {
+                          setSelectedPlayerIds(new Set());
+                        }
+                      }}
+                    />
+                  </th>
+                  <th className="px-4 py-3 font-medium">Player Details</th>
+                  <th className="px-4 py-3 font-medium hidden sm:table-cell">Contact & Network</th>
+                  <th className="px-4 py-3 font-medium text-right">Status</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-slate-800/50">
+                {players.length === 0 ? (
+                  <tr>
+                    <td colSpan={4} className="px-4 py-8 text-center text-slate-500">
+                      No players registered yet.
+                    </td>
+                  </tr>
+                ) : (
+                  players.map((p) => {
+                    const isFarm = p.ip_address && farmIps.has(p.ip_address);
+                    const isSelected = selectedPlayerIds.has(p.id);
+                    return (
+                      <tr
+                        key={`player-row-${p.id}`}
+                        className={`transition-colors hover:bg-slate-800/30 ${isSelected ? "bg-slate-800/40" : ""
+                          }`}
+                      >
+                        <td className="px-4 py-3">
+                          <input
+                            type="checkbox"
+                            checked={isSelected}
+                            onChange={() => handleTogglePlayerSelection(p.id)}
+                            className="rounded border-slate-700 bg-slate-900 accent-emerald-500"
+                          />
+                        </td>
+                        <td className="px-4 py-3">
+                          <div className="font-medium text-slate-100">{p.name}</div>
+                          <div className="text-[10px] uppercase tracking-wider text-slate-500">{p.role}</div>
+                        </td>
+                        <td className="px-4 py-3 hidden sm:table-cell">
+                          <div className="text-xs text-slate-400">{p.phone_number || "No Phone"}</div>
+                          <div
+                            className={`mt-0.5 inline-block rounded px-1.5 py-0.5 text-[10px] uppercase font-medium ${isFarm
+                              ? "bg-amber-900/30 text-amber-400 ring-1 ring-amber-500/50"
+                              : "text-slate-500 bg-slate-900/50"
+                              }`}
+                          >
+                            IP: {p.ip_address || "Unknown"}
+                          </div>
+                        </td>
+                        <td className="px-4 py-3 text-right">
+                          <div className="flex items-center justify-end gap-2">
+                            {p.photo_url && (
+                              <Button
+                                size="sm"
+                                variant="outline"
+                                className="h-7 px-2 border-slate-700 bg-slate-800 text-[10px] text-slate-300 hover:bg-slate-700 uppercase tracking-wider"
+                                onClick={() => {
+                                  if (p.photo_url) {
+                                    setSelectedImageUrl(p.photo_url);
+                                    setSelectedImageTitle(p.name);
+                                    setImageViewerOpen(true);
+                                  }
+                                }}
+                              >
+                                👁 View
+                              </Button>
+                            )}
+                            <span
+                              className={`inline-block rounded-full px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wider ${p.status === "upcoming"
+                                ? "bg-blue-900/30 text-blue-400"
+                                : p.status === "sold"
+                                  ? "bg-emerald-900/30 text-emerald-400"
+                                  : "bg-slate-800 text-slate-400"
+                                }`}
+                            >
+                              {p.status}
+                            </span>
+                          </div>
+                        </td>
+                      </tr>
+                    );
+                  })
+                )}
+              </tbody>
+            </table>
+          </div>
+        </Card>
       </div>
+
+      {/* Image Viewer Modal */}
+      <ImageViewerModal
+        isOpen={imageViewerOpen}
+        onClose={() => setImageViewerOpen(false)}
+        imageUrl={selectedImageUrl || undefined}
+        title={selectedImageTitle}
+        subtitle="Player Photo Verification"
+      />
     </div>
   );
+}
+````
+
+## File: app/admin/auction/[id]/verify/page.tsx
+````typescript
+"use client";
+
+import { use, useEffect, useMemo, useState } from "react";
+import { useRouter } from "next/navigation";
+import { supabase } from "@/lib/supabase";
+import { Card } from "@/components/ui/card";
+import { Button } from "@/components/ui/button";
+import { Label } from "@/components/ui/label";
+import {
+    Users,
+    UserPlus,
+    CheckCircle2,
+    AlertCircle,
+    ArrowLeft,
+    ChevronRight,
+    UserCheck
+} from "lucide-react";
+
+type AuctionSettings = {
+    purse: number;
+    min_players: number;
+    max_players: number;
+    base_price: number;
+};
+
+type Auction = {
+    id: string;
+    name: string;
+    settings: AuctionSettings;
+    status: string;
+};
+
+type Team = {
+    id: string;
+    name: string;
+    manager: string;
+    purse_remaining: number;
+    slots_remaining: number;
+};
+
+type Player = {
+    id: string;
+    name: string;
+    role: string;
+    status: string;
+};
+
+export default function VerifyAuctionPage({ params }: { params: Promise<{ id: string }> }) {
+    const router = useRouter();
+    const { id: auctionId } = use(params);
+
+    const [auction, setAuction] = useState<Auction | null>(null);
+    const [teams, setTeams] = useState<Team[]>([]);
+    const [unsoldPlayers, setUnsoldPlayers] = useState<Player[]>([]);
+    const [loading, setLoading] = useState(true);
+    const [processing, setProcessing] = useState<string | null>(null);
+
+    const loadData = async () => {
+        setLoading(true);
+        const [
+            { data: auctionData },
+            { data: teamsData },
+            { data: playersData }
+        ] = await Promise.all([
+            supabase.from("auctions").select("*").eq("id", auctionId).single(),
+            supabase.from("teams").select("*").eq("auction_id", auctionId).order("name"),
+            supabase.from("players").select("*").eq("auction_id", auctionId).eq("status", "unsold").order("name")
+        ]);
+
+        if (auctionData) setAuction(auctionData as Auction);
+        if (teamsData) setTeams(teamsData as Team[]);
+        if (playersData) setUnsoldPlayers(playersData as Player[]);
+        setLoading(false);
+    };
+
+    useEffect(() => {
+        if (auctionId) loadData();
+    }, [auctionId]);
+
+    const allTeamsSatisfied = useMemo(() => {
+        if (!auction || teams.length === 0) return false;
+        const min = auction.settings.min_players;
+        const max = auction.settings.max_players;
+        return teams.every(t => (max - t.slots_remaining) >= min);
+    }, [auction, teams]);
+
+    const handleAssign = async (playerId: string, teamId: string) => {
+        const team = teams.find(t => t.id === teamId);
+        if (!team) return;
+
+        if (team.slots_remaining <= 0) {
+            alert("This team is already full!");
+            return;
+        }
+
+        if (team.purse_remaining < (auction?.settings.base_price || 0)) {
+            alert("This team does not have enough purse remaining!");
+            return;
+        }
+
+        setProcessing(`assign_${playerId}`);
+        try {
+            const { error } = await supabase.rpc("assign_unsold_player", {
+                p_player_id: playerId,
+                p_team_id: teamId
+            });
+
+            if (error) {
+                alert("Assignment failed: " + error.message);
+            } else {
+                await loadData();
+            }
+        } finally {
+            setProcessing(null);
+        }
+    };
+
+    const handleFinalize = async () => {
+        if (!allTeamsSatisfied) {
+            alert("All teams must meet the minimum player requirement before finalizing.");
+            return;
+        }
+
+        if (!window.confirm("Are you sure you want to permanently finalize this auction? This will take you back to the Admin Home.")) return;
+
+        setProcessing("finalize");
+        try {
+            const { error } = await supabase.rpc("end_auction", { p_auction_id: auctionId });
+            if (error) {
+                alert("Finalization failed: " + error.message);
+            } else {
+                router.push("/admin");
+            }
+        } finally {
+            setProcessing(null);
+        }
+    };
+
+    if (loading) {
+        return (
+            <div className="min-h-screen bg-slate-950 flex items-center justify-center">
+                <div className="flex flex-col items-center gap-4">
+                    <div className="h-12 w-12 rounded-full border-4 border-emerald-500/20 border-t-emerald-500 animate-spin" />
+                    <p className="text-slate-400 font-medium animate-pulse">Initializing Verification Hub...</p>
+                </div>
+            </div>
+        );
+    }
+
+    if (!auction) return null;
+
+    return (
+        <div className="min-h-screen bg-gradient-to-br from-slate-950 via-slate-900 to-slate-950 p-6 text-slate-50">
+            <div className="mx-auto max-w-7xl space-y-8">
+
+                {/* Header */}
+                <header className="flex flex-col items-start justify-between gap-4 md:flex-row md:items-center">
+                    <div className="space-y-1">
+                        <div className="flex items-center gap-2 text-slate-400 mb-2">
+                            <Button
+                                variant="ghost"
+                                size="sm"
+                                className="h-8 px-2 hover:bg-slate-800 text-slate-400 hover:text-slate-100"
+                                onClick={() => router.back()}
+                            >
+                                <ArrowLeft className="h-4 w-4 mr-1" /> Back to Auction
+                            </Button>
+                        </div>
+                        <h1 className="text-3xl font-bold tracking-tight bg-clip-text text-transparent bg-gradient-to-r from-emerald-400 to-teal-500">
+                            Slot Filling Phase
+                        </h1>
+                        <p className="text-slate-400 text-sm max-w-2xl leading-relaxed">
+                            Ensure all teams meet the mandatory minimum of {auction.settings.min_players} players.
+                            You can optionally fill up to {auction.settings.max_players} players if team purse allows.
+                        </p>
+                    </div>
+
+                    <div className="flex items-center gap-4">
+                        {!allTeamsSatisfied && (
+                            <div className="flex items-center bg-amber-500/10 text-amber-500 border border-amber-500/20 py-1.5 px-3 rounded-full text-xs font-semibold gap-2">
+                                <AlertCircle className="h-3.5 w-3.5" />
+                                Minimum Requirements Not Met
+                            </div>
+                        )}
+                        <Button
+                            size="lg"
+                            className={`font-bold transition-all duration-300 shadow-lg ${allTeamsSatisfied ? 'bg-emerald-600 hover:bg-emerald-500 shadow-emerald-900/40 text-white' : 'bg-slate-800 text-slate-500 cursor-not-allowed opacity-50'}`}
+                            disabled={!allTeamsSatisfied || processing === "finalize"}
+                            onClick={handleFinalize}
+                        >
+                            {processing === "finalize" ? "Finalizing..." : allTeamsSatisfied ? "Finalize Auction" : "Satisfy All Min Requirements"}
+                            <ChevronRight className="ml-2 h-4 w-4" />
+                        </Button>
+                    </div>
+                </header>
+
+                <div className="grid gap-8 lg:grid-cols-3">
+
+                    {/* Teams Status Section */}
+                    <div className="lg:col-span-2 space-y-6">
+                        <div className="flex items-center justify-between">
+                            <h2 className="text-sm font-semibold uppercase tracking-[0.2em] text-slate-500 flex items-center gap-2">
+                                <Users className="h-4 w-4" /> Team Roster Progress
+                            </h2>
+                        </div>
+
+                        <div className="grid gap-4 md:grid-cols-2">
+                            {teams.map((team) => {
+                                const count = auction.settings.max_players - team.slots_remaining;
+                                const isSatisfied = count >= auction.settings.min_players;
+
+                                return (
+                                    <Card key={team.id} className={`p-5 relative overflow-hidden border-slate-800 transition-all duration-300 ${isSatisfied ? 'bg-emerald-950/10 border-emerald-800/20' : 'bg-slate-900/40'}`}>
+                                        <div
+                                            className="absolute bottom-0 left-0 h-1 bg-gradient-to-r from-emerald-500 to-teal-600 transition-all duration-500"
+                                            style={{ width: `${(count / auction.settings.max_players) * 100}%` }}
+                                        />
+
+                                        <div className="flex justify-between items-start mb-4">
+                                            <div>
+                                                <h3 className="font-bold text-lg text-white mb-1">{team.name}</h3>
+                                                <p className="text-xs text-slate-500 uppercase tracking-wider">{team.manager}</p>
+                                            </div>
+                                            {isSatisfied ? (
+                                                <div className="h-8 w-8 rounded-full bg-emerald-500/20 flex items-center justify-center border border-emerald-500/30">
+                                                    <UserCheck className="h-4 w-4 text-emerald-500" />
+                                                </div>
+                                            ) : (
+                                                <div className="h-8 w-8 rounded-full bg-amber-500/20 flex items-center justify-center border border-amber-500/30">
+                                                    <Users className="h-4 w-4 text-amber-500" />
+                                                </div>
+                                            )}
+                                        </div>
+
+                                        <div className="grid grid-cols-2 gap-4 mb-4 text-sm">
+                                            <div className="space-y-1">
+                                                <span className="text-slate-500 text-xs block">Count</span>
+                                                <div className="flex items-baseline gap-1">
+                                                    <span className={`text-xl font-bold ${isSatisfied ? 'text-emerald-400' : 'text-amber-400'}`}>{count}</span>
+                                                    <span className="text-slate-600">/ {auction.settings.max_players}</span>
+                                                </div>
+                                            </div>
+                                            <div className="space-y-1">
+                                                <span className="text-slate-500 text-xs block">Remaining Purse</span>
+                                                <p className="text-white font-mono font-medium">₹{team.purse_remaining.toLocaleString("en-IN")}</p>
+                                            </div>
+                                        </div>
+
+                                        {!isSatisfied && (
+                                            <div className="flex items-center gap-2 p-2 rounded-lg bg-red-950/20 border border-red-500/20 mb-2">
+                                                <AlertCircle className="h-3.5 w-3.5 text-red-500" />
+                                                <span className="text-[10px] text-red-400 uppercase font-bold tracking-tight">Needs {auction.settings.min_players - count} more players</span>
+                                            </div>
+                                        )}
+
+                                        <div className="flex gap-2">
+                                            <Button
+                                                variant="secondary"
+                                                size="sm"
+                                                className="w-full h-8 text-xs bg-slate-800 hover:bg-slate-700 text-slate-300 border-slate-700"
+                                                onClick={() => router.push(`/admin/auction/${auctionId}/teams`)}
+                                            >
+                                                View Roster
+                                            </Button>
+                                        </div>
+                                    </Card>
+                                );
+                            })}
+                        </div>
+                    </div>
+
+                    {/* Unsold Players Section */}
+                    <div className="space-y-6">
+                        <div className="flex items-center justify-between">
+                            <h2 className="text-sm font-semibold uppercase tracking-[0.2em] text-slate-500 flex items-center gap-2">
+                                <UserPlus className="h-4 w-4" /> Unsold Pool ({unsoldPlayers.length})
+                            </h2>
+                        </div>
+
+                        <Card className="border-slate-800 bg-slate-900/60 p-2 shadow-2xl overflow-hidden flex flex-col max-h-[70vh]">
+                            <div className="overflow-y-auto pr-1 space-y-2 p-2 custom-scrollbar">
+                                {unsoldPlayers.length === 0 ? (
+                                    <div className="flex flex-col items-center justify-center py-12 text-center space-y-4">
+                                        <div className="h-16 w-16 rounded-full bg-slate-800/50 flex items-center justify-center">
+                                            <CheckCircle2 className="h-8 w-8 text-emerald-500/50" />
+                                        </div>
+                                        <div>
+                                            <h4 className="font-semibold text-slate-300">All Players Allocated</h4>
+                                            <p className="text-xs text-slate-500 mt-1">There are no more players in the unsold pool.</p>
+                                        </div>
+                                    </div>
+                                ) : (
+                                    unsoldPlayers.map((player) => (
+                                        <div key={player.id} className="p-3 rounded-lg border border-slate-800 bg-slate-950/40 hover:bg-slate-800/40 transition-all duration-200">
+                                            <div className="flex justify-between items-start gap-2 mb-3">
+                                                <div>
+                                                    <p className="font-bold text-white text-sm">{player.name}</p>
+                                                    <p className="text-[10px] uppercase tracking-wider text-slate-500">{player.role}</p>
+                                                </div>
+                                                <div className="px-2 py-0.5 rounded border border-slate-700 text-[9px] uppercase tracking-widest bg-slate-900 text-slate-400 h-5 flex items-center">
+                                                    Unsold
+                                                </div>
+                                            </div>
+
+                                            <div className="space-y-2">
+                                                <Label className="text-[10px] text-slate-500 uppercase tracking-widest font-bold">Quick Match to Team</Label>
+                                                <select
+                                                    className="w-full bg-slate-900 border border-slate-700 rounded-md py-1.5 px-2 text-xs text-slate-300 outline-none focus:ring-1 focus:ring-emerald-500 transition-all"
+                                                    onChange={(e) => {
+                                                        if (e.target.value) handleAssign(player.id, e.target.value);
+                                                        e.target.value = "";
+                                                    }}
+                                                    disabled={!!processing}
+                                                >
+                                                    <option value="">Choose a team...</option>
+                                                    {teams
+                                                        .filter(t => t.slots_remaining > 0 && t.purse_remaining >= (auction?.settings.base_price || 0))
+                                                        .map(t => (
+                                                            <option key={t.id} value={t.id}>
+                                                                {t.name} ({auction.settings.max_players - t.slots_remaining}/{auction.settings.max_players})
+                                                            </option>
+                                                        ))
+                                                    }
+                                                </select>
+                                            </div>
+                                        </div>
+                                    ))
+                                )}
+                            </div>
+                        </Card>
+
+                        <AlertCircle className="h-4 w-4 text-slate-600 inline mr-2" />
+                        <span className="text-xs text-slate-500 italic">
+                            Matching a player will deduct {auction.settings.base_price.toLocaleString("en-IN")} from the team purse.
+                        </span>
+                    </div>
+                </div>
+            </div>
+
+            <style jsx global>{`
+        .custom-scrollbar::-webkit-scrollbar {
+          width: 4px;
+        }
+        .custom-scrollbar::-webkit-scrollbar-track {
+          background: transparent;
+        }
+        .custom-scrollbar::-webkit-scrollbar-thumb {
+          background: #1e293b;
+          border-radius: 10px;
+        }
+        .custom-scrollbar::-webkit-scrollbar-thumb:hover {
+          background: #334155;
+        }
+      `}</style>
+        </div>
+    );
 }
 ````
 
@@ -884,6 +1950,7 @@ type Auction = {
     max_players: number;
     base_price: number;
     increment: number;
+    captain_base_price?: number;
   };
 };
 
@@ -897,6 +1964,7 @@ export default function AdminDashboardPage() {
   const [minPlayers, setMinPlayers] = useState("7");
   const [maxPlayers, setMaxPlayers] = useState("11");
   const [basePrice, setBasePrice] = useState("10");
+  const [captainBasePrice, setCaptainBasePrice] = useState("50");
   const [increment, setIncrement] = useState("5");
   const [creating, setCreating] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -939,6 +2007,36 @@ export default function AdminDashboardPage() {
     }
   }, [checkingAuth]);
 
+  useEffect(() => {
+    if (checkingAuth) return;
+
+    const channel = supabase
+      .channel("dashboard_auctions")
+      .on(
+        "postgres_changes",
+        { event: "*", schema: "public", table: "auctions" },
+        (payload) => {
+          if (payload.eventType === "UPDATE") {
+            const updated = payload.new as Auction;
+            setAuctions((prev) => prev.map((a) => (a.id === updated.id ? { ...a, ...updated } : a)));
+          } else if (payload.eventType === "INSERT") {
+            const newAuction = payload.new as Auction;
+            setAuctions((prev) => {
+              if (prev.some(a => a.id === newAuction.id)) return prev;
+              return [...prev, newAuction];
+            });
+          } else if (payload.eventType === "DELETE") {
+            setAuctions((prev) => prev.filter((a) => a.id !== payload.old.id));
+          }
+        }
+      )
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(channel);
+    };
+  }, [checkingAuth]);
+
   const handleCreateAuction = async (e: React.FormEvent) => {
     e.preventDefault();
     setCreating(true);
@@ -948,6 +2046,7 @@ export default function AdminDashboardPage() {
     const minVal = Number(minPlayers);
     const maxVal = Number(maxPlayers);
     const baseVal = Number(basePrice);
+    const captBaseVal = Number(captainBasePrice);
     const incVal = Number(increment);
 
     if (!name.trim()) {
@@ -967,6 +2066,7 @@ export default function AdminDashboardPage() {
           base_price: baseVal,
           increment: incVal,
         },
+        captain_base_price: captBaseVal,
       });
 
       if (insertError) {
@@ -1129,6 +2229,18 @@ export default function AdminDashboardPage() {
                   />
                 </div>
                 <div className="space-y-1">
+                  <Label htmlFor="captBasePrice" className="text-slate-100">
+                    Captain Base Price
+                  </Label>
+                  <Input
+                    id="captBasePrice"
+                    type="number"
+                    value={captainBasePrice}
+                    onChange={(e) => setCaptainBasePrice(e.target.value)}
+                    className="bg-slate-950/80 text-slate-50"
+                  />
+                </div>
+                <div className="space-y-1">
                   <Label htmlFor="increment" className="text-slate-100">
                     Bid Increment
                   </Label>
@@ -1191,34 +2303,36 @@ export default function AdminDashboardPage() {
                         </div>
                       </div>
                       <div className="flex flex-wrap gap-2">
-                        {canStart && (
+                        {auction.statusEffective === "upcoming" && (
                           <Button
                             size="sm"
                             variant="default"
-                            onClick={async () => {
-                              await supabase
-                                .from("auctions")
-                                .update({ status: "live" })
-                                .eq("id", auction.id);
-                              const { data } = await supabase
-                                .from("auctions")
-                                .select("id, name, sport_type, status, settings");
-                              setAuctions((data ?? []) as Auction[]);
-                            }}
+                            onClick={() => router.push(`/admin/auction/${auction.id}/teams`)}
                           >
-                            Start Auction
+                            Verify & Teams
                           </Button>
                         )}
-                        <Link href={`/admin/auction/${auction.id}/teams`}>
-                          <Button size="sm" variant="outline">
-                            Manage Teams
-                          </Button>
-                        </Link>
-                        <Link href={`/admin/auction/${auction.id}`}>
-                          <Button size="sm" variant="ghost">
-                            Open Controller
-                          </Button>
-                        </Link>
+                        {auction.statusEffective === "live" && (
+                          <Link href={`/admin/auction/${auction.id}/teams`}>
+                            <Button size="sm" variant="outline">
+                              Verify & Teams
+                            </Button>
+                          </Link>
+                        )}
+                        {auction.statusEffective === "live" && (
+                          <Link href={`/admin/auction/${auction.id}`}>
+                            <Button size="sm" variant="outline" className="text-emerald-400 border-emerald-900/50 hover:bg-emerald-950/50">
+                              Open Controller
+                            </Button>
+                          </Link>
+                        )}
+                        {auction.statusEffective === "completed" && (
+                          <Link href={`/admin/auction/${auction.id}`}>
+                            <Button size="sm" variant="default" className="bg-amber-600 hover:bg-amber-500 text-amber-50">
+                              View Squads
+                            </Button>
+                          </Link>
+                        )}
                         <Button
                           size="sm"
                           variant="secondary"
@@ -1249,13 +2363,14 @@ export default function AdminDashboardPage() {
 ````typescript
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
-import { useParams, useRouter } from "next/navigation";
+import { use, useEffect, useMemo, useState } from "react";
+import { useRouter } from "next/navigation";
 import { supabase } from "@/lib/supabase";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { ImageUploadField } from "@/components/ImageUploadField";
 
 type AuctionSettings = {
   purse: number;
@@ -1269,6 +2384,8 @@ type Auction = {
   id: string;
   name: string;
   sport_type: "football" | "cricket";
+  is_registration_open: boolean;
+  status: "upcoming" | "live" | "completed";
   settings: AuctionSettings;
 };
 
@@ -1277,25 +2394,40 @@ type Player = {
   auction_id: string;
   name: string;
   role: string;
+  photo_url?: string;
   status: "upcoming" | "live" | "sold" | "unsold";
   sold_price: number | null;
   sold_team_id: string | null;
 };
 
-export default function AuctionDetailPage() {
+export default function AuctionDetailPage({ params }: { params: Promise<{ id: string }> }) {
   const router = useRouter();
-  const params = useParams<{ id: string }>();
-  const auctionId = params?.id as string;
+  const { id: auctionId } = use(params);
 
   const [auction, setAuction] = useState<Auction | null>(null);
   const [players, setPlayers] = useState<Player[]>([]);
   const [name, setName] = useState("");
   const [role, setRole] = useState("");
+  const [phoneNumber, setPhoneNumber] = useState("");
+  const [photoFile, setPhotoFile] = useState<File | null>(null);
+  const [photoPreview, setPhotoPreview] = useState<string | null>(null);
+  const [photoError, setPhotoError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
+  const [hasRegistered, setHasRegistered] = useState(false);
 
   useEffect(() => {
+    if (typeof window !== "undefined") {
+      const lockData = window.localStorage.getItem(`registered_${auctionId}`);
+      if (lockData === "true") {
+        setHasRegistered(true);
+      }
+    }
+  }, [auctionId]);
+
+  useEffect(() => {
+    if (!auctionId) return;
     const load = async () => {
       const [{ data: auctionData, error: auctionError }, { data: playersData }] = await Promise.all([
         supabase.from("auctions").select("*").eq("id", auctionId).single(),
@@ -1314,6 +2446,33 @@ export default function AuctionDetailPage() {
     load();
   }, [auctionId, router]);
 
+  useEffect(() => {
+    if (!auctionId) return;
+    const channel = supabase
+      .channel(`public_auction_${auctionId}`)
+      .on(
+        "postgres_changes",
+        { event: "UPDATE", schema: "public", table: "auctions", filter: `id=eq.${auctionId}` },
+        (payload) => {
+          if (payload.new) setAuction(payload.new as Auction);
+        }
+      )
+      .on(
+        "postgres_changes",
+        { event: "*", schema: "public", table: "players", filter: `auction_id=eq.${auctionId}` },
+        () => {
+          supabase.from("players").select("*").eq("auction_id", auctionId).then(({ data }) => {
+            if (data) setPlayers(data as Player[]);
+          });
+        }
+      )
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(channel);
+    };
+  }, [auctionId]);
+
   const roleOptions = useMemo(() => {
     if (!auction) return [];
     if (auction.sport_type === "football") {
@@ -1325,29 +2484,77 @@ export default function AuctionDetailPage() {
   const handleRegister = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!auction) return;
-    if (!name.trim() || !role) {
-      setError("Please enter your name and select a role.");
+    if (!name.trim() || !role || !phoneNumber.trim()) {
+      setError("Please fill out all required fields.");
       setSuccess(null);
+      return;
+    }
+    if (!photoFile) {
+      setPhotoError("Please upload a player photo.");
       return;
     }
 
     setSubmitting(true);
     setError(null);
     setSuccess(null);
+    setPhotoError(null);
+    
     try {
+      // Upload photo to player-photos bucket
+      const fileExt = photoFile.name.split('.').pop();
+      const fileName = `${auction.id}/${Date.now()}.${fileExt}`;
+      
+      const { error: uploadError } = await supabase.storage
+        .from("player-photos")
+        .upload(fileName, photoFile);
+
+      if (uploadError) {
+        setPhotoError(`Photo upload failed: ${uploadError.message}`);
+        return;
+      }
+
+      // Get the public URL
+      const { data: urlData } = supabase.storage
+        .from("player-photos")
+        .getPublicUrl(fileName);
+      
+      const photoUrl = urlData?.publicUrl;
+
+      let ipAddress = null;
+      try {
+        const ipReq = await fetch("https://api.ipify.org?format=json");
+        const ipData = await ipReq.json();
+        ipAddress = ipData.ip;
+      } catch (err) {
+        console.warn("Could not fetch IP", err);
+      }
+
       const { error: insertError } = await supabase.from("players").insert({
         auction_id: auction.id,
         name: name.trim(),
         role,
-        // status defaults to 'upcoming' from DB enum
+        phone_number: phoneNumber.trim(),
+        ip_address: ipAddress,
+        photo_url: photoUrl,
       });
 
       if (insertError) {
-        setError(insertError.message);
+        if (insertError.code === "23505" || insertError.message.includes("unique")) {
+          setError("A registration with this phone number already exists.");
+        } else {
+          setError(insertError.message);
+        }
       } else {
         setSuccess("Registration submitted successfully.");
         setName("");
         setRole("");
+        setPhoneNumber("");
+        setPhotoFile(null);
+        setPhotoPreview(null);
+        if (typeof window !== "undefined") {
+          window.localStorage.setItem(`registered_${auctionId}`, "true");
+        }
+        setHasRegistered(true);
         const { data: playersData } = await supabase
           .from("players")
           .select("*")
@@ -1368,15 +2575,49 @@ export default function AuctionDetailPage() {
   return (
     <div className="min-h-screen bg-gradient-to-br from-slate-950 via-slate-900 to-slate-950 px-6 py-10 text-slate-50">
       <div className="mx-auto flex max-w-6xl flex-col gap-6">
+        <div className="mb-2">
+          <Button
+            variant="ghost"
+            size="sm"
+            className="text-slate-400 hover:text-slate-100 hover:bg-slate-800/50 -ml-2"
+            onClick={() => router.push("/")}
+          >
+            ← Back to Home
+          </Button>
+        </div>
         <header className="flex flex-col justify-between gap-2 md:flex-row md:items-end">
           <div>
-            <h1 className="text-2xl font-semibold tracking-tight md:text-3xl">
-              {auction.name}
-            </h1>
+            <div className="flex items-center gap-3">
+              <h1 className="text-2xl font-semibold tracking-tight md:text-3xl">
+                {auction.name}
+              </h1>
+              {auction.status === "live" && (
+                <span className="flex items-center gap-1.5 rounded-full bg-rose-500/20 px-3 py-1 text-xs font-bold uppercase tracking-wider text-rose-400 ring-1 ring-rose-500/30">
+                  <span className="relative flex h-2 w-2">
+                    <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-rose-400 opacity-75"></span>
+                    <span className="relative inline-flex h-2 w-2 rounded-full bg-rose-500"></span>
+                  </span>
+                  Live
+                </span>
+              )}
+              {auction.status === "completed" && (
+                <span className="bg-emerald-500/10 text-emerald-500 text-[10px] uppercase font-bold tracking-widest px-2 py-0.5 rounded border border-emerald-500/20">
+                  Concluded
+                </span>
+              )}
+            </div>
             <p className="text-sm text-slate-300">
               Auction for {auction.sport_type === "football" ? "Football" : "Cricket"} players.
             </p>
           </div>
+          {auction.status === "live" && (
+            <Button
+              onClick={() => router.push(`/live/${auctionId}`)}
+              className="bg-emerald-600 hover:bg-emerald-500 text-white shadow-lg shadow-emerald-900/20 animate-bounce"
+            >
+              JOIN LIVE AUCTION
+            </Button>
+          )}
         </header>
 
         <div className="grid gap-6 md:grid-cols-[3fr,2fr]">
@@ -1414,43 +2655,85 @@ export default function AuctionDetailPage() {
             <h2 className="mb-3 text-sm font-semibold uppercase tracking-[0.18em] text-slate-400">
               Register for this Auction
             </h2>
-            <form className="space-y-4" onSubmit={handleRegister}>
-              <div className="space-y-1">
-                <Label htmlFor="name">Name</Label>
-                <Input
-                  id="name"
-                  value={name}
-                  onChange={(e) => setName(e.target.value)}
-                  placeholder="Enter your name"
-                  className="bg-slate-950/80"
-                />
-              </div>
-              <div className="space-y-1">
-                <Label htmlFor="role">Role</Label>
-                <select
-                  id="role"
-                  value={role}
-                  onChange={(e) => setRole(e.target.value)}
-                  className="w-full rounded-md border border-slate-700 bg-slate-950/80 px-3 py-2 text-sm outline-none focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500"
+            {auction.status === "completed" ? (
+              <div className="flex flex-col h-40 items-center justify-center rounded-lg border border-emerald-900/50 bg-emerald-900/10 px-4 text-center space-y-3">
+                <div className="text-sm font-medium text-emerald-400">This auction has concluded.</div>
+                <Button
+                  size="sm"
+                  variant="outline"
+                  className="border-emerald-500/30 hover:bg-emerald-950/50 text-emerald-300"
+                  onClick={() => router.push(`/live/${auctionId}`)}
                 >
-                  <option value="">Select role</option>
-                  {roleOptions.map((r) => (
-                    <option key={r} value={r}>
-                      {r}
-                    </option>
-                  ))}
-                </select>
+                  View Final Rosters
+                </Button>
               </div>
-              <div className="text-xs text-slate-400">
-                Upcoming players registered here will enter the{" "}
-                <span className="font-medium text-slate-200">upcoming pool</span> for the auction.
+            ) : hasRegistered ? (
+              <div className="flex h-32 items-center justify-center rounded-lg border border-emerald-900/50 bg-emerald-900/20 px-4 text-center text-sm font-medium text-emerald-400">
+                You have already submitted a registration for this auction.
               </div>
-              {error && <p className="text-xs text-rose-400">{error}</p>}
-              {success && <p className="text-xs text-emerald-400">{success}</p>}
-              <Button type="submit" disabled={submitting}>
-                {submitting ? "Submitting..." : "Register"}
-              </Button>
-            </form>
+            ) : !auction.is_registration_open ? (
+              <div className="flex h-32 items-center justify-center rounded-lg border border-amber-900/50 bg-amber-900/20 px-4 text-center text-sm font-medium text-amber-400">
+                Registration is currently closed.
+              </div>
+            ) : (
+              <form className="space-y-4" onSubmit={handleRegister}>
+                <div className="space-y-1">
+                  <Label htmlFor="name">Name</Label>
+                  <Input
+                    id="name"
+                    value={name}
+                    onChange={(e) => setName(e.target.value)}
+                    placeholder="Enter your name"
+                    className="bg-slate-950/80"
+                  />
+                </div>
+                <div className="space-y-1">
+                  <Label htmlFor="phoneNumber">Phone Number</Label>
+                  <Input
+                    id="phoneNumber"
+                    type="tel"
+                    value={phoneNumber}
+                    onChange={(e) => setPhoneNumber(e.target.value)}
+                    placeholder="Enter your phone number"
+                    className="bg-slate-950/80"
+                  />
+                </div>
+                <div className="space-y-1">
+                  <Label htmlFor="role">Role</Label>
+                  <select
+                    id="role"
+                    value={role}
+                    onChange={(e) => setRole(e.target.value)}
+                    className="w-full rounded-md border border-slate-700 bg-slate-950/80 px-3 py-2 text-sm outline-none focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500"
+                  >
+                    <option value="">Select role</option>
+                    {roleOptions.map((r) => (
+                      <option key={r} value={r}>
+                        {r}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+                <ImageUploadField
+                  label="Player Photo"
+                  value={photoFile}
+                  onChange={setPhotoFile}
+                  preview={photoPreview}
+                  onPreviewChange={setPhotoPreview}
+                  error={photoError}
+                  required
+                />
+                <div className="text-xs text-slate-400">
+                  Upcoming players registered here will enter the{" "}
+                  <span className="font-medium text-slate-200">upcoming pool</span> for the auction.
+                </div>
+                {error && <p className="text-xs text-rose-400">{error}</p>}
+                {success && <p className="text-xs text-emerald-400">{success}</p>}
+                <Button type="submit" disabled={submitting}>
+                  {submitting ? "Submitting..." : "Register"}
+                </Button>
+              </form>
+            )}
 
             {upcomingPlayers.length > 0 && (
               <p className="mt-4 text-xs text-slate-400">
@@ -1470,15 +2753,186 @@ export default function AuctionDetailPage() {
 }
 ````
 
+## File: app/globals.css
+````css
+@import "tailwindcss";
+@import "tw-animate-css";
+@import "shadcn/tailwind.css";
+
+@custom-variant dark (&:is(.dark *));
+
+@theme inline {
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --font-sans: var(--font-geist-sans);
+  --font-mono: var(--font-geist-mono);
+  --color-sidebar-ring: var(--sidebar-ring);
+  --color-sidebar-border: var(--sidebar-border);
+  --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
+  --color-sidebar-accent: var(--sidebar-accent);
+  --color-sidebar-primary-foreground: var(--sidebar-primary-foreground);
+  --color-sidebar-primary: var(--sidebar-primary);
+  --color-sidebar-foreground: var(--sidebar-foreground);
+  --color-sidebar: var(--sidebar);
+  --color-chart-5: var(--chart-5);
+  --color-chart-4: var(--chart-4);
+  --color-chart-3: var(--chart-3);
+  --color-chart-2: var(--chart-2);
+  --color-chart-1: var(--chart-1);
+  --color-ring: var(--ring);
+  --color-input: var(--input);
+  --color-border: var(--border);
+  --color-destructive: var(--destructive);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-accent: var(--accent);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-muted: var(--muted);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-secondary: var(--secondary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-primary: var(--primary);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-popover: var(--popover);
+  --color-card-foreground: var(--card-foreground);
+  --color-card: var(--card);
+  --radius-sm: calc(var(--radius) - 4px);
+  --radius-md: calc(var(--radius) - 2px);
+  --radius-lg: var(--radius);
+  --radius-xl: calc(var(--radius) + 4px);
+  --radius-2xl: calc(var(--radius) + 8px);
+  --radius-3xl: calc(var(--radius) + 12px);
+  --radius-4xl: calc(var(--radius) + 16px);
+}
+
+:root {
+  --radius: 0.625rem;
+  --background: oklch(1 0 0);
+  --foreground: oklch(0.13 0.028 261.692);
+  --card: oklch(1 0 0);
+  --card-foreground: oklch(0.13 0.028 261.692);
+  --popover: oklch(1 0 0);
+  --popover-foreground: oklch(0.13 0.028 261.692);
+  --primary: oklch(0.21 0.034 264.665);
+  --primary-foreground: oklch(0.985 0.002 247.839);
+  --secondary: oklch(0.967 0.003 264.542);
+  --secondary-foreground: oklch(0.21 0.034 264.665);
+  --muted: oklch(0.967 0.003 264.542);
+  --muted-foreground: oklch(0.551 0.027 264.364);
+  --accent: oklch(0.967 0.003 264.542);
+  --accent-foreground: oklch(0.21 0.034 264.665);
+  --destructive: oklch(0.577 0.245 27.325);
+  --border: oklch(0.928 0.006 264.531);
+  --input: oklch(0.928 0.006 264.531);
+  --ring: oklch(0.707 0.022 261.325);
+  --chart-1: oklch(0.646 0.222 41.116);
+  --chart-2: oklch(0.6 0.118 184.704);
+  --chart-3: oklch(0.398 0.07 227.392);
+  --chart-4: oklch(0.828 0.189 84.429);
+  --chart-5: oklch(0.769 0.188 70.08);
+  --sidebar: oklch(0.985 0.002 247.839);
+  --sidebar-foreground: oklch(0.13 0.028 261.692);
+  --sidebar-primary: oklch(0.21 0.034 264.665);
+  --sidebar-primary-foreground: oklch(0.985 0.002 247.839);
+  --sidebar-accent: oklch(0.967 0.003 264.542);
+  --sidebar-accent-foreground: oklch(0.21 0.034 264.665);
+  --sidebar-border: oklch(0.928 0.006 264.531);
+  --sidebar-ring: oklch(0.707 0.022 261.325);
+}
+
+.dark {
+  --background: oklch(0.13 0.028 261.692);
+  --foreground: oklch(0.985 0.002 247.839);
+  --card: oklch(0.21 0.034 264.665);
+  --card-foreground: oklch(0.985 0.002 247.839);
+  --popover: oklch(0.21 0.034 264.665);
+  --popover-foreground: oklch(0.985 0.002 247.839);
+  --primary: oklch(0.928 0.006 264.531);
+  --primary-foreground: oklch(0.21 0.034 264.665);
+  --secondary: oklch(0.278 0.033 256.848);
+  --secondary-foreground: oklch(0.985 0.002 247.839);
+  --muted: oklch(0.278 0.033 256.848);
+  --muted-foreground: oklch(0.707 0.022 261.325);
+  --accent: oklch(0.278 0.033 256.848);
+  --accent-foreground: oklch(0.985 0.002 247.839);
+  --destructive: oklch(0.704 0.191 22.216);
+  --border: oklch(1 0 0 / 10%);
+  --input: oklch(1 0 0 / 15%);
+  --ring: oklch(0.551 0.027 264.364);
+  --chart-1: oklch(0.488 0.243 264.376);
+  --chart-2: oklch(0.696 0.17 162.48);
+  --chart-3: oklch(0.769 0.188 70.08);
+  --chart-4: oklch(0.627 0.265 303.9);
+  --chart-5: oklch(0.645 0.246 16.439);
+  --sidebar: oklch(0.21 0.034 264.665);
+  --sidebar-foreground: oklch(0.985 0.002 247.839);
+  --sidebar-primary: oklch(0.488 0.243 264.376);
+  --sidebar-primary-foreground: oklch(0.985 0.002 247.839);
+  --sidebar-accent: oklch(0.278 0.033 256.848);
+  --sidebar-accent-foreground: oklch(0.985 0.002 247.839);
+  --sidebar-border: oklch(1 0 0 / 10%);
+  --sidebar-ring: oklch(0.551 0.027 264.364);
+}
+
+@layer base {
+  * {
+    @apply border-border outline-ring/50;
+  }
+  body {
+    @apply bg-background text-foreground;
+  }
+}
+````
+
+## File: app/layout.tsx
+````typescript
+import type { Metadata } from "next";
+import { Geist, Geist_Mono } from "next/font/google";
+import "./globals.css";
+
+const geistSans = Geist({
+  variable: "--font-geist-sans",
+  subsets: ["latin"],
+});
+
+const geistMono = Geist_Mono({
+  variable: "--font-geist-mono",
+  subsets: ["latin"],
+});
+
+export const metadata: Metadata = {
+  title: "Create Next App",
+  description: "Generated by create next app",
+};
+
+export default function RootLayout({
+  children,
+}: Readonly<{
+  children: React.ReactNode;
+}>) {
+  return (
+    <html lang="en" className="dark">
+      <body
+        className={`${geistSans.variable} ${geistMono.variable} antialiased`}
+      >
+        {children}
+      </body>
+    </html>
+  );
+}
+````
+
 ## File: app/live/[id]/page.tsx
 ````typescript
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
-import { useParams } from "next/navigation";
+import { useRouter } from "next/navigation";
+import { use, useEffect, useMemo, useState } from "react";
 import { supabase } from "@/lib/supabase";
 import { Card } from "@/components/ui/card";
+import { Button } from "@/components/ui/button";
 import { motion, AnimatePresence } from "framer-motion";
+import { PlayerAvatar } from "@/components/PlayerAvatar";
+import { TeamLogo } from "@/components/TeamLogo";
 
 type AuctionSettings = {
   purse: number;
@@ -1501,6 +2955,7 @@ type Team = {
   auction_id: string;
   name: string;
   manager: string;
+  logo_url?: string;
   purse_remaining: number;
   slots_remaining: number;
   captain_id: string | null;
@@ -1511,9 +2966,11 @@ type Player = {
   auction_id: string;
   name: string;
   role: string;
+  photo_url?: string;
   status: "upcoming" | "live" | "sold" | "unsold";
   sold_price: number | null;
   sold_team_id: string | null;
+  is_captain?: boolean;
 };
 
 type AuctionState = {
@@ -1523,11 +2980,14 @@ type AuctionState = {
   current_bid: number | null;
   leading_team_id: string | null;
   phase: string;
+  show_undo_notice?: boolean;
 };
 
-export default function LiveAuctionPage() {
-  const params = useParams<{ id: string }>();
-  const auctionId = params?.id as string;
+import ConsolidatedTeamRoster from "@/components/ConsolidatedTeamRoster";
+
+export default function LiveAuctionPage({ params }: { params: Promise<{ id: string }> }) {
+  const router = useRouter();
+  const { id: auctionId } = use(params);
 
   const [auction, setAuction] = useState<Auction | null>(null);
   const [teams, setTeams] = useState<Team[]>([]);
@@ -1535,6 +2995,7 @@ export default function LiveAuctionPage() {
   const [state, setState] = useState<AuctionState | null>(null);
 
   useEffect(() => {
+    if (!auctionId) return;
     const loadInitial = async () => {
       const [{ data: auctionData }, { data: teamsData }, { data: playersData }, { data: stateData }] =
         await Promise.all([
@@ -1554,6 +3015,7 @@ export default function LiveAuctionPage() {
   }, [auctionId]);
 
   useEffect(() => {
+    if (!auctionId) return;
     const channel = supabase
       .channel("auction")
       .on(
@@ -1581,6 +3043,13 @@ export default function LiveAuctionPage() {
           });
         },
       )
+      .on(
+        "postgres_changes",
+        { event: "*", schema: "public", table: "auctions", filter: `id=eq.${auctionId}` },
+        (payload) => {
+          if (payload.new) setAuction(payload.new as Auction);
+        },
+      )
       .subscribe();
 
     return () => {
@@ -1602,10 +3071,42 @@ export default function LiveAuctionPage() {
     return <div className="p-6 text-lg text-slate-50">Loading live auction...</div>;
   }
 
-  if (auction.status !== "live") {
+  if (auction.status === "upcoming") {
     return (
       <div className="p-6 text-lg text-slate-50">
         This auction is not live yet. Please wait for the administrator to start the auction.
+      </div>
+    );
+  }
+
+  // --- COMPLETED AUCTION POST-MORTEM VIEW ---
+  if (auction.status === "completed") {
+    return (
+      <div className="min-h-screen bg-slate-950 flex flex-col animate-in fade-in duration-700">
+        <div className="p-4 border-b border-slate-800 bg-slate-900/50 flex justify-between items-center backdrop-blur-sm sticky top-0 z-50">
+          <div className="flex items-center gap-4">
+            <h1 className="text-2xl font-black tracking-tight text-white italic">
+              {auction.name.toUpperCase()} <span className="text-emerald-500 ml-2">CONCLUDED</span>
+            </h1>
+          </div>
+          <Button
+            variant="default"
+            size="sm"
+            className="bg-emerald-600 hover:bg-emerald-500 text-white font-bold gap-2 px-6 shadow-lg shadow-emerald-900/40"
+            onClick={() => router.push("/")}
+          >
+            ← RETURN TO HOME
+          </Button>
+        </div>
+        <div className="flex-1 overflow-auto bg-[radial-gradient(circle_at_top,_#1e293b_0%,_#020617_100%)]">
+          <div className="max-w-7xl mx-auto py-8 px-4">
+            <div className="mb-8 text-center">
+              <h2 className="text-4xl font-black text-slate-100 tracking-tighter mb-2">FINAL TEAM ROSTERS</h2>
+              <div className="h-1 w-24 bg-emerald-500 mx-auto rounded-full" />
+            </div>
+            <ConsolidatedTeamRoster auction={auction} teams={teams} players={players} />
+          </div>
+        </div>
       </div>
     );
   }
@@ -1615,69 +3116,253 @@ export default function LiveAuctionPage() {
       <div className="mx-auto grid max-w-6xl gap-6 md:grid-cols-[3fr,2fr]">
         <Card className="relative flex h-[340px] items-center justify-center overflow-hidden border-slate-800 bg-slate-900/70 p-6 shadow-2xl shadow-black/60">
           <div className="absolute inset-0 bg-[radial-gradient(circle_at_top,_#22c55e22,_transparent_55%)]" />
-          <div className="relative z-10 flex w-full flex-col items-center justify-center text-center">
-            <div className="mb-3 text-xs font-semibold uppercase tracking-[0.25em] text-emerald-300/90">
-              Live Player
-            </div>
-            <AnimatePresence mode="wait">
+
+          <AnimatePresence>
+            {state?.show_undo_notice && (
               <motion.div
-                key={currentPlayer?.id ?? "empty"}
-                initial={{ opacity: 0, y: 30, scale: 0.95 }}
-                animate={{ opacity: 1, y: 0, scale: 1 }}
-                exit={{ opacity: 0, y: -20, scale: 0.96 }}
-                transition={{ duration: 0.35 }}
-                className="w-full"
+                initial={{ opacity: 0, scale: 0.8 }}
+                animate={{ opacity: 1, scale: 1 }}
+                exit={{ opacity: 0, scale: 1.1 }}
+                className="absolute inset-0 z-50 flex flex-col items-center justify-center bg-slate-950/90 text-center p-6"
               >
-                {currentPlayer ? (
-                  <>
-                    <div className="text-3xl font-semibold tracking-tight md:text-4xl">
-                      {currentPlayer.name}
-                    </div>
-                    <div className="mt-1 text-sm uppercase tracking-[0.25em] text-emerald-200/90">
-                      {currentPlayer.role}
-                    </div>
-                    <div className="mt-6 grid grid-cols-2 gap-4 text-left text-sm md:grid-cols-4">
-                      <div className="rounded-lg bg-slate-900/80 px-3 py-2">
-                        <div className="text-[10px] uppercase text-slate-400">Base Price</div>
-                        <div className="text-lg font-semibold">
-                          {auction.settings.base_price.toLocaleString("en-IN")}
-                        </div>
-                      </div>
-                      <div className="rounded-lg bg-slate-900/80 px-3 py-2">
-                        <div className="text-[10px] uppercase text-slate-400">Increment</div>
-                        <div className="text-lg font-semibold">
-                          +{auction.settings.increment.toLocaleString("en-IN")}
-                        </div>
-                      </div>
-                      <motion.div
-                        key={state?.current_bid ?? "no-bid"}
-                        initial={{ scale: 0.9, opacity: 0 }}
-                        animate={{ scale: 1, opacity: 1 }}
-                        transition={{ duration: 0.25 }}
-                        className="rounded-lg bg-emerald-900/60 px-3 py-2"
-                      >
-                        <div className="text-[10px] uppercase text-emerald-200">Current Bid</div>
-                        <div className="text-xl font-semibold text-emerald-100">
-                          {(state?.current_bid ?? auction.settings.base_price).toLocaleString(
-                            "en-IN",
-                          )}
-                        </div>
-                      </motion.div>
-                      <div className="rounded-lg bg-slate-900/80 px-3 py-2">
-                        <div className="text-[10px] uppercase text-slate-400">Leading Team</div>
-                        <div className="text-lg font-semibold">
-                          {leadingTeam ? leadingTeam.name : "—"}
-                        </div>
-                      </div>
-                    </div>
-                  </>
-                ) : (
-                  <div className="text-sm text-slate-400">
-                    Waiting for the next player to be drawn...
-                  </div>
-                )}
+                <motion.div
+                  animate={{ scale: [1, 1.1, 1] }}
+                  transition={{ repeat: Infinity, duration: 2 }}
+                  className="mb-4 flex h-20 w-20 items-center justify-center rounded-full bg-amber-500 shadow-[0_0_40px_rgba(245,158,11,0.4)]"
+                >
+                  <span className="text-4xl font-black text-slate-950">!</span>
+                </motion.div>
+                <h2 className="text-4xl font-black tracking-tighter text-amber-500 uppercase italic">Sale Undone</h2>
+                <p className="mt-2 text-lg font-medium text-slate-300">The last transaction was reversed. <br /> Re-bidding for this player starts soon.</p>
               </motion.div>
-            </AnimatePresence>
+            )}
+          </AnimatePresence>
+
+          <div className="relative z-10 flex w-full flex-col items-center justify-center text-center">
+            {state?.phase === "captain_round" ? (
+              <AnimatePresence mode="wait">
+                <motion.div
+                  key="captain_round"
+                  initial={{ opacity: 0, scale: 0.8, y: 50 }}
+                  animate={{ opacity: 1, scale: 1, y: 0 }}
+                  exit={{ opacity: 0, scale: 1.1, filter: "blur(10px)" }}
+                  transition={{ duration: 0.7, type: "spring", bounce: 0.4 }}
+                  className="w-full flex flex-col items-center justify-center p-4"
+                >
+                  <div className="mb-6 text-sm font-black uppercase tracking-[0.4em] text-amber-500 drop-shadow-lg animate-pulse">
+                    🌟 Blind Bidding in Progress 🌟
+                  </div>
+                  <div className="text-2xl font-black tracking-tighter text-slate-50 md:text-4xl drop-shadow-xl bg-gradient-to-r from-amber-200 via-amber-400 to-amber-200 bg-clip-text text-transparent mb-8">
+                    Revealing Franchise Captains
+                  </div>
+
+                  <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 w-full px-2 max-w-5xl mx-auto">
+                    {players.filter(p => p.is_captain).map((captain, i) => {
+                      const matchedTeam = teams.find(t => t.id === captain.sold_team_id);
+                      return (
+                        <motion.div
+                          key={captain.id}
+                          initial={{ opacity: 0, scale: 0.6, y: 30 }}
+                          animate={{ opacity: 1, scale: 1, y: 0 }}
+                          whileHover={{ scale: 1.05 }}
+                          transition={{ delay: i * 0.1 + 0.2, type: "spring", bounce: 0.4 }}
+                          className={`relative rounded-xl overflow-hidden border-2 shadow-2xl transition-all ${matchedTeam
+                              ? 'border-emerald-500/60 bg-gradient-to-br from-emerald-950 to-slate-900 shadow-emerald-900/40'
+                              : 'border-amber-500/40 bg-gradient-to-br from-amber-950 to-slate-900 shadow-amber-900/30'
+                            }`}
+                        >
+                          {/* Background Pattern */}
+                          <div className="absolute inset-0 opacity-30">
+                            <div className="absolute top-0 right-0 w-32 h-32 rounded-full bg-gradient-to-br from-white/10 to-transparent blur-3xl" />
+                          </div>
+
+                          {/* Content */}
+                          <div className="relative z-10 p-5 flex flex-col items-center text-center h-full justify-between">
+                            {/* Player Photo */}
+                            <motion.div
+                              initial={{ scale: 0.8, opacity: 0 }}
+                              animate={{ scale: 1, opacity: 1 }}
+                              transition={{ delay: i * 0.1 + 0.4 }}
+                              className="mb-3"
+                            >
+                              <PlayerAvatar
+                                id={captain.id}
+                                name={captain.name}
+                                role={captain.role}
+                                photoUrl={captain.photo_url}
+                                size="lg"
+                                showBadge={true}
+                                isCaptain={true}
+                              />
+                            </motion.div>
+
+                            {/* Player Details */}
+                            <div className="w-full">
+                              <motion.div
+                                initial={{ opacity: 0 }}
+                                animate={{ opacity: 1 }}
+                                transition={{ delay: i * 0.1 + 0.5 }}
+                              >
+                                <div className="font-black text-lg text-white drop-shadow-md">{captain.name}</div>
+                                <div className="text-xs uppercase text-slate-400 tracking-widest mt-1 font-semibold">
+                                  {captain.role}
+                                </div>
+                              </motion.div>
+                            </div>
+
+                            {/* Team Assignment */}
+                            {matchedTeam && (
+                              <motion.div
+                                initial={{ opacity: 0, y: 10 }}
+                                animate={{ opacity: 1, y: 0 }}
+                                transition={{ delay: i * 0.1 + 0.6 }}
+                                className="mt-4 w-full pt-4 border-t border-white/10 flex flex-col items-center gap-2"
+                              >
+                                <span className="text-[9px] uppercase text-emerald-300 tracking-widest font-bold">
+                                  Playing For
+                                </span>
+                                <div className="flex items-center gap-2 justify-center">
+                                  <TeamLogo
+                                    name={matchedTeam.name}
+                                    logoUrl={matchedTeam.logo_url}
+                                    size="sm"
+                                  />
+                                  <span className="text-xs font-bold text-emerald-300 truncate">
+                                    {matchedTeam.name}
+                                  </span>
+                                </div>
+                              </motion.div>
+                            )}
+                            {!matchedTeam && (
+                              <motion.div
+                                animate={{ opacity: [0.5, 1, 0.5] }}
+                                transition={{ repeat: Infinity, duration: 2 }}
+                                className="mt-4 text-xs text-amber-400 font-semibold italic"
+                              >
+                                Awaiting Assignment...
+                              </motion.div>
+                            )}
+                          </div>
+                        </motion.div>
+                      )
+                    })}
+                  </div>
+                </motion.div>
+              </AnimatePresence>
+            ) : state?.phase === "phase_2_hype" || state?.phase === "phase_1_complete" ? (
+              <AnimatePresence mode="wait">
+                <motion.div
+                  key="phase-2-hype"
+                  initial={{ opacity: 0, scale: 0.8 }}
+                  animate={{ opacity: 1, scale: 1 }}
+                  exit={{ opacity: 0 }}
+                  className="flex flex-col items-center justify-center space-y-6 w-full py-10"
+                >
+                  <div className="text-5xl font-black uppercase tracking-[0.2em] md:text-7xl text-amber-500 drop-shadow-[0_0_20px_rgba(245,158,11,0.5)] animate-pulse text-center leading-tight">
+                    PHASE 2<br />BEGINS
+                  </div>
+                  <div className="text-xl md:text-2xl text-amber-200 font-medium tracking-widest uppercase text-center max-w-lg">
+                    The Return of the Unsold Players
+                  </div>
+                  <div className="mt-8 text-sm text-amber-500/60 font-mono tracking-widest animate-bounce">
+                    {state.phase === "phase_1_complete" ? "AWAITING ADMIN COMMENCEMENT..." : "PREPARING TO DRAW..."}
+                  </div>
+                </motion.div>
+              </AnimatePresence>
+            ) : state?.phase?.startsWith("completed") ? (
+              <AnimatePresence mode="wait">
+                <motion.div
+                  key={`completed-${state.phase}`}
+                  initial={{ opacity: 0, scale: 0.8 }}
+                  animate={{ opacity: 1, scale: 1 }}
+                  exit={{ opacity: 0 }}
+                  className="flex flex-col items-center justify-center space-y-4 w-full"
+                >
+                  <div className={`text-5xl font-black uppercase tracking-[0.2em] md:text-7xl ${state.phase === "completed_sale" ? "text-emerald-500 drop-shadow-[0_0_20px_rgba(16,185,129,0.5)]" : "text-slate-600 drop-shadow-md"}`}>
+                    {state.phase === "completed_sale" ? "SOLD!" : "UNSOLD!"}
+                  </div>
+                  {state.phase === "completed_sale" && currentPlayer && (
+                    <div className="text-xl text-emerald-200 font-medium tracking-wider">
+                      To {leadingTeam ? leadingTeam.name : "Unknown"}
+                    </div>
+                  )}
+                </motion.div>
+              </AnimatePresence>
+            ) : (
+              <>
+                <div className="mb-3 text-xs font-semibold uppercase tracking-[0.25em] text-emerald-300/90">
+                  Live Player
+                </div>
+                <AnimatePresence mode="wait">
+                  <motion.div
+                    key={currentPlayer?.id ?? "empty"}
+                    initial={{ opacity: 0, y: 30, scale: 0.95 }}
+                    animate={{ opacity: 1, y: 0, scale: 1 }}
+                    exit={{ opacity: 0, y: -20, scale: 0.96 }}
+                    transition={{ duration: 0.35 }}
+                    className="w-full flex flex-col items-center"
+                  >
+                    {currentPlayer ? (
+                      <>
+                        <PlayerAvatar
+                          id={currentPlayer.id}
+                          name={currentPlayer.name}
+                          role={currentPlayer.role}
+                          photoUrl={currentPlayer.photo_url}
+                          size="xl"
+                          showBadge={false}
+                          isCaptain={false}
+                        />
+                        <div className="text-3xl font-semibold tracking-tight md:text-4xl">
+                          {currentPlayer.name}
+                        </div>
+                        <div className="mt-1 text-sm uppercase tracking-[0.25em] text-emerald-200/90">
+                          {currentPlayer.role}
+                        </div>
+                        <div className="mt-6 grid grid-cols-2 gap-4 text-left text-sm md:grid-cols-4 w-full">
+                          <div className="rounded-lg bg-slate-900/80 px-3 py-2">
+                            <div className="text-[10px] uppercase text-slate-400">Base Price</div>
+                            <div className="text-lg font-semibold">
+                              {auction.settings.base_price.toLocaleString("en-IN")}
+                            </div>
+                          </div>
+                          <div className="rounded-lg bg-slate-900/80 px-3 py-2">
+                            <div className="text-[10px] uppercase text-slate-400">Increment</div>
+                            <div className="text-lg font-semibold">
+                              +{auction.settings.increment.toLocaleString("en-IN")}
+                            </div>
+                          </div>
+                          <motion.div
+                            key={state?.current_bid ?? "no-bid"}
+                            initial={{ scale: 0.9, opacity: 0 }}
+                            animate={{ scale: 1, opacity: 1 }}
+                            transition={{ duration: 0.25 }}
+                            className="rounded-lg bg-emerald-900/60 px-3 py-2"
+                          >
+                            <div className="text-[10px] uppercase text-emerald-200">Current Bid</div>
+                            <div className="text-xl font-semibold text-emerald-100">
+                              {(state?.current_bid ?? auction.settings.base_price).toLocaleString(
+                                "en-IN",
+                              )}
+                            </div>
+                          </motion.div>
+                          <div className="rounded-lg bg-slate-900/80 px-3 py-2">
+                            <div className="text-[10px] uppercase text-slate-400">Leading Team</div>
+                            <div className="text-lg font-semibold truncate">
+                              {leadingTeam ? leadingTeam.name : "—"}
+                            </div>
+                          </div>
+                        </div>
+                      </>
+                    ) : (
+                      <div className="text-sm text-slate-400">
+                        Waiting for the next player to be drawn...
+                      </div>
+                    )}
+                  </motion.div>
+                </AnimatePresence>
+              </>
+            )}
           </div>
         </Card>
 
@@ -1714,37 +3399,304 @@ export default function LiveAuctionPage() {
               {teams
                 .slice()
                 .sort((a, b) => b.purse_remaining - a.purse_remaining)
-                .map((team) => (
-                  <div
-                    key={team.id}
-                    className="rounded-lg border border-slate-800/80 bg-slate-950/60 px-3 py-2 shadow-sm"
-                  >
-                    <div className="flex items-center justify-between gap-2">
-                      <div>
-                        <div className="text-sm font-semibold">{team.name}</div>
-                        <div className="text-[11px] uppercase tracking-wide text-slate-400">
-                          {team.manager}
+                .map((team) => {
+                  const teamPlayers = players.filter(p => p.sold_team_id === team.id);
+                  return (
+                    <div
+                      key={team.id}
+                      className="flex flex-col overflow-hidden rounded-lg border border-slate-800/80 bg-slate-950/60 shadow-sm transition-colors hover:border-slate-700"
+                    >
+                      <div className="flex flex-col items-start justify-between gap-2 border-b border-transparent px-3 py-2 sm:flex-row sm:items-center">
+                        <div className="w-full sm:w-auto flex items-center gap-2">
+                          <TeamLogo
+                            name={team.name}
+                            logoUrl={team.logo_url}
+                            size="sm"
+                          />
+                          <div>
+                            <div className="truncate text-sm font-semibold">{team.name}</div>
+                            <div className="truncate text-[11px] uppercase tracking-wide text-slate-400">
+                              {team.manager}
+                            </div>
+                          </div>
+                        </div>
+                        <div className="flex w-full justify-between text-right text-[11px] text-slate-300 sm:w-auto sm:flex-col sm:justify-center">
+                          <div>
+                            Purse:{" "}
+                            <span className="font-semibold text-emerald-400">
+                              {team.purse_remaining.toLocaleString("en-IN")}
+                            </span>
+                          </div>
+                          <div>
+                            Slots: <span className="font-semibold">{team.slots_remaining}</span>
+                          </div>
                         </div>
                       </div>
-                      <div className="text-right text-[11px] text-slate-300">
-                        <div>
-                          Purse:{" "}
-                          <span className="font-semibold">
-                            {team.purse_remaining.toLocaleString("en-IN")}
-                          </span>
+
+                      {/* Team Output Roster */}
+                      {teamPlayers.length > 0 && (
+                        <div className="border-t border-slate-800/50 bg-slate-900/30 px-3 py-2">
+                          <div className="mb-1 text-[9px] font-bold uppercase tracking-widest text-slate-500">
+                            Roster ({teamPlayers.length})
+                          </div>
+                          <div className="flex max-h-[80px] flex-col gap-1 overflow-y-auto pr-1">
+                            {teamPlayers.map(p => (
+                              <div key={p.id} className="flex justify-between text-[10px]">
+                                <span className="truncate pr-2 text-slate-300">
+                                  {p.id === team.captain_id && <span className="mr-1 text-amber-500">ⓒ</span>}
+                                  {p.name}
+                                </span>
+                                <span className="font-mono text-slate-400">
+                                  {p.sold_price?.toLocaleString("en-IN") || "-"}
+                                </span>
+                              </div>
+                            ))}
+                          </div>
                         </div>
-                        <div>
-                          Slots: <span className="font-semibold">{team.slots_remaining}</span>
-                        </div>
-                      </div>
+                      )}
                     </div>
-                  </div>
-                ))}
+                  );
+                })}
             </div>
           </Card>
         </div>
+      </div >
+    </div >
+  );
+}
+````
+
+## File: app/page.tsx
+````typescript
+"use client";
+
+import { useEffect, useMemo, useState } from "react";
+import Link from "next/link";
+import { supabase } from "@/lib/supabase";
+import { Card } from "@/components/ui/card";
+import { Button } from "@/components/ui/button";
+
+type AuctionSettings = {
+  purse: number;
+  min_players: number;
+  max_players: number;
+  base_price: number;
+  increment: number;
+};
+
+type Auction = {
+  id: string;
+  name: string;
+  sport_type: string;
+  status?: "upcoming" | "live" | "completed";
+  settings: AuctionSettings;
+};
+
+type AuctionState = {
+  auction_id: string;
+  phase: string;
+  current_player_id: string | null;
+};
+
+export default function Home() {
+  const [auctions, setAuctions] = useState<Auction[]>([]);
+  const [states, setStates] = useState<AuctionState[]>([]);
+
+  useEffect(() => {
+    const fetchData = async () => {
+      const [{ data: auctionsData }, { data: stateData }] = await Promise.all([
+        supabase.from("auctions").select("*"),
+        supabase.from("auction_state").select("auction_id, phase, current_player_id"),
+      ]);
+
+      setAuctions((auctionsData ?? []) as Auction[]);
+      setStates((stateData ?? []) as AuctionState[]);
+    };
+
+    fetchData();
+  }, []);
+
+  useEffect(() => {
+    const channel = supabase
+      .channel("public_home")
+      .on(
+        "postgres_changes",
+        { event: "*", schema: "public", table: "auctions" },
+        (payload) => {
+          if (payload.eventType === "UPDATE") {
+            const updated = payload.new as Auction;
+            setAuctions((prev) => prev.map((a) => (a.id === updated.id ? { ...a, ...updated } : a)));
+          } else if (payload.eventType === "INSERT") {
+            setAuctions((prev) => [...prev, payload.new as Auction]);
+          } else if (payload.eventType === "DELETE") {
+            setAuctions((prev) => prev.filter((a) => a.id !== payload.old.id));
+          }
+        }
+      )
+      .on(
+        "postgres_changes",
+        { event: "*", schema: "public", table: "auction_state" },
+        (payload) => {
+          if (payload.eventType === "UPDATE" || payload.eventType === "INSERT") {
+            const newState = payload.new as AuctionState;
+            setStates((prev) => {
+              const other = prev.filter(s => s.auction_id !== newState.auction_id);
+              return [...other, newState];
+            });
+          }
+        }
+      )
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(channel);
+    };
+  }, []);
+
+  const liveAuctionIds = useMemo(() => {
+    // If auction.status is 'live', it should be treated as live regardless of phase
+    return new Set(
+      auctions
+        .filter((a) => a.status === "live")
+        .map((a) => a.id)
+    );
+  }, [auctions]);
+
+  const hasLiveAuctions = liveAuctionIds.size > 0;
+
+  return (
+    <div className="min-h-screen bg-gradient-to-br from-slate-950 via-slate-900 to-slate-950 px-6 py-10 text-slate-50">
+      <div className="mx-auto flex max-w-6xl flex-col gap-8">
+        <header className="flex flex-col items-start justify-between gap-4 md:flex-row md:items-center">
+          <div>
+            <h1 className="text-3xl font-semibold tracking-tight md:text-4xl">
+              Sports Auction Platform
+            </h1>
+            <p className="mt-2 max-w-xl text-sm text-slate-300">
+              Join live player auctions, track teams in real time, and register for upcoming events.
+            </p>
+          </div>
+          <div className="flex flex-wrap gap-3">
+            <Link href="/admin/login">
+              <Button variant="outline" className="text-black" color="black" size="sm">
+                Admin Login
+              </Button>
+            </Link>
+          </div>
+        </header>
+
+        <section className="grid gap-6 md:grid-cols-[2fr,3fr]">
+          <Card className="border-slate-800 bg-slate-900/70 p-5 shadow-xl shadow-black/60">
+            <div className="mb-3 flex items-center justify-between">
+              <h2 className="text-sm font-semibold uppercase tracking-[0.18em] text-slate-400">
+                Live Auctions
+              </h2>
+              {hasLiveAuctions && (
+                <span className="rounded-full bg-emerald-500/20 px-3 py-0.5 text-xs font-medium text-emerald-300">
+                  Live now
+                </span>
+              )}
+            </div>
+            {auctions.filter((a) => (a.status ?? "upcoming") === "live" && liveAuctionIds.has(a.id))
+              .length === 0 ? (
+              <p className="text-sm text-slate-400">
+                No auctions are live right now. Check the upcoming auctions below.
+              </p>
+            ) : (
+              <div className="space-y-3">
+                {auctions
+                  .filter((a) => (a.status ?? "upcoming") === "live" && liveAuctionIds.has(a.id))
+                  .map((auction) => (
+                    <div
+                      key={auction.id}
+                      className="flex items-center justify-between gap-3 rounded-lg border border-emerald-500/40 bg-emerald-500/5 px-3 py-3"
+                    >
+                      <div>
+                        <div className="text-sm font-semibold">{auction.name}</div>
+                        <div className="text-xs uppercase tracking-[0.18em] text-emerald-300">
+                          {auction.sport_type.toUpperCase()} · Live Auction
+                        </div>
+                      </div>
+                      <div className="flex gap-2">
+                        <Link href={`/live/${auction.id}`}>
+                          <Button size="sm" variant="default">
+                            View Live
+                          </Button>
+                        </Link>
+                        <Link href={`/auction/${auction.id}`}>
+                          <Button size="sm" variant="outline">
+                            Details &amp; Register
+                          </Button>
+                        </Link>
+                      </div>
+                    </div>
+                  ))}
+              </div>
+            )}
+          </Card>
+
+          <Card className="border-slate-800 bg-slate-900/70 p-5 shadow-xl shadow-black/60">
+            <div className="mb-3 flex items-center justify-between">
+              <h2 className="text-sm font-semibold uppercase tracking-[0.18em] text-slate-400">
+                All Auctions
+              </h2>
+              <span className="text-xs text-slate-400">
+                {auctions.length} {auctions.length === 1 ? "auction" : "auctions"}
+              </span>
+            </div>
+            {auctions.length === 0 ? (
+              <p className="text-sm text-slate-400">
+                No auctions have been created yet. Once an admin creates an auction, it will appear
+                here.
+              </p>
+            ) : (
+              <div className="space-y-3">
+                {auctions.map((auction) => {
+                  const status = auction.status ?? "upcoming";
+                  const isLive = status === "live" && liveAuctionIds.has(auction.id);
+                  return (
+                    <div
+                      key={auction.id}
+                      className="flex items-center justify-between gap-3 rounded-lg border border-slate-800 bg-slate-950/60 px-3 py-3"
+                    >
+                      <div>
+                        <div className="text-sm font-semibold">{auction.name}</div>
+                        <div className="text-xs uppercase tracking-[0.18em] text-slate-400">
+                          {auction.sport_type.toUpperCase()}
+                          {status === "live" ? " · Live" : status === "completed" ? " · Completed" : " · Upcoming / Scheduled"}
+                        </div>
+                      </div>
+                      <div className="flex gap-2">
+                        {status === "completed" ? (
+                          <Link href={`/live/${auction.id}`}>
+                            <Button size="sm" variant="default" className="bg-amber-600 hover:bg-amber-500 text-amber-50">
+                              View Squads
+                            </Button>
+                          </Link>
+                        ) : (
+                          <Link href={`/auction/${auction.id}`}>
+                            <Button size="sm" variant="outline">
+                              View &amp; Register
+                            </Button>
+                          </Link>
+                        )}
+                        {isLive && (
+                          <Link href={`/live/${auction.id}`}>
+                            <Button size="sm" variant="ghost">
+                              Watch
+                            </Button>
+                          </Link>
+                        )}
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+          </Card>
+        </section>
       </div>
-    </div>
+    </div >
   );
 }
 ````
@@ -1773,6 +3725,694 @@ export default function LiveAuctionPage() {
     "hooks": "@/hooks"
   },
   "registries": {}
+}
+````
+
+## File: components/ConsolidatedTeamRoster.tsx
+````typescript
+"use client";
+
+import { useState, useEffect } from "react";
+import { Card } from "@/components/ui/card";
+import { PlayerAvatar } from "@/components/PlayerAvatar";
+import { TeamLogo } from "@/components/TeamLogo";
+
+type AuctionSettings = {
+    purse: number;
+    min_players: number;
+    max_players: number;
+    base_price: number;
+    increment: number;
+};
+
+type Auction = {
+    id: string;
+    name: string;
+    sport_type: string;
+    status: "upcoming" | "live" | "completed";
+    settings: AuctionSettings;
+};
+
+type Team = {
+    id: string;
+    auction_id: string;
+    name: string;
+    manager: string;
+    logo_url?: string;
+    purse_remaining: number;
+    slots_remaining: number;
+    captain_id: string | null;
+};
+
+type Player = {
+    id: string;
+    auction_id: string;
+    name: string;
+    role: string;
+    photo_url?: string;
+    status: "upcoming" | "live" | "sold" | "unsold";
+    sold_price: number | null;
+    sold_team_id: string | null;
+    is_captain?: boolean;
+};
+
+export default function ConsolidatedTeamRoster({
+    auction,
+    teams,
+    players,
+}: {
+    auction: Auction;
+    teams: Team[];
+    players: Player[];
+}) {
+    const [selectedTeamId, setSelectedTeamId] = useState<string | null>(null);
+
+    useEffect(() => {
+        if (teams.length > 0 && !selectedTeamId) {
+            setSelectedTeamId(teams[0].id);
+        }
+    }, [teams, selectedTeamId]);
+
+    const activeTeam = teams.find((t) => t.id === selectedTeamId) || null;
+    const activeRoster = players.filter((p) => p.sold_team_id === selectedTeamId);
+
+    const groupedRoster = activeRoster.reduce((acc, player) => {
+        const r = player.role || "Unassigned";
+        if (!acc[r]) acc[r] = [];
+        acc[r].push(player);
+        return acc;
+    }, {} as Record<string, Player[]>);
+
+    const roleKeys = Object.keys(groupedRoster).sort((a, b) => {
+        if (auction.sport_type === "football") {
+            const order = ["Forward", "Midfielder", "Defender", "Goalkeeper"];
+            const ia = order.indexOf(a),
+                ib = order.indexOf(b);
+            return (ia === -1 ? 99 : ia) - (ib === -1 ? 99 : ib);
+        } else {
+            const order = ["Batsman", "Wicketkeeper", "Allrounder", "Bowler"];
+            const ia = order.indexOf(a),
+                ib = order.indexOf(b);
+            return (ia === -1 ? 99 : ia) - (ib === -1 ? 99 : ib);
+        }
+    });
+
+    const isFootball = auction.sport_type === "football";
+
+    return (
+        <div className="min-h-screen bg-slate-950 px-6 py-10 text-slate-50 w-full animate-in fade-in duration-500">
+            <div className="mx-auto flex max-w-7xl flex-col gap-6">
+                <header className="flex flex-col items-start justify-between gap-3 md:flex-row md:items-end">
+                    <div>
+                        <h1 className="text-3xl font-black tracking-tight text-amber-500 uppercase drop-shadow-md">
+                            Auction Completed
+                        </h1>
+                        <p className="text-sm text-slate-400 font-medium">
+                            {auction.name} · Final Consolidated Squads
+                        </p>
+                    </div>
+                    <div className="flex gap-4">
+                        <div className="text-right">
+                            <div className="text-[10px] uppercase text-slate-500 tracking-widest font-bold">
+                                Total Players Sold
+                            </div>
+                            <div className="text-xl font-bold text-slate-200">
+                                {players.filter((p) => p.status === "sold").length}
+                            </div>
+                        </div>
+                        <div className="text-right">
+                            <div className="text-[10px] uppercase text-slate-500 tracking-widest font-bold">
+                                Total Money Spent
+                            </div>
+                            <div className="text-xl font-bold text-slate-200">
+                                ₹
+                                {players
+                                    .reduce((sum, p) => sum + (p.sold_price || 0), 0)
+                                    .toLocaleString("en-IN")}
+                            </div>
+                        </div>
+                    </div>
+                </header>
+
+                <div className="grid gap-6 md:grid-cols-[250px,1fr]">
+                    <Card className="border-slate-800 bg-slate-900/60 p-4 shadow-xl shadow-black/80 flex flex-col gap-2 h-fit max-h-[700px] overflow-y-auto">
+                        <h2 className="text-xs font-black uppercase tracking-[0.2em] text-slate-500 mb-2 px-1">
+                            Franchises
+                        </h2>
+                        {teams
+                            .slice()
+                            .sort((a, b) => a.name.localeCompare(b.name))
+                            .map((t) => {
+                                const isSelected = t.id === selectedTeamId;
+                                return (
+                                    <button
+                                        key={t.id}
+                                        onClick={() => setSelectedTeamId(t.id)}
+                                        className={`flex flex-col items-start p-3 rounded-lg border text-left transition-all ${isSelected
+                                                ? "border-amber-500/50 bg-amber-500/10 shadow-inner shadow-amber-900/20"
+                                                : "border-slate-800 hover:bg-slate-800/50 hover:border-slate-700"
+                                            }`}
+                                    >
+                                        <span
+                                            className={`font-bold text-sm truncate w-full ${isSelected ? "text-amber-400" : "text-slate-300"
+                                                }`}
+                                        >
+                                            {t.name}
+                                        </span>
+                                        <span className="text-[10px] uppercase text-slate-500 tracking-wider flex justify-between w-full mt-1">
+                                            <span>{t.manager}</span>
+                                            <span className={isSelected ? "text-amber-500/70" : ""}>
+                                                {auction.settings.max_players - t.slots_remaining}/
+                                                {auction.settings.max_players}
+                                            </span>
+                                        </span>
+                                    </button>
+                                );
+                            })}
+                    </Card>
+
+                    <Card className="border-slate-800 bg-slate-900/40 p-1 shadow-2xl shadow-black overflow-hidden relative min-h-[600px] flex flex-col">
+                        {activeTeam ? (
+                            <>
+                                <div
+                                    className="absolute inset-0 z-0 opacity-20 pointer-events-none display-block"
+                                    style={{
+                                        backgroundImage: isFootball
+                                            ? "repeating-linear-gradient(0deg, transparent, transparent 50px, rgba(16, 185, 129, 0.1) 50px, rgba(16, 185, 129, 0.1) 100px)"
+                                            : "radial-gradient(ellipse at center, rgba(34, 197, 94, 0.15) 0%, transparent 70%)",
+                                        backgroundColor: isFootball ? "#064e3b" : "#14532d",
+                                    }}
+                                />
+
+                                <div className="relative z-10 w-full h-full flex flex-col pt-8 pb-12 px-4 flex-1 overflow-y-auto">
+                                    <div className="flex justify-between items-end mb-8 border-b border-white/10 pb-4 px-4 sticky top-0 bg-slate-900/40 backdrop-blur-md rounded-t-lg z-30 pt-4">
+                                        <div className="flex items-end gap-4">
+                                            <TeamLogo
+                                              name={activeTeam.name}
+                                              logoUrl={activeTeam.logo_url}
+                                              size="lg"
+                                            />
+                                            <div>
+                                                <h2 className="text-3xl font-black text-white drop-shadow-lg">
+                                                    {activeTeam.name}
+                                                </h2>
+                                                <p className="text-amber-400/80 font-medium text-sm mt-1 uppercase tracking-widest">
+                                                    {activeTeam.manager}
+                                                </p>
+                                            </div>
+                                        </div>
+                                        <div className="text-right">
+                                            <div className="text-[10px] uppercase font-bold text-white/50 tracking-wider">
+                                                Remaining Purse
+                                            </div>
+                                            <div className="text-xl font-black text-white drop-shadow-md">
+                                                ₹{activeTeam.purse_remaining.toLocaleString("en-IN")}
+                                            </div>
+                                        </div>
+                                    </div>
+
+                                    <div className="flex flex-col flex-1 gap-6 justify-between px-2 md:px-12">
+                                        {roleKeys.length > 0 ? (
+                                            roleKeys.map((role) => (
+                                                <div key={role} className="flex flex-col items-center w-full">
+                                                    <div className="text-[10px] uppercase tracking-[0.3em] text-white/40 font-black mb-3 text-center w-full border-b border-white/5 pb-1 relative">
+                                                        <span className="bg-[#0b1623] px-3 relative top-[9px]">
+                                                            {role}
+                                                        </span>
+                                                    </div>
+                                                    <div className="flex flex-wrap justify-center gap-4 w-full">
+                                                        {groupedRoster[role].map((p) => (
+                                                            <div
+                                                                key={p.id}
+                                                                className="group relative flex flex-col items-center justify-center p-2 rounded-xl bg-slate-950/60 border border-white/10 shadow-lg backdrop-blur-sm w-28 hover:border-amber-500/50 hover:bg-slate-900 transition-colors"
+                                                            >
+                                                                {p.is_captain && (
+                                                                    <div className="absolute -top-2 -right-2 bg-amber-500 text-black text-[10px] font-black w-5 h-5 rounded-full flex items-center justify-center shadow-md shadow-amber-900 border border-amber-200 z-20">
+                                                                        C
+                                                                    </div>
+                                                                )}
+                                                                <PlayerAvatar
+                                                                  id={p.id}
+                                                                  name={p.name}
+                                                                  role={p.role}
+                                                                  photoUrl={p.photo_url}
+                                                                  size="lg"
+                                                                  showBadge={true}
+                                                                  isCaptain={p.is_captain || false}
+                                                                  sportType={isFootball ? "football" : "cricket"}
+                                                                />
+                                                                <div className="font-bold text-xs text-center text-white w-full truncate px-1">
+                                                                    {p.name}
+                                                                </div>
+                                                                <div className="text-[9px] font-mono text-emerald-400 mt-1.5 flex items-center justify-center bg-emerald-950/50 px-2 py-0.5 rounded border border-emerald-900/50">
+                                                                    ₹{(p.sold_price || 0).toLocaleString("en-IN")}
+                                                                </div>
+                                                            </div>
+                                                        ))}
+                                                    </div>
+                                                </div>
+                                            ))
+                                        ) : (
+                                            <div className="flex-1 flex items-center justify-center">
+                                                <div className="bg-slate-950/80 px-6 py-4 rounded-xl border border-white/10 text-white/50 font-medium text-sm">
+                                                    This squad is currently empty.
+                                                </div>
+                                            </div>
+                                        )}
+                                    </div>
+                                </div>
+                            </>
+                        ) : (
+                            <div className="w-full h-full flex flex-col items-center justify-center text-slate-500">
+                                Select a team on the left to view their roster.
+                            </div>
+                        )}
+                    </Card>
+                </div>
+            </div>
+        </div>
+    );
+}
+````
+
+## File: components/ImageUploadField.tsx
+````typescript
+"use client";
+
+import { useState, useCallback } from "react";
+import { Label } from "@/components/ui/label";
+import { Input } from "@/components/ui/input";
+import { compressImage, createPreviewUrl, revokePreviewUrl } from "@/lib/imageCompression";
+
+interface ImageUploadFieldProps {
+  label: string;
+  value: File | null;
+  onChange: (file: File | null) => void;
+  preview: string | null;
+  onPreviewChange: (preview: string | null) => void;
+  required?: boolean;
+  accept?: string;
+  error?: string | null;
+}
+
+export function ImageUploadField({
+  label,
+  value,
+  onChange,
+  preview,
+  onPreviewChange,
+  required = true,
+  accept = "image/*",
+  error,
+}: ImageUploadFieldProps) {
+  const [compressing, setCompressing] = useState(false);
+
+  const handleFileChange = useCallback(
+    async (e: React.ChangeEvent<HTMLInputElement>) => {
+      const file = e.target.files?.[0];
+      if (!file) {
+        onChange(null);
+        onPreviewChange(null);
+        return;
+      }
+
+      setCompressing(true);
+      try {
+        // Compress the image
+        const compressedBlob = await compressImage(file);
+        
+        // Create a new File object from the compressed blob
+        const compressedFile = new File(
+          [compressedBlob],
+          file.name,
+          { type: file.type }
+        );
+
+        onChange(compressedFile);
+
+        // Create preview URL
+        const previewUrl = createPreviewUrl(compressedBlob);
+        if (preview) {
+          revokePreviewUrl(preview);
+        }
+        onPreviewChange(previewUrl);
+      } catch (err) {
+        console.error("Compression failed:", err);
+        // Fall back to original file if compression fails
+        onChange(file);
+        const previewUrl = createPreviewUrl(file);
+        if (preview) {
+          revokePreviewUrl(preview);
+        }
+        onPreviewChange(previewUrl);
+      } finally {
+        setCompressing(false);
+      }
+    },
+    [onChange, onPreviewChange, preview]
+  );
+
+  return (
+    <div className="space-y-2">
+      <Label htmlFor="image-upload" className="text-slate-100">
+        {label} {required && <span className="text-rose-500">*</span>}
+      </Label>
+      <div className="flex gap-3">
+        <div className="flex-1">
+          <Input
+            id="image-upload"
+            type="file"
+            accept={accept}
+            onChange={handleFileChange}
+            className="bg-slate-950/80 text-slate-50 cursor-pointer"
+            disabled={compressing}
+            required={required}
+          />
+          {compressing && (
+            <p className="text-xs text-slate-400 mt-1">Compressing image...</p>
+          )}
+          {value && !compressing && (
+            <p className="text-xs text-emerald-400 mt-1">
+              ✓ {value.name} ({(value.size / 1024).toFixed(0)} KB)
+            </p>
+          )}
+          {error && <p className="text-xs text-rose-400 mt-1">{error}</p>}
+        </div>
+
+        {/* Live Preview */}
+        {preview && (
+          <div className="relative w-24 h-24 rounded-lg overflow-hidden border-2 border-emerald-500/50 bg-slate-800 flex-shrink-0 shadow-lg">
+            <img
+              src={preview}
+              alt="Preview"
+              className="w-full h-full object-cover"
+            />
+            <div className="absolute inset-0 bg-gradient-to-t from-black/30 to-transparent" />
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+````
+
+## File: components/ImageViewerModal.tsx
+````typescript
+"use client";
+
+import { useState } from "react";
+import { motion, AnimatePresence } from "framer-motion";
+import { Button } from "@/components/ui/button";
+
+interface ImageViewerModalProps {
+  isOpen: boolean;
+  onClose: () => void;
+  imageUrl?: string;
+  title: string;
+  subtitle?: string;
+}
+
+export function ImageViewerModal({
+  isOpen,
+  onClose,
+  imageUrl,
+  title,
+  subtitle,
+}: ImageViewerModalProps) {
+  const [imageError, setImageError] = useState(false);
+
+  return (
+    <AnimatePresence>
+      {isOpen && (
+        <motion.div
+          initial={{ opacity: 0 }}
+          animate={{ opacity: 1 }}
+          exit={{ opacity: 0 }}
+          className="fixed inset-0 bg-black/80 backdrop-blur-sm z-50 flex items-center justify-center p-4"
+          onClick={onClose}
+        >
+          <motion.div
+            initial={{ scale: 0.8, opacity: 0 }}
+            animate={{ scale: 1, opacity: 1 }}
+            exit={{ scale: 0.8, opacity: 0 }}
+            transition={{ type: "spring", bounce: 0.3 }}
+            className="bg-slate-900 rounded-xl border border-slate-800 shadow-2xl max-w-2xl w-full max-h-[90vh] overflow-hidden"
+            onClick={(e) => e.stopPropagation()}
+          >
+            {/* Header */}
+            <div className="bg-slate-800/50 border-b border-slate-700 px-6 py-4 flex justify-between items-start">
+              <div>
+                <h2 className="text-lg font-bold text-slate-100">{title}</h2>
+                {subtitle && (
+                  <p className="text-sm text-slate-400 mt-1">{subtitle}</p>
+                )}
+              </div>
+              <button
+                onClick={onClose}
+                className="text-slate-400 hover:text-slate-100 transition-colors"
+              >
+                <svg
+                  className="w-6 h-6"
+                  fill="none"
+                  stroke="currentColor"
+                  viewBox="0 0 24 24"
+                >
+                  <path
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    strokeWidth={2}
+                    d="M6 18L18 6M6 6l12 12"
+                  />
+                </svg>
+              </button>
+            </div>
+
+            {/* Content */}
+            <div className="flex items-center justify-center bg-slate-950 p-6 max-h-[calc(90vh-120px)] overflow-auto">
+              {imageUrl && !imageError ? (
+                <motion.img
+                  initial={{ opacity: 0, scale: 0.95 }}
+                  animate={{ opacity: 1, scale: 1 }}
+                  src={imageUrl}
+                  alt={title}
+                  className="max-w-full max-h-full rounded-lg shadow-xl"
+                  onError={() => setImageError(true)}
+                />
+              ) : (
+                <div className="text-center py-12">
+                  <svg
+                    className="w-16 h-16 text-slate-600 mx-auto mb-4"
+                    fill="none"
+                    stroke="currentColor"
+                    viewBox="0 0 24 24"
+                  >
+                    <path
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                      strokeWidth={1.5}
+                      d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z"
+                    />
+                  </svg>
+                  <p className="text-slate-400">
+                    {imageError ? "Image failed to load" : "No image available"}
+                  </p>
+                </div>
+              )}
+            </div>
+
+            {/* Footer */}
+            <div className="bg-slate-800/50 border-t border-slate-700 px-6 py-4 flex justify-end gap-2">
+              <Button
+                variant="outline"
+                size="sm"
+                className="border-slate-700 hover:bg-slate-700 text-slate-300"
+                onClick={onClose}
+              >
+                Close
+              </Button>
+              {imageUrl && !imageError && (
+                <Button
+                  variant="default"
+                  size="sm"
+                  className="bg-emerald-600 hover:bg-emerald-500 text-white"
+                  onClick={() => window.open(imageUrl, "_blank")}
+                >
+                  Open Full Size
+                </Button>
+              )}
+            </div>
+          </motion.div>
+        </motion.div>
+      )}
+    </AnimatePresence>
+  );
+}
+````
+
+## File: components/PlayerAvatar.tsx
+````typescript
+"use client";
+
+import { useState } from "react";
+
+interface PlayerAvatarProps {
+  id: string;
+  name: string;
+  role: string;
+  photoUrl?: string;
+  size?: "sm" | "md" | "lg" | "xl";
+  showBadge?: boolean;
+  isCaptain?: boolean;
+  sportType?: "football" | "cricket";
+}
+
+const ROLE_COLORS: Record<string, { border: string; bg: string; badge: string }> = {
+  // Football roles
+  Forward: { border: "border-red-500/60", bg: "from-red-600 to-red-800", badge: "⚽" },
+  Midfielder: { border: "border-blue-500/60", bg: "from-blue-600 to-blue-800", badge: "⚽" },
+  Defender: { border: "border-green-500/60", bg: "from-green-600 to-green-800", badge: "🛡️" },
+  Goalkeeper: { border: "border-yellow-500/60", bg: "from-yellow-600 to-yellow-800", badge: "🥅" },
+  // Cricket roles
+  Batsman: { border: "border-orange-500/60", bg: "from-orange-600 to-orange-800", badge: "🏏" },
+  Bowler: { border: "border-purple-500/60", bg: "from-purple-600 to-purple-800", badge: "🎯" },
+  Allrounder: { border: "border-cyan-500/60", bg: "from-cyan-600 to-cyan-800", badge: "⭐" },
+  Wicketkeeper: { border: "border-indigo-500/60", bg: "from-indigo-600 to-indigo-800", badge: "🧤" },
+};
+
+const SIZE_CLASSES = {
+  sm: { container: "w-10 h-10", text: "text-[10px]", badge: "text-[8px]" },
+  md: { container: "w-16 h-16", text: "text-xs", badge: "text-[10px]" },
+  lg: { container: "w-24 h-24", text: "text-sm", badge: "text-xs" },
+  xl: { container: "w-32 h-32", text: "text-base", badge: "text-sm" },
+};
+
+function getInitials(name: string): string {
+  return name
+    .split(" ")
+    .map((word) => word[0])
+    .join("")
+    .toUpperCase()
+    .slice(0, 2);
+}
+
+export function PlayerAvatar({
+  id,
+  name,
+  role,
+  photoUrl,
+  size = "md",
+  showBadge = true,
+  isCaptain = false,
+  sportType = "football",
+}: PlayerAvatarProps) {
+  const [imageError, setImageError] = useState(false);
+  const roleConfig = ROLE_COLORS[role] || ROLE_COLORS[Object.keys(ROLE_COLORS)[0]];
+  const sizeConfig = SIZE_CLASSES[size];
+  const initials = getInitials(name);
+
+  return (
+    <div className="relative inline-block">
+      {/* Captain Star Badge */}
+      {isCaptain && (
+        <div className="absolute -top-2 -right-2 bg-amber-500 text-black font-black rounded-full flex items-center justify-center shadow-lg shadow-amber-900/50 border-2 border-amber-200 z-20"
+          style={{
+            width: size === "sm" ? "16px" : size === "md" ? "24px" : size === "lg" ? "32px" : "40px",
+            height: size === "sm" ? "16px" : size === "md" ? "24px" : size === "lg" ? "32px" : "40px",
+            fontSize: size === "sm" ? "10px" : size === "md" ? "12px" : size === "lg" ? "16px" : "18px",
+          }}
+        >
+          C
+        </div>
+      )}
+
+      {/* Main Avatar */}
+      <div
+        className={`${sizeConfig.container} rounded-full overflow-hidden border-2 ${roleConfig.border} shadow-lg flex items-center justify-center font-bold text-white relative group bg-gradient-to-br ${roleConfig.bg}`}
+      >
+        {photoUrl && !imageError ? (
+          <>
+            <img
+              src={photoUrl}
+              alt={name}
+              className="w-full h-full object-cover"
+              onError={() => setImageError(true)}
+            />
+            {/* Role overlay on hover */}
+            <div className="absolute inset-0 bg-black/0 group-hover:bg-black/40 transition-all duration-300 flex items-center justify-center">
+              <span className={`${sizeConfig.badge} text-white/0 group-hover:text-white/80 transition-all`}>
+                {roleConfig.badge}
+              </span>
+            </div>
+          </>
+        ) : (
+          <>
+            <span className={sizeConfig.text}>{initials}</span>
+            {showBadge && (
+              <div className="absolute bottom-0 right-0 bg-slate-900/80 rounded-full p-0.5 border border-white/20">
+                <span className={`block ${sizeConfig.badge}`}>{roleConfig.badge}</span>
+              </div>
+            )}
+          </>
+        )}
+      </div>
+    </div>
+  );
+}
+````
+
+## File: components/TeamLogo.tsx
+````typescript
+"use client";
+
+import { useState } from "react";
+
+interface TeamLogoProps {
+  name: string;
+  logoUrl?: string;
+  size?: "sm" | "md" | "lg" | "xl";
+}
+
+const SIZE_CLASSES = {
+  sm: { container: "w-8 h-8", text: "text-[10px]" },
+  md: { container: "w-12 h-12", text: "text-xs" },
+  lg: { container: "w-20 h-20", text: "text-sm" },
+  xl: { container: "w-32 h-32", text: "text-base" },
+};
+
+function getInitials(name: string): string {
+  return name
+    .split(" ")
+    .map((word) => word[0])
+    .join("")
+    .toUpperCase()
+    .slice(0, 2);
+}
+
+export function TeamLogo({
+  name,
+  logoUrl,
+  size = "md",
+}: TeamLogoProps) {
+  const [imageError, setImageError] = useState(false);
+  const sizeConfig = SIZE_CLASSES[size];
+  const initials = getInitials(name);
+
+  return (
+    <div
+      className={`${sizeConfig.container} rounded-full overflow-hidden border-2 border-slate-700 shadow-lg flex items-center justify-center font-bold text-white bg-gradient-to-br from-slate-700 to-slate-900`}
+    >
+      {logoUrl && !imageError ? (
+        <img
+          src={logoUrl}
+          alt={name}
+          className="w-full h-full object-cover"
+          onError={() => setImageError(true)}
+        />
+      ) : (
+        <span className={sizeConfig.text}>{initials}</span>
+      )}
+    </div>
+  );
 }
 ````
 
@@ -1940,6 +4580,42 @@ export {
 }
 ````
 
+## File: components/ui/checkbox.tsx
+````typescript
+"use client"
+
+import * as React from "react"
+import { CheckIcon } from "lucide-react"
+import { Checkbox as CheckboxPrimitive } from "radix-ui"
+
+import { cn } from "@/lib/utils"
+
+function Checkbox({
+  className,
+  ...props
+}: React.ComponentProps<typeof CheckboxPrimitive.Root>) {
+  return (
+    <CheckboxPrimitive.Root
+      data-slot="checkbox"
+      className={cn(
+        "peer size-4 shrink-0 rounded-[4px] border border-input shadow-xs transition-shadow outline-none focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/50 disabled:cursor-not-allowed disabled:opacity-50 aria-invalid:border-destructive aria-invalid:ring-destructive/20 data-[state=checked]:border-primary data-[state=checked]:bg-primary data-[state=checked]:text-primary-foreground dark:bg-input/30 dark:aria-invalid:ring-destructive/40 dark:data-[state=checked]:bg-primary",
+        className
+      )}
+      {...props}
+    >
+      <CheckboxPrimitive.Indicator
+        data-slot="checkbox-indicator"
+        className="grid place-content-center text-current transition-none"
+      >
+        <CheckIcon className="size-3.5" />
+      </CheckboxPrimitive.Indicator>
+    </CheckboxPrimitive.Root>
+  )
+}
+
+export { Checkbox }
+````
+
 ## File: components/ui/dialog.tsx
 ````typescript
 "use client"
@@ -2099,177 +4775,6 @@ export {
   DialogPortal,
   DialogTitle,
   DialogTrigger,
-}
-````
-
-## File: components/ui/form.tsx
-````typescript
-"use client"
-
-import * as React from "react"
-import type { Label as LabelPrimitive } from "radix-ui"
-import { Slot } from "radix-ui"
-import {
-  Controller,
-  FormProvider,
-  useFormContext,
-  useFormState,
-  type ControllerProps,
-  type FieldPath,
-  type FieldValues,
-} from "react-hook-form"
-
-import { cn } from "@/lib/utils"
-import { Label } from "@/components/ui/label"
-
-const Form = FormProvider
-
-type FormFieldContextValue<
-  TFieldValues extends FieldValues = FieldValues,
-  TName extends FieldPath<TFieldValues> = FieldPath<TFieldValues>,
-> = {
-  name: TName
-}
-
-const FormFieldContext = React.createContext<FormFieldContextValue>(
-  {} as FormFieldContextValue
-)
-
-const FormField = <
-  TFieldValues extends FieldValues = FieldValues,
-  TName extends FieldPath<TFieldValues> = FieldPath<TFieldValues>,
->({
-  ...props
-}: ControllerProps<TFieldValues, TName>) => {
-  return (
-    <FormFieldContext.Provider value={{ name: props.name }}>
-      <Controller {...props} />
-    </FormFieldContext.Provider>
-  )
-}
-
-const useFormField = () => {
-  const fieldContext = React.useContext(FormFieldContext)
-  const itemContext = React.useContext(FormItemContext)
-  const { getFieldState } = useFormContext()
-  const formState = useFormState({ name: fieldContext.name })
-  const fieldState = getFieldState(fieldContext.name, formState)
-
-  if (!fieldContext) {
-    throw new Error("useFormField should be used within <FormField>")
-  }
-
-  const { id } = itemContext
-
-  return {
-    id,
-    name: fieldContext.name,
-    formItemId: `${id}-form-item`,
-    formDescriptionId: `${id}-form-item-description`,
-    formMessageId: `${id}-form-item-message`,
-    ...fieldState,
-  }
-}
-
-type FormItemContextValue = {
-  id: string
-}
-
-const FormItemContext = React.createContext<FormItemContextValue>(
-  {} as FormItemContextValue
-)
-
-function FormItem({ className, ...props }: React.ComponentProps<"div">) {
-  const id = React.useId()
-
-  return (
-    <FormItemContext.Provider value={{ id }}>
-      <div
-        data-slot="form-item"
-        className={cn("grid gap-2", className)}
-        {...props}
-      />
-    </FormItemContext.Provider>
-  )
-}
-
-function FormLabel({
-  className,
-  ...props
-}: React.ComponentProps<typeof LabelPrimitive.Root>) {
-  const { error, formItemId } = useFormField()
-
-  return (
-    <Label
-      data-slot="form-label"
-      data-error={!!error}
-      className={cn("data-[error=true]:text-destructive", className)}
-      htmlFor={formItemId}
-      {...props}
-    />
-  )
-}
-
-function FormControl({ ...props }: React.ComponentProps<typeof Slot.Root>) {
-  const { error, formItemId, formDescriptionId, formMessageId } = useFormField()
-
-  return (
-    <Slot.Root
-      data-slot="form-control"
-      id={formItemId}
-      aria-describedby={
-        !error
-          ? `${formDescriptionId}`
-          : `${formDescriptionId} ${formMessageId}`
-      }
-      aria-invalid={!!error}
-      {...props}
-    />
-  )
-}
-
-function FormDescription({ className, ...props }: React.ComponentProps<"p">) {
-  const { formDescriptionId } = useFormField()
-
-  return (
-    <p
-      data-slot="form-description"
-      id={formDescriptionId}
-      className={cn("text-sm text-muted-foreground", className)}
-      {...props}
-    />
-  )
-}
-
-function FormMessage({ className, ...props }: React.ComponentProps<"p">) {
-  const { error, formMessageId } = useFormField()
-  const body = error ? String(error?.message ?? "") : props.children
-
-  if (!body) {
-    return null
-  }
-
-  return (
-    <p
-      data-slot="form-message"
-      id={formMessageId}
-      className={cn("text-sm text-destructive", className)}
-      {...props}
-    >
-      {body}
-    </p>
-  )
-}
-
-export {
-  useFormField,
-  Form,
-  FormItem,
-  FormLabel,
-  FormControl,
-  FormDescription,
-  FormMessage,
-  FormField,
 }
 ````
 
@@ -2446,6 +4951,117 @@ export {
 }
 ````
 
+## File: eslint.config.mjs
+````javascript
+import { defineConfig, globalIgnores } from "eslint/config";
+import nextVitals from "eslint-config-next/core-web-vitals";
+import nextTs from "eslint-config-next/typescript";
+
+const eslintConfig = defineConfig([
+  ...nextVitals,
+  ...nextTs,
+  // Override default ignores of eslint-config-next.
+  globalIgnores([
+    // Default ignores of eslint-config-next:
+    ".next/**",
+    "out/**",
+    "build/**",
+    "next-env.d.ts",
+  ]),
+]);
+
+export default eslintConfig;
+````
+
+## File: lib/imageCompression.ts
+````typescript
+/**
+ * Image Compression Utility
+ * Compresses images to max 800px width with 0.8 quality using Canvas API
+ */
+
+interface CompressionOptions {
+  maxWidth?: number;
+  quality?: number;
+}
+
+export async function compressImage(
+  file: File,
+  options: CompressionOptions = {}
+): Promise<Blob> {
+  const { maxWidth = 800, quality = 0.8 } = options;
+
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+
+    reader.onload = (e) => {
+      const img = new Image();
+
+      img.onload = () => {
+        const canvas = document.createElement("canvas");
+        let width = img.width;
+        let height = img.height;
+
+        // Calculate new dimensions while maintaining aspect ratio
+        if (width > maxWidth) {
+          height = (height * maxWidth) / width;
+          width = maxWidth;
+        }
+
+        canvas.width = width;
+        canvas.height = height;
+
+        const ctx = canvas.getContext("2d");
+        if (!ctx) {
+          reject(new Error("Could not get canvas context"));
+          return;
+        }
+
+        ctx.drawImage(img, 0, 0, width, height);
+
+        canvas.toBlob(
+          (blob) => {
+            if (blob) {
+              resolve(blob);
+            } else {
+              reject(new Error("Could not compress image"));
+            }
+          },
+          file.type || "image/jpeg",
+          quality
+        );
+      };
+
+      img.onerror = () => {
+        reject(new Error("Could not load image"));
+      };
+
+      img.src = e.target?.result as string;
+    };
+
+    reader.onerror = () => {
+      reject(new Error("Could not read file"));
+    };
+
+    reader.readAsDataURL(file);
+  });
+}
+
+/**
+ * Generate a preview URL from a compressed blob
+ */
+export function createPreviewUrl(blob: Blob): string {
+  return URL.createObjectURL(blob);
+}
+
+/**
+ * Clean up preview URL to prevent memory leaks
+ */
+export function revokePreviewUrl(url: string): void {
+  URL.revokeObjectURL(url);
+}
+````
+
 ## File: lib/supabase.ts
 ````typescript
 // lib/supabase.ts (Improved Code)
@@ -2472,6 +5088,137 @@ import { twMerge } from "tailwind-merge"
 export function cn(...inputs: ClassValue[]) {
   return twMerge(clsx(inputs))
 }
+````
+
+## File: next.config.ts
+````typescript
+import type { NextConfig } from "next";
+
+const nextConfig: NextConfig = {
+  /* config options here */
+};
+
+export default nextConfig;
+````
+
+## File: package.json
+````json
+{
+  "name": "sports-auction",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "dev": "next dev",
+    "build": "next build",
+    "start": "next start",
+    "lint": "eslint"
+  },
+  "dependencies": {
+    "@hookform/resolvers": "^5.2.2",
+    "@supabase/supabase-js": "^2.98.0",
+    "class-variance-authority": "^0.7.1",
+    "clsx": "^2.1.1",
+    "framer-motion": "^12.35.0",
+    "lucide-react": "^0.577.0",
+    "next": "16.1.6",
+    "radix-ui": "^1.4.3",
+    "react": "19.2.3",
+    "react-dom": "19.2.3",
+    "react-hook-form": "^7.71.2",
+    "tailwind-merge": "^3.5.0",
+    "z": "^1.0.9",
+    "zod": "^4.3.6"
+  },
+  "devDependencies": {
+    "@tailwindcss/postcss": "^4",
+    "@types/node": "^20",
+    "@types/react": "^19",
+    "@types/react-dom": "^19",
+    "eslint": "^9",
+    "eslint-config-next": "16.1.6",
+    "shadcn": "^3.8.5",
+    "supabase": "^2.76.17",
+    "tailwindcss": "^4",
+    "tw-animate-css": "^1.4.0",
+    "typescript": "^5"
+  }
+}
+````
+
+## File: postcss.config.mjs
+````javascript
+const config = {
+  plugins: {
+    "@tailwindcss/postcss": {},
+  },
+};
+
+export default config;
+````
+
+## File: public/file.svg
+````xml
+<svg fill="none" viewBox="0 0 16 16" xmlns="http://www.w3.org/2000/svg"><path d="M14.5 13.5V5.41a1 1 0 0 0-.3-.7L9.8.29A1 1 0 0 0 9.08 0H1.5v13.5A2.5 2.5 0 0 0 4 16h8a2.5 2.5 0 0 0 2.5-2.5m-1.5 0v-7H8v-5H3v12a1 1 0 0 0 1 1h8a1 1 0 0 0 1-1M9.5 5V2.12L12.38 5zM5.13 5h-.62v1.25h2.12V5zm-.62 3h7.12v1.25H4.5zm.62 3h-.62v1.25h7.12V11z" clip-rule="evenodd" fill="#666" fill-rule="evenodd"/></svg>
+````
+
+## File: public/globe.svg
+````xml
+<svg fill="none" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16"><g clip-path="url(#a)"><path fill-rule="evenodd" clip-rule="evenodd" d="M10.27 14.1a6.5 6.5 0 0 0 3.67-3.45q-1.24.21-2.7.34-.31 1.83-.97 3.1M8 16A8 8 0 1 0 8 0a8 8 0 0 0 0 16m.48-1.52a7 7 0 0 1-.96 0H7.5a4 4 0 0 1-.84-1.32q-.38-.89-.63-2.08a40 40 0 0 0 3.92 0q-.25 1.2-.63 2.08a4 4 0 0 1-.84 1.31zm2.94-4.76q1.66-.15 2.95-.43a7 7 0 0 0 0-2.58q-1.3-.27-2.95-.43a18 18 0 0 1 0 3.44m-1.27-3.54a17 17 0 0 1 0 3.64 39 39 0 0 1-4.3 0 17 17 0 0 1 0-3.64 39 39 0 0 1 4.3 0m1.1-1.17q1.45.13 2.69.34a6.5 6.5 0 0 0-3.67-3.44q.65 1.26.98 3.1M8.48 1.5l.01.02q.41.37.84 1.31.38.89.63 2.08a40 40 0 0 0-3.92 0q.25-1.2.63-2.08a4 4 0 0 1 .85-1.32 7 7 0 0 1 .96 0m-2.75.4a6.5 6.5 0 0 0-3.67 3.44 29 29 0 0 1 2.7-.34q.31-1.83.97-3.1M4.58 6.28q-1.66.16-2.95.43a7 7 0 0 0 0 2.58q1.3.27 2.95.43a18 18 0 0 1 0-3.44m.17 4.71q-1.45-.12-2.69-.34a6.5 6.5 0 0 0 3.67 3.44q-.65-1.27-.98-3.1" fill="#666"/></g><defs><clipPath id="a"><path fill="#fff" d="M0 0h16v16H0z"/></clipPath></defs></svg>
+````
+
+## File: public/next.svg
+````xml
+<svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 394 80"><path fill="#000" d="M262 0h68.5v12.7h-27.2v66.6h-13.6V12.7H262V0ZM149 0v12.7H94v20.4h44.3v12.6H94v21h55v12.6H80.5V0h68.7zm34.3 0h-17.8l63.8 79.4h17.9l-32-39.7 32-39.6h-17.9l-23 28.6-23-28.6zm18.3 56.7-9-11-27.1 33.7h17.8l18.3-22.7z"/><path fill="#000" d="M81 79.3 17 0H0v79.3h13.6V17l50.2 62.3H81Zm252.6-.4c-1 0-1.8-.4-2.5-1s-1.1-1.6-1.1-2.6.3-1.8 1-2.5 1.6-1 2.6-1 1.8.3 2.5 1a3.4 3.4 0 0 1 .6 4.3 3.7 3.7 0 0 1-3 1.8zm23.2-33.5h6v23.3c0 2.1-.4 4-1.3 5.5a9.1 9.1 0 0 1-3.8 3.5c-1.6.8-3.5 1.3-5.7 1.3-2 0-3.7-.4-5.3-1s-2.8-1.8-3.7-3.2c-.9-1.3-1.4-3-1.4-5h6c.1.8.3 1.6.7 2.2s1 1.2 1.6 1.5c.7.4 1.5.5 2.4.5 1 0 1.8-.2 2.4-.6a4 4 0 0 0 1.6-1.8c.3-.8.5-1.8.5-3V45.5zm30.9 9.1a4.4 4.4 0 0 0-2-3.3 7.5 7.5 0 0 0-4.3-1.1c-1.3 0-2.4.2-3.3.5-.9.4-1.6 1-2 1.6a3.5 3.5 0 0 0-.3 4c.3.5.7.9 1.3 1.2l1.8 1 2 .5 3.2.8c1.3.3 2.5.7 3.7 1.2a13 13 0 0 1 3.2 1.8 8.1 8.1 0 0 1 3 6.5c0 2-.5 3.7-1.5 5.1a10 10 0 0 1-4.4 3.5c-1.8.8-4.1 1.2-6.8 1.2-2.6 0-4.9-.4-6.8-1.2-2-.8-3.4-2-4.5-3.5a10 10 0 0 1-1.7-5.6h6a5 5 0 0 0 3.5 4.6c1 .4 2.2.6 3.4.6 1.3 0 2.5-.2 3.5-.6 1-.4 1.8-1 2.4-1.7a4 4 0 0 0 .8-2.4c0-.9-.2-1.6-.7-2.2a11 11 0 0 0-2.1-1.4l-3.2-1-3.8-1c-2.8-.7-5-1.7-6.6-3.2a7.2 7.2 0 0 1-2.4-5.7 8 8 0 0 1 1.7-5 10 10 0 0 1 4.3-3.5c2-.8 4-1.2 6.4-1.2 2.3 0 4.4.4 6.2 1.2 1.8.8 3.2 2 4.3 3.4 1 1.4 1.5 3 1.5 5h-5.8z"/></svg>
+````
+
+## File: public/vercel.svg
+````xml
+<svg fill="none" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1155 1000"><path d="m577.3 0 577.4 1000H0z" fill="#fff"/></svg>
+````
+
+## File: public/window.svg
+````xml
+<svg fill="none" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16"><path fill-rule="evenodd" clip-rule="evenodd" d="M1.5 2.5h13v10a1 1 0 0 1-1 1h-11a1 1 0 0 1-1-1zM0 1h16v11.5a2.5 2.5 0 0 1-2.5 2.5h-11A2.5 2.5 0 0 1 0 12.5zm3.75 4.5a.75.75 0 1 0 0-1.5.75.75 0 0 0 0 1.5M7 4.75a.75.75 0 1 1-1.5 0 .75.75 0 0 1 1.5 0m1.75.75a.75.75 0 1 0 0-1.5.75.75 0 0 0 0 1.5" fill="#666"/></svg>
+````
+
+## File: README.md
+````markdown
+This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+
+## Getting Started
+
+First, run the development server:
+
+```bash
+npm run dev
+# or
+yarn dev
+# or
+pnpm dev
+# or
+bun dev
+```
+
+Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+
+You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+
+This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+
+## Learn More
+
+To learn more about Next.js, take a look at the following resources:
+
+- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
+- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+
+You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
+
+## Deploy on Vercel
+
+The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
+
+Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
 ````
 
 ## File: supabase/.gitignore
@@ -3402,561 +6149,2965 @@ alter table public.auctions
   add column if not exists status public.auction_status not null default 'upcoming';
 ````
 
-## File: .gitignore
-````
-# See https://help.github.com/articles/ignoring-files/ for more about ignoring files.
+## File: supabase/migrations/0004_registration_control.sql
+````sql
+-- Migration to add registration control, phone numbers, and IP tracking
 
-# dependencies
-/node_modules
-/.pnp
-.pnp.*
-.yarn/*
-!.yarn/patches
-!.yarn/plugins
-!.yarn/releases
-!.yarn/versions
+-- 1. Add is_registration_open to auctions
+alter table public.auctions
+add column if not exists is_registration_open boolean not null default true;
 
-# testing
-/coverage
+-- 2. Add phone_number and ip_address to players
+alter table public.players
+add column if not exists phone_number text,
+add column if not exists ip_address text;
 
-# next.js
-/.next/
-/out/
+-- 3. Unique constraint on (auction_id, phone_number)
 
-# production
-/build
+-- Drop any previous attempts
+drop index if exists players_auction_phone_key;
+alter table public.players drop constraint if exists players_auction_phone_key;
 
-# misc
-.DS_Store
-*.pem
+-- Add standard unique constraint
+alter table public.players
+add constraint players_auction_phone_key unique (auction_id, phone_number);
 
-# debug
-npm-debug.log*
-yarn-debug.log*
-yarn-error.log*
-.pnpm-debug.log*
 
-# env files (can opt-in for committing if needed)
-.env*
+-- 4. Trigger to check registration status
+create or replace function public.check_registration_status()
+returns trigger
+language plpgsql
+as $$
+declare
+  v_is_open boolean;
+begin
+  select is_registration_open
+    into v_is_open
+  from public.auctions
+  where id = new.auction_id;
 
-# vercel
-.vercel
+  if not found then
+    raise exception 'Auction % not found', new.auction_id;
+  end if;
 
-# typescript
-*.tsbuildinfo
-next-env.d.ts
-.env
-.env.local
-````
+  if not v_is_open then
+    raise exception 'Registration is currently closed for this auction';
+  end if;
 
-## File: app/globals.css
-````css
-@import "tailwindcss";
-@import "tw-animate-css";
-@import "shadcn/tailwind.css";
+  return new;
+end;
+$$;
 
-@custom-variant dark (&:is(.dark *));
+drop trigger if exists trg_check_registration_status on public.players;
 
-@theme inline {
-  --color-background: var(--background);
-  --color-foreground: var(--foreground);
-  --font-sans: var(--font-geist-sans);
-  --font-mono: var(--font-geist-mono);
-  --color-sidebar-ring: var(--sidebar-ring);
-  --color-sidebar-border: var(--sidebar-border);
-  --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
-  --color-sidebar-accent: var(--sidebar-accent);
-  --color-sidebar-primary-foreground: var(--sidebar-primary-foreground);
-  --color-sidebar-primary: var(--sidebar-primary);
-  --color-sidebar-foreground: var(--sidebar-foreground);
-  --color-sidebar: var(--sidebar);
-  --color-chart-5: var(--chart-5);
-  --color-chart-4: var(--chart-4);
-  --color-chart-3: var(--chart-3);
-  --color-chart-2: var(--chart-2);
-  --color-chart-1: var(--chart-1);
-  --color-ring: var(--ring);
-  --color-input: var(--input);
-  --color-border: var(--border);
-  --color-destructive: var(--destructive);
-  --color-accent-foreground: var(--accent-foreground);
-  --color-accent: var(--accent);
-  --color-muted-foreground: var(--muted-foreground);
-  --color-muted: var(--muted);
-  --color-secondary-foreground: var(--secondary-foreground);
-  --color-secondary: var(--secondary);
-  --color-primary-foreground: var(--primary-foreground);
-  --color-primary: var(--primary);
-  --color-popover-foreground: var(--popover-foreground);
-  --color-popover: var(--popover);
-  --color-card-foreground: var(--card-foreground);
-  --color-card: var(--card);
-  --radius-sm: calc(var(--radius) - 4px);
-  --radius-md: calc(var(--radius) - 2px);
-  --radius-lg: var(--radius);
-  --radius-xl: calc(var(--radius) + 4px);
-  --radius-2xl: calc(var(--radius) + 8px);
-  --radius-3xl: calc(var(--radius) + 12px);
-  --radius-4xl: calc(var(--radius) + 16px);
-}
-
-:root {
-  --radius: 0.625rem;
-  --background: oklch(1 0 0);
-  --foreground: oklch(0.13 0.028 261.692);
-  --card: oklch(1 0 0);
-  --card-foreground: oklch(0.13 0.028 261.692);
-  --popover: oklch(1 0 0);
-  --popover-foreground: oklch(0.13 0.028 261.692);
-  --primary: oklch(0.21 0.034 264.665);
-  --primary-foreground: oklch(0.985 0.002 247.839);
-  --secondary: oklch(0.967 0.003 264.542);
-  --secondary-foreground: oklch(0.21 0.034 264.665);
-  --muted: oklch(0.967 0.003 264.542);
-  --muted-foreground: oklch(0.551 0.027 264.364);
-  --accent: oklch(0.967 0.003 264.542);
-  --accent-foreground: oklch(0.21 0.034 264.665);
-  --destructive: oklch(0.577 0.245 27.325);
-  --border: oklch(0.928 0.006 264.531);
-  --input: oklch(0.928 0.006 264.531);
-  --ring: oklch(0.707 0.022 261.325);
-  --chart-1: oklch(0.646 0.222 41.116);
-  --chart-2: oklch(0.6 0.118 184.704);
-  --chart-3: oklch(0.398 0.07 227.392);
-  --chart-4: oklch(0.828 0.189 84.429);
-  --chart-5: oklch(0.769 0.188 70.08);
-  --sidebar: oklch(0.985 0.002 247.839);
-  --sidebar-foreground: oklch(0.13 0.028 261.692);
-  --sidebar-primary: oklch(0.21 0.034 264.665);
-  --sidebar-primary-foreground: oklch(0.985 0.002 247.839);
-  --sidebar-accent: oklch(0.967 0.003 264.542);
-  --sidebar-accent-foreground: oklch(0.21 0.034 264.665);
-  --sidebar-border: oklch(0.928 0.006 264.531);
-  --sidebar-ring: oklch(0.707 0.022 261.325);
-}
-
-.dark {
-  --background: oklch(0.13 0.028 261.692);
-  --foreground: oklch(0.985 0.002 247.839);
-  --card: oklch(0.21 0.034 264.665);
-  --card-foreground: oklch(0.985 0.002 247.839);
-  --popover: oklch(0.21 0.034 264.665);
-  --popover-foreground: oklch(0.985 0.002 247.839);
-  --primary: oklch(0.928 0.006 264.531);
-  --primary-foreground: oklch(0.21 0.034 264.665);
-  --secondary: oklch(0.278 0.033 256.848);
-  --secondary-foreground: oklch(0.985 0.002 247.839);
-  --muted: oklch(0.278 0.033 256.848);
-  --muted-foreground: oklch(0.707 0.022 261.325);
-  --accent: oklch(0.278 0.033 256.848);
-  --accent-foreground: oklch(0.985 0.002 247.839);
-  --destructive: oklch(0.704 0.191 22.216);
-  --border: oklch(1 0 0 / 10%);
-  --input: oklch(1 0 0 / 15%);
-  --ring: oklch(0.551 0.027 264.364);
-  --chart-1: oklch(0.488 0.243 264.376);
-  --chart-2: oklch(0.696 0.17 162.48);
-  --chart-3: oklch(0.769 0.188 70.08);
-  --chart-4: oklch(0.627 0.265 303.9);
-  --chart-5: oklch(0.645 0.246 16.439);
-  --sidebar: oklch(0.21 0.034 264.665);
-  --sidebar-foreground: oklch(0.985 0.002 247.839);
-  --sidebar-primary: oklch(0.488 0.243 264.376);
-  --sidebar-primary-foreground: oklch(0.985 0.002 247.839);
-  --sidebar-accent: oklch(0.278 0.033 256.848);
-  --sidebar-accent-foreground: oklch(0.985 0.002 247.839);
-  --sidebar-border: oklch(1 0 0 / 10%);
-  --sidebar-ring: oklch(0.551 0.027 264.364);
-}
-
-@layer base {
-  * {
-    @apply border-border outline-ring/50;
-  }
-  body {
-    @apply bg-background text-foreground;
-  }
-}
+create trigger trg_check_registration_status
+before insert on public.players
+for each row
+execute procedure public.check_registration_status();
 ````
 
-## File: app/layout.tsx
-````typescript
-import type { Metadata } from "next";
-import { Geist, Geist_Mono } from "next/font/google";
-import "./globals.css";
+## File: supabase/migrations/0005_audit_fixes.sql
+````sql
+-- Migration to add undo_sale RPC and update assign_captain to trigger a UI reveal
 
-const geistSans = Geist({
-  variable: "--font-geist-sans",
-  subsets: ["latin"],
-});
+-- 1. Update assign_captain to push state to auction_state for Live UI Hype Reveal
+create or replace function public.assign_captain(
+  p_auction_id uuid,
+  p_team_id uuid,
+  p_player_id uuid,
+  p_price numeric
+)
+returns void
+language plpgsql
+security definer
+as $$
+declare
+  v_auction public.auctions;
+  v_team public.teams;
+  v_player public.players;
+  v_base_price numeric(12,2);
+  v_remaining_slots_after integer;
+  v_required_money numeric(12,2);
+begin
+  if p_price <= 0 then
+    raise exception 'Captain price must be positive';
+  end if;
 
-const geistMono = Geist_Mono({
-  variable: "--font-geist-mono",
-  subsets: ["latin"],
-});
+  select *
+    into v_auction
+  from public.auctions
+  where id = p_auction_id
+  for update;
 
-export const metadata: Metadata = {
-  title: "Create Next App",
-  description: "Generated by create next app",
-};
+  if not found then
+    raise exception 'Auction % not found', p_auction_id;
+  end if;
 
-export default function RootLayout({
-  children,
-}: Readonly<{
-  children: React.ReactNode;
-}>) {
-  return (
-    <html lang="en" className="dark">
-      <body
-        className={`${geistSans.variable} ${geistMono.variable} antialiased`}
-      >
-        {children}
-      </body>
-    </html>
-  );
-}
+  v_base_price := (v_auction.settings ->> 'base_price')::numeric;
+
+  select *
+    into v_team
+  from public.teams
+  where id = p_team_id
+    and auction_id = p_auction_id
+  for update;
+
+  if not found then
+    raise exception 'Team % not found for auction %', p_team_id, p_auction_id;
+  end if;
+
+  if v_team.captain_id is not null then
+    raise exception 'Team % already has a captain', p_team_id;
+  end if;
+
+  select *
+    into v_player
+  from public.players
+  where id = p_player_id
+    and auction_id = p_auction_id
+  for update;
+
+  if not found then
+    raise exception 'Player % not found for auction %', p_player_id, p_auction_id;
+  end if;
+
+  if v_player.status <> 'upcoming' then
+    raise exception 'Captain must be selected from upcoming players';
+  end if;
+
+  -- Purse and slot checks re-used from main auction rules
+  if v_team.slots_remaining <= 0 then
+    raise exception 'Team % has no remaining slots', p_team_id;
+  end if;
+
+  if v_team.purse_remaining < p_price then
+    raise exception 'Captain price exceeds team purse for team %', p_team_id;
+  end if;
+
+  v_remaining_slots_after := v_team.slots_remaining - 1;
+  v_required_money := v_remaining_slots_after * v_base_price;
+
+  if (v_team.purse_remaining - p_price) < v_required_money then
+    raise exception 'Minimum squad rule violated for team % when assigning captain', p_team_id;
+  end if;
+
+  update public.players
+     set status = 'sold',
+         sold_price = p_price,
+         sold_team_id = p_team_id
+   where id = p_player_id;
+
+  update public.teams
+     set purse_remaining = v_team.purse_remaining - p_price,
+         slots_remaining = v_team.slots_remaining - 1,
+         captain_id = p_player_id
+   where id = p_team_id;
+
+  -- UPDATE AUCTION STATE FOR HYPE REVEAL
+  update public.auction_state
+     set current_player_id = p_player_id,
+         leading_team_id = p_team_id,
+         current_bid = p_price,
+         phase = 'captain_round'
+   where auction_id = p_auction_id;
+
+end;
+$$;
+
+
+-- 2. Add undo_sale RPC to reverse a finalized sale
+create or replace function public.undo_sale(p_auction_id uuid)
+returns public.auction_state
+language plpgsql
+security definer
+as $$
+declare
+  v_state public.auction_state;
+  v_player public.players;
+  v_team public.teams;
+begin
+  select *
+    into v_state
+  from public.auction_state
+  where auction_id = p_auction_id
+  for update;
+
+  if not found then
+    raise exception 'No active auction state found for auction %', p_auction_id;
+  end if;
+
+  -- Check if there is a recently sold/unsold player mapped to state
+  if v_state.current_player_id is null then
+    raise exception 'No player to undo sale for.';
+  end if;
+
+  select * into v_player from public.players where id = v_state.current_player_id for update;
+
+  if v_player.status not in ('sold', 'unsold') then
+    raise exception 'Player % is not sold or unsold, cannot undo sale.', v_player.name;
+  end if;
+
+  if v_player.status = 'sold' and v_player.sold_team_id is not null then
+    -- Refund team
+    select * into v_team from public.teams where id = v_player.sold_team_id for update;
+    
+    update public.teams
+       set purse_remaining = v_team.purse_remaining + coalesce(v_player.sold_price, 0),
+           slots_remaining = v_team.slots_remaining + 1
+     where id = v_team.id;
+     
+    -- If this player was a captain, remove captain status
+    if v_team.captain_id = v_player.id then
+       update public.teams set captain_id = null where id = v_team.id;
+    end if;
+  end if;
+
+  -- Reset Player
+  update public.players
+     set status = 'upcoming',
+         sold_price = null,
+         sold_team_id = null
+   where id = v_player.id;
+
+  -- Reset Auction State to idle/ready
+  update public.auction_state
+     set phase = 'idle',
+         current_bid = null,
+         leading_team_id = null,
+         previous_bid = null,
+         previous_leading_team_id = null
+   where id = v_state.id
+   returning * into v_state;
+
+  return v_state;
+end;
+$$;
 ````
 
-## File: app/page.tsx
-````typescript
-"use client";
+## File: supabase/migrations/0006_end_bid_fixes.sql
+````sql
+-- Fix end_bid to retain player ID for UI 'Sold' states and undo mechanics
 
-import { useEffect, useMemo, useState } from "react";
-import Link from "next/link";
-import { supabase } from "@/lib/supabase";
-import { Card } from "@/components/ui/card";
-import { Button } from "@/components/ui/button";
+create or replace function public.end_bid(p_auction_id uuid)
+returns public.auction_state
+language plpgsql
+security definer
+as $$
+declare
+  v_state public.auction_state;
+  v_team public.teams;
+begin
+  select *
+    into v_state
+  from public.auction_state
+  where auction_id = p_auction_id
+  for update;
 
-type AuctionSettings = {
-  purse: number;
-  min_players: number;
-  max_players: number;
-  base_price: number;
-  increment: number;
-};
+  if not found or v_state.current_player_id is null then
+    raise exception 'No active player to end bid for auction %', p_auction_id;
+  end if;
 
-type Auction = {
-  id: string;
-  name: string;
-  sport_type: string;
-  status?: "upcoming" | "live" | "completed";
-  settings: AuctionSettings;
-};
+  if v_state.leading_team_id is not null and v_state.current_bid is not null then
+    select *
+      into v_team
+    from public.teams
+    where id = v_state.leading_team_id
+    for update;
 
-type AuctionState = {
-  auction_id: string;
-  phase: string;
-  current_player_id: string | null;
-};
+    update public.players
+       set status = 'sold',
+           sold_price = v_state.current_bid,
+           sold_team_id = v_state.leading_team_id
+     where id = v_state.current_player_id;
 
-export default function Home() {
-  const [auctions, setAuctions] = useState<Auction[]>([]);
-  const [states, setStates] = useState<AuctionState[]>([]);
+    update public.teams
+       set purse_remaining = v_team.purse_remaining - v_state.current_bid,
+           slots_remaining = v_team.slots_remaining - 1
+     where id = v_team.id;
+     
+    -- Update Phase for UI Polish
+    update public.auction_state
+       set phase = 'completed_sale'
+     where id = v_state.id;
+     
+  else
+    update public.players
+       set status = 'unsold'
+     where id = v_state.current_player_id;
+     
+    update public.auction_state
+       set phase = 'completed_unsold'
+     where id = v_state.id;
+  end if;
 
-  useEffect(() => {
-    const fetchData = async () => {
-      const [{ data: auctionsData }, { data: stateData }] = await Promise.all([
-        supabase.from("auctions").select("*"),
-        supabase.from("auction_state").select("auction_id, phase, current_player_id"),
-      ]);
+  /* DO NOT NULLIFY current_player_id SO UNDO WORKS AND UI SHOWS SOLD STATUS */
+  update public.auction_state
+     set previous_bid = v_state.current_bid,
+         previous_leading_team_id = v_state.leading_team_id
+   where id = v_state.id
+   returning * into v_state;
 
-      setAuctions((auctionsData ?? []) as Auction[]);
-      setStates((stateData ?? []) as AuctionState[]);
-    };
-
-    fetchData();
-  }, []);
-
-  const liveAuctionIds = useMemo(() => {
-    const livePhases = new Set(["captain_round", "phase1", "phase2"]);
-    return new Set(
-      states
-        .filter((s) => livePhases.has(s.phase) && s.current_player_id !== null)
-        .map((s) => s.auction_id),
-    );
-  }, [states]);
-
-  const hasLiveAuctions = liveAuctionIds.size > 0;
-
-  return (
-    <div className="min-h-screen bg-gradient-to-br from-slate-950 via-slate-900 to-slate-950 px-6 py-10 text-slate-50">
-      <div className="mx-auto flex max-w-6xl flex-col gap-8">
-        <header className="flex flex-col items-start justify-between gap-4 md:flex-row md:items-center">
-          <div>
-            <h1 className="text-3xl font-semibold tracking-tight md:text-4xl">
-              Sports Auction Platform
-            </h1>
-            <p className="mt-2 max-w-xl text-sm text-slate-300">
-              Join live player auctions, track teams in real time, and register for upcoming events.
-            </p>
-          </div>
-          <div className="flex flex-wrap gap-3">
-            <Link href="/admin/login">
-              <Button variant="outline" className="text-black" color="black" size="sm">
-                Admin Login
-              </Button>
-            </Link>
-          </div>
-        </header>
-
-        <section className="grid gap-6 md:grid-cols-[2fr,3fr]">
-          <Card className="border-slate-800 bg-slate-900/70 p-5 shadow-xl shadow-black/60">
-            <div className="mb-3 flex items-center justify-between">
-              <h2 className="text-sm font-semibold uppercase tracking-[0.18em] text-slate-400">
-                Live Auctions
-              </h2>
-              {hasLiveAuctions && (
-                <span className="rounded-full bg-emerald-500/20 px-3 py-0.5 text-xs font-medium text-emerald-300">
-                  Live now
-                </span>
-              )}
-            </div>
-            {auctions.filter((a) => (a.status ?? "upcoming") === "live" && liveAuctionIds.has(a.id))
-              .length === 0 ? (
-              <p className="text-sm text-slate-400">
-                No auctions are live right now. Check the upcoming auctions below.
-              </p>
-            ) : (
-              <div className="space-y-3">
-                {auctions
-                  .filter((a) => (a.status ?? "upcoming") === "live" && liveAuctionIds.has(a.id))
-                  .map((auction) => (
-                    <div
-                      key={auction.id}
-                      className="flex items-center justify-between gap-3 rounded-lg border border-emerald-500/40 bg-emerald-500/5 px-3 py-3"
-                    >
-                      <div>
-                        <div className="text-sm font-semibold">{auction.name}</div>
-                        <div className="text-xs uppercase tracking-[0.18em] text-emerald-300">
-                          {auction.sport_type.toUpperCase()} · Live Auction
-                        </div>
-                      </div>
-                      <div className="flex gap-2">
-                        <Link href={`/live/${auction.id}`}>
-                          <Button size="sm" variant="default">
-                            View Live
-                          </Button>
-                        </Link>
-                        <Link href={`/auction/${auction.id}`}>
-                          <Button size="sm" variant="outline">
-                            Details &amp; Register
-                          </Button>
-                        </Link>
-                      </div>
-                    </div>
-                  ))}
-              </div>
-            )}
-          </Card>
-
-          <Card className="border-slate-800 bg-slate-900/70 p-5 shadow-xl shadow-black/60">
-            <div className="mb-3 flex items-center justify-between">
-              <h2 className="text-sm font-semibold uppercase tracking-[0.18em] text-slate-400">
-                All Auctions
-              </h2>
-              <span className="text-xs text-slate-400">
-                {auctions.length} {auctions.length === 1 ? "auction" : "auctions"}
-              </span>
-            </div>
-            {auctions.length === 0 ? (
-              <p className="text-sm text-slate-400">
-                No auctions have been created yet. Once an admin creates an auction, it will appear
-                here.
-              </p>
-            ) : (
-              <div className="space-y-3">
-                {auctions.map((auction) => {
-                  const status = auction.status ?? "upcoming";
-                  const isLive = status === "live" && liveAuctionIds.has(auction.id);
-                  return (
-                    <div
-                      key={auction.id}
-                      className="flex items-center justify-between gap-3 rounded-lg border border-slate-800 bg-slate-950/60 px-3 py-3"
-                    >
-                      <div>
-                        <div className="text-sm font-semibold">{auction.name}</div>
-                        <div className="text-xs uppercase tracking-[0.18em] text-slate-400">
-                          {auction.sport_type.toUpperCase()}
-                          {isLive ? " · Live" : " · Upcoming / Scheduled"}
-                        </div>
-                      </div>
-                      <div className="flex gap-2">
-                        <Link href={`/auction/${auction.id}`}>
-                          <Button size="sm" variant="outline">
-                            View &amp; Register
-                          </Button>
-                        </Link>
-                        {isLive && (
-                          <Link href={`/live/${auction.id}`}>
-                            <Button size="sm" variant="ghost">
-                              Watch
-                            </Button>
-                          </Link>
-                        )}
-                      </div>
-                    </div>
-                  );
-                })}
-              </div>
-            )}
-          </Card>
-        </section>
-      </div>
-    </div>
-  );
-}
+  return v_state;
+end;
+$$;
 ````
 
-## File: eslint.config.mjs
-````javascript
-import { defineConfig, globalIgnores } from "eslint/config";
-import nextVitals from "eslint-config-next/core-web-vitals";
-import nextTs from "eslint-config-next/typescript";
+## File: supabase/migrations/0007_captain_flow.sql
+````sql
+-- Migration to support the new "Lock Participants -> Select Captains -> Captain Reveal -> Blind Bid" workflow
 
-const eslintConfig = defineConfig([
-  ...nextVitals,
-  ...nextTs,
-  // Override default ignores of eslint-config-next.
-  globalIgnores([
-    // Default ignores of eslint-config-next:
-    ".next/**",
-    "out/**",
-    "build/**",
-    "next-env.d.ts",
-  ]),
-]);
+-- 1. Add Captain Base Price to Auctions
+alter table public.auctions
+add column if not exists captain_base_price numeric(12,2) default 0;
 
-export default eslintConfig;
+-- 2. Add is_captain flag to Players to track who was selected
+alter table public.players
+add column if not exists is_captain boolean default false;
+
+-- 3. Update the assign_captain function to work with the Blind-Bid Matching Phase
+-- This simplifies it to just assign team, price, and deduct purse/slots.
+-- The UI will handle triggering the end of the phase when all are matched.
+create or replace function public.match_captain_blind_bid(
+  p_auction_id uuid,
+  p_team_id uuid,
+  p_player_id uuid,
+  p_price numeric
+)
+returns void
+language plpgsql
+security definer
+as $$
+declare
+  v_auction public.auctions;
+  v_team public.teams;
+  v_player public.players;
+  v_base_price numeric(12,2);
+  v_remaining_slots_after integer;
+  v_required_money numeric(12,2);
+begin
+  if p_price < 0 then
+    raise exception 'Captain price cannot be negative';
+  end if;
+
+  select *
+    into v_auction
+  from public.auctions
+  where id = p_auction_id
+  for update;
+
+  if not found then
+    raise exception 'Auction % not found', p_auction_id;
+  end if;
+
+  v_base_price := (v_auction.settings ->> 'base_price')::numeric;
+
+  select *
+    into v_team
+  from public.teams
+  where id = p_team_id
+    and auction_id = p_auction_id
+  for update;
+
+  if not found then
+    raise exception 'Team % not found for auction %', p_team_id, p_auction_id;
+  end if;
+
+  if v_team.captain_id is not null then
+    raise exception 'Team % already has a captain', p_team_id;
+  end if;
+
+  select *
+    into v_player
+  from public.players
+  where id = p_player_id
+    and auction_id = p_auction_id
+  for update;
+
+  if not found then
+    raise exception 'Player % not found for auction %', p_player_id, p_auction_id;
+  end if;
+
+  if not v_player.is_captain then
+    raise exception 'Player % is not marked as a captain', v_player.name;
+  end if;
+
+  if v_player.status <> 'upcoming' then
+    raise exception 'Captain must be selected from upcoming players';
+  end if;
+
+  if v_team.slots_remaining <= 0 then
+    raise exception 'Team % has no remaining slots', p_team_id;
+  end if;
+
+  if v_team.purse_remaining < p_price then
+    raise exception 'Captain price exceeds team purse for team %', p_team_id;
+  end if;
+
+  v_remaining_slots_after := v_team.slots_remaining - 1;
+  v_required_money := v_remaining_slots_after * v_base_price;
+
+  if (v_team.purse_remaining - p_price) < v_required_money then
+    raise exception 'Minimum squad rule violated for team % when assigning captain', p_team_id;
+  end if;
+
+  update public.players
+     set status = 'sold',
+         sold_price = p_price,
+         sold_team_id = p_team_id
+   where id = p_player_id;
+
+  update public.teams
+     set purse_remaining = v_team.purse_remaining - p_price,
+         slots_remaining = v_team.slots_remaining - 1,
+         captain_id = p_player_id
+   where id = p_team_id;
+
+end;
+$$;
 ````
 
-## File: next.config.ts
-````typescript
-import type { NextConfig } from "next";
+## File: supabase/migrations/0008_auto_allocation.sql
+````sql
+-- Migration to add final Auto-Allocation for Unsold Phase 2
 
-const nextConfig: NextConfig = {
-  /* config options here */
-};
+create or replace function public.auto_allocate_unsold(
+  p_auction_id uuid
+)
+returns void
+language plpgsql
+security definer
+as $$
+declare
+  v_auction public.auctions;
+  v_base_price numeric(12,2);
+  v_team record;
+  v_player record;
+begin
+  -- Get auction and base price
+  select * into v_auction from public.auctions where id = p_auction_id for update;
+  if not found then
+    raise exception 'Auction not found';
+  end if;
+  
+  v_base_price := (v_auction.settings ->> 'base_price')::numeric;
 
-export default nextConfig;
+  -- Loop through teams that need players (slots_remaining > 0)
+  for v_team in 
+    select * from public.teams 
+    where auction_id = p_auction_id and slots_remaining > 0 
+    order by slots_remaining desc 
+  loop
+    -- While this particular team still needs players and has enough purse
+    while v_team.slots_remaining > 0 and v_team.purse_remaining >= v_base_price loop
+      -- Find an unsold player deterministically
+      select * into v_player 
+      from public.players 
+      where auction_id = p_auction_id and status = 'unsold' 
+      order by id
+      limit 1;
+      
+      -- If no more unsold players exist at all, exit the entire function
+      if not found then
+        return;
+      end if;
+
+      -- Assign player to the current team
+      update public.players
+      set status = 'sold',
+          sold_price = v_base_price,
+          sold_team_id = v_team.id
+      where id = v_player.id;
+
+      -- Update our local team record variables
+      v_team.purse_remaining := v_team.purse_remaining - v_base_price;
+      v_team.slots_remaining := v_team.slots_remaining - 1;
+
+      -- Persist team updates to the database
+      update public.teams
+      set purse_remaining = v_team.purse_remaining,
+          slots_remaining = v_team.slots_remaining
+      where id = v_team.id;
+      
+    end loop;
+  end loop;
+
+  -- Finally, set state block to indicate completion of Phase 2
+  update public.auction_state
+  set phase = 'completed_auto_allocation',
+      current_player_id = null,
+      current_bid = null,
+      leading_team_id = null
+  where auction_id = p_auction_id;
+
+end;
+$$;
 ````
 
-## File: package.json
-````json
-{
-  "name": "sports-auction",
-  "version": "0.1.0",
-  "private": true,
-  "scripts": {
-    "dev": "next dev",
-    "build": "next build",
-    "start": "next start",
-    "lint": "eslint"
-  },
-  "dependencies": {
-    "@hookform/resolvers": "^5.2.2",
-    "@supabase/supabase-js": "^2.98.0",
-    "class-variance-authority": "^0.7.1",
-    "clsx": "^2.1.1",
-    "framer-motion": "^12.35.0",
-    "lucide-react": "^0.577.0",
-    "next": "16.1.6",
-    "radix-ui": "^1.4.3",
-    "react": "19.2.3",
-    "react-dom": "19.2.3",
-    "react-hook-form": "^7.71.2",
-    "tailwind-merge": "^3.5.0",
-    "zod": "^4.3.6"
-  },
-  "devDependencies": {
-    "@tailwindcss/postcss": "^4",
-    "@types/node": "^20",
-    "@types/react": "^19",
-    "@types/react-dom": "^19",
-    "eslint": "^9",
-    "eslint-config-next": "16.1.6",
-    "shadcn": "^3.8.5",
-    "supabase": "^2.76.17",
-    "tailwindcss": "^4",
-    "tw-animate-css": "^1.4.0",
-    "typescript": "^5"
-  }
-}
+## File: supabase/migrations/0009_enable_realtime.sql
+````sql
+-- Migration to explicitly enable realtime for core tables
+-- This ensures that the frontend automatically receives websocket updates
+-- when players, teams, or auction states are modified.
+
+begin;
+
+-- Drop the publication if it already exists to ensure a clean state
+drop publication if exists supabase_realtime;
+
+-- Recreate the publication
+create publication supabase_realtime;
+
+-- Add our core tables to the realtime publication
+alter publication supabase_realtime add table public.auction_state;
+alter publication supabase_realtime add table public.teams;
+alter publication supabase_realtime add table public.players;
+alter publication supabase_realtime add table public.auctions;
+
+commit;
 ````
 
-## File: postcss.config.mjs
-````javascript
-const config = {
-  plugins: {
-    "@tailwindcss/postcss": {},
-  },
-};
+## File: supabase/migrations/0010_end_auction.sql
+````sql
+-- Create a function to permanently conclude an auction
+CREATE OR REPLACE FUNCTION end_auction(p_auction_id UUID)
+RETURNS void
+LANGUAGE plpgsql
+SECURITY DEFINER
+AS $$
+BEGIN
+  -- 1. Set the primary auction status to 'completed'
+  UPDATE auctions
+  SET status = 'completed',
+      is_registration_open = false
+  WHERE id = p_auction_id;
 
-export default config;
+  -- 2. Ensure the auction_state phase is strictly 'completed' to halt all live screens
+  UPDATE auction_state
+  SET phase = 'completed',
+      current_player_id = NULL,
+      current_bid = NULL,
+      leading_team_id = NULL
+  WHERE auction_id = p_auction_id;
+
+END;
+$$;
 ````
 
-## File: public/file.svg
-````xml
-<svg fill="none" viewBox="0 0 16 16" xmlns="http://www.w3.org/2000/svg"><path d="M14.5 13.5V5.41a1 1 0 0 0-.3-.7L9.8.29A1 1 0 0 0 9.08 0H1.5v13.5A2.5 2.5 0 0 0 4 16h8a2.5 2.5 0 0 0 2.5-2.5m-1.5 0v-7H8v-5H3v12a1 1 0 0 0 1 1h8a1 1 0 0 0 1-1M9.5 5V2.12L12.38 5zM5.13 5h-.62v1.25h2.12V5zm-.62 3h7.12v1.25H4.5zm.62 3h-.62v1.25h7.12V11z" clip-rule="evenodd" fill="#666" fill-rule="evenodd"/></svg>
+## File: supabase/migrations/0011_auction_phase_enum.sql
+````sql
+-- Migration to add completed_sale and completed_unsold to auction_phase enum
+-- We have to use a DO block since ALTER TYPE cannot run inside a transaction block easily if used incorrectly,
+-- but supabase migrations wrap in transaction. Standard syntax to add enum values:
+ALTER TYPE public.auction_phase ADD VALUE IF NOT EXISTS 'completed_sale';
+ALTER TYPE public.auction_phase ADD VALUE IF NOT EXISTS 'completed_unsold';
 ````
 
-## File: public/globe.svg
-````xml
-<svg fill="none" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16"><g clip-path="url(#a)"><path fill-rule="evenodd" clip-rule="evenodd" d="M10.27 14.1a6.5 6.5 0 0 0 3.67-3.45q-1.24.21-2.7.34-.31 1.83-.97 3.1M8 16A8 8 0 1 0 8 0a8 8 0 0 0 0 16m.48-1.52a7 7 0 0 1-.96 0H7.5a4 4 0 0 1-.84-1.32q-.38-.89-.63-2.08a40 40 0 0 0 3.92 0q-.25 1.2-.63 2.08a4 4 0 0 1-.84 1.31zm2.94-4.76q1.66-.15 2.95-.43a7 7 0 0 0 0-2.58q-1.3-.27-2.95-.43a18 18 0 0 1 0 3.44m-1.27-3.54a17 17 0 0 1 0 3.64 39 39 0 0 1-4.3 0 17 17 0 0 1 0-3.64 39 39 0 0 1 4.3 0m1.1-1.17q1.45.13 2.69.34a6.5 6.5 0 0 0-3.67-3.44q.65 1.26.98 3.1M8.48 1.5l.01.02q.41.37.84 1.31.38.89.63 2.08a40 40 0 0 0-3.92 0q.25-1.2.63-2.08a4 4 0 0 1 .85-1.32 7 7 0 0 1 .96 0m-2.75.4a6.5 6.5 0 0 0-3.67 3.44 29 29 0 0 1 2.7-.34q.31-1.83.97-3.1M4.58 6.28q-1.66.16-2.95.43a7 7 0 0 0 0 2.58q1.3.27 2.95.43a18 18 0 0 1 0-3.44m.17 4.71q-1.45-.12-2.69-.34a6.5 6.5 0 0 0 3.67 3.44q-.65-1.27-.98-3.1" fill="#666"/></g><defs><clipPath id="a"><path fill="#fff" d="M0 0h16v16H0z"/></clipPath></defs></svg>
+## File: supabase/migrations/0012_explicit_phases.sql
+````sql
+-- Migration for Explicit Phases, Hype screens, Strict Undo constraints, and Ordered Auto-Allocate
+
+-- Register new phases for the hype transition
+ALTER TYPE public.auction_phase ADD VALUE IF NOT EXISTS 'phase_2_hype';
+ALTER TYPE public.auction_phase ADD VALUE IF NOT EXISTS 'phase_1_complete';
+
+-- 1. Modified next_player
+create or replace function public.next_player(p_auction_id uuid)
+returns public.auction_state
+language plpgsql
+security definer
+as $$
+declare
+  v_state public.auction_state;
+  v_player_id uuid;
+begin
+  select *
+    into v_state
+  from public.auction_state
+  where auction_id = p_auction_id
+  for update;
+
+  if not found then
+    insert into public.auction_state (auction_id, phase)
+    values (p_auction_id, 'phase1')
+    returning * into v_state;
+  end if;
+
+  if v_state.phase = 'phase1' or v_state.phase = 'idle' or v_state.phase like 'completed%' then
+    -- If we were in phase 1, keep pulling from phase 1 upcoming
+    select id
+      into v_player_id
+    from public.players
+    where auction_id = p_auction_id
+      and status = 'upcoming'
+    order by random()
+    limit 1;
+
+    if not found then
+      -- Instead of silently falling back to unsold, explicitly halt
+      update public.auction_state
+         set phase = 'phase_1_complete',
+             current_player_id = null,
+             current_bid = null,
+             leading_team_id = null
+       where id = v_state.id
+       returning * into v_state;
+      raise exception 'PHASE_1_COMPLETE';
+    end if;
+
+    update public.auction_state
+       set phase = 'phase1'
+     where id = v_state.id;
+
+  elsif v_state.phase = 'phase_2_hype' or v_state.phase = 'phase2' then
+    -- In phase 2, pull ONLY from unsold
+    select id
+      into v_player_id
+    from public.players
+    where auction_id = p_auction_id
+      and status = 'unsold'
+    order by random()
+    limit 1;
+
+    if not found then
+      raise exception 'PHASE_2_COMPLETE';
+    end if;
+
+    update public.auction_state
+       set phase = 'phase2'
+     where id = v_state.id;
+  end if;
+
+  update public.players
+    set status = 'live'
+  where id = v_player_id;
+
+  update public.auction_state
+     set current_player_id = v_player_id,
+         current_bid = null,
+         leading_team_id = null,
+         previous_bid = null,
+         previous_leading_team_id = null
+   where id = v_state.id
+   returning * into v_state;
+
+  return v_state;
+end;
+$$;
+
+
+-- 2. Explicit transition into Phase 2 Hype
+create or replace function public.start_phase2(p_auction_id uuid)
+returns public.auction_state
+language plpgsql
+security definer
+as $$
+declare
+  v_state public.auction_state;
+begin
+  update public.auction_state
+     set phase = 'phase_2_hype'
+   where auction_id = p_auction_id
+   returning * into v_state;
+   
+  return v_state;
+end;
+$$;
+
+
+-- 3. Strict undo_bid
+create or replace function public.undo_bid(p_auction_id uuid)
+returns public.auction_state
+language plpgsql
+security definer
+as $$
+declare
+  v_state public.auction_state;
+begin
+  select *
+    into v_state
+  from public.auction_state
+  where auction_id = p_auction_id
+  for update;
+
+  if not found then
+    raise exception 'No auction_state row for auction %', p_auction_id;
+  end if;
+
+  if v_state.phase not in ('phase1', 'phase2') or v_state.current_bid is null then
+    raise exception 'Undo Bid can only be used during an active live continuous bid.';
+  end if;
+
+  if v_state.previous_bid is null then
+    -- nothing to undo, return current state
+    return v_state;
+  end if;
+
+  update public.auction_state
+     set current_bid = v_state.previous_bid,
+         leading_team_id = v_state.previous_leading_team_id,
+         previous_bid = null,
+         previous_leading_team_id = null
+   where id = v_state.id
+   returning * into v_state;
+
+  return v_state;
+end;
+$$;
+
+
+-- 4. Strict undo_sale
+create or replace function public.undo_sale(p_auction_id uuid)
+returns public.auction_state
+language plpgsql
+security definer
+as $$
+declare
+  v_state public.auction_state;
+  v_player public.players;
+begin
+  select *
+    into v_state
+  from public.auction_state
+  where auction_id = p_auction_id
+  for update;
+
+  if not found or v_state.current_player_id is null then
+    raise exception 'No sold or unsold player context available for undo.';
+  end if;
+  
+  -- We don't rollback state.phase directly because we don't know if it was phase1 or phase2, wait, 
+  -- actually we do if we track it, but we can just use the status of the player before the sale if we wanted.
+  -- But usually undo_sale is hit right after end_bid.
+
+  if v_state.previous_bid is null and v_state.previous_leading_team_id is null and v_state.phase like 'completed%' then
+    -- Wait, if no one bid, previous_bid might be null, but we still want to rollback an 'unsold' state.
+    -- The key is preventing double undo. We nullify current_player_id at the end of this to prevent it.
+  end if;
+
+  select * into v_player from public.players where id = v_state.current_player_id for update;
+
+  if v_player.status = 'sold' then
+    update public.teams
+       set purse_remaining = purse_remaining + v_player.sold_price,
+           slots_remaining = slots_remaining + 1
+     where id = v_player.sold_team_id;
+  end if;
+
+  -- Revert player status to upcoming (or unsold if we are technically in phase2 completed)
+  update public.players
+     set status = case when v_state.phase = 'completed_unsold' and v_player.status = 'unsold' and v_player.is_captain = false then 'upcoming' else 'upcoming' end,
+         sold_price = null,
+         sold_team_id = null
+   where id = v_player.id;
+
+  -- Set phase back to phase1 or phase2 based on what it was (default phase1 if not known)
+  -- To prevent double undo, we wipe current_player_id or previous_bid so it can't be repeatedly hit.
+  update public.auction_state
+     set phase = case when v_state.phase = 'completed_unsold' or v_state.phase = 'completed_sale' then 'phase1' else 'phase1' end,
+         current_bid = v_state.previous_bid,
+         leading_team_id = v_state.previous_leading_team_id,
+         previous_bid = null,
+         previous_leading_team_id = null,
+         current_player_id = null -- NULLIFY to prevent second undo!
+   where id = v_state.id
+   returning * into v_state;
+
+  return v_state;
+end;
+$$;
+
+
+-- 5. Auto-Allocation with Order Array
+create or replace function public.auto_allocate_ordered(p_auction_id uuid, p_ordered_player_ids uuid[])
+returns void
+language plpgsql
+security definer
+as $$
+declare
+  v_settings record;
+  v_player_id uuid;
+  v_team record;
+begin
+  select purse, min_players, max_players, base_price, increment
+    into v_settings
+  from public.auctions
+  where id = p_auction_id;
+
+  if not found then
+    raise exception 'Auction not found';
+  end if;
+
+  foreach v_player_id in array p_ordered_player_ids
+  loop
+    -- Double check player is actually unsold before allocating
+    if not exists (select 1 from public.players where id = v_player_id and status = 'unsold' and auction_id = p_auction_id) then
+      continue;
+    end if;
+
+    -- Pick the team with the highest slots remaining that can afford the base price in this auction
+    select id, purse_remaining, slots_remaining
+      into v_team
+    from public.teams
+    where auction_id = p_auction_id
+      and slots_remaining > 0
+      and purse_remaining >= v_settings.base_price
+    order by slots_remaining desc, purse_remaining desc
+    limit 1
+    for update;
+
+    -- If no team can take them, skip
+    if not found then
+      continue;
+    end if;
+
+    -- Assign player to team
+    update public.players
+       set status = 'sold',
+           sold_price = v_settings.base_price,
+           sold_team_id = v_team.id
+     where id = v_player_id;
+
+    -- Deduct from team
+    update public.teams
+       set purse_remaining = purse_remaining - v_settings.base_price,
+           slots_remaining = slots_remaining - 1
+     where id = v_team.id;
+  end loop;
+
+end;
+$$;
 ````
 
-## File: public/next.svg
-````xml
-<svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 394 80"><path fill="#000" d="M262 0h68.5v12.7h-27.2v66.6h-13.6V12.7H262V0ZM149 0v12.7H94v20.4h44.3v12.6H94v21h55v12.6H80.5V0h68.7zm34.3 0h-17.8l63.8 79.4h17.9l-32-39.7 32-39.6h-17.9l-23 28.6-23-28.6zm18.3 56.7-9-11-27.1 33.7h17.8l18.3-22.7z"/><path fill="#000" d="M81 79.3 17 0H0v79.3h13.6V17l50.2 62.3H81Zm252.6-.4c-1 0-1.8-.4-2.5-1s-1.1-1.6-1.1-2.6.3-1.8 1-2.5 1.6-1 2.6-1 1.8.3 2.5 1a3.4 3.4 0 0 1 .6 4.3 3.7 3.7 0 0 1-3 1.8zm23.2-33.5h6v23.3c0 2.1-.4 4-1.3 5.5a9.1 9.1 0 0 1-3.8 3.5c-1.6.8-3.5 1.3-5.7 1.3-2 0-3.7-.4-5.3-1s-2.8-1.8-3.7-3.2c-.9-1.3-1.4-3-1.4-5h6c.1.8.3 1.6.7 2.2s1 1.2 1.6 1.5c.7.4 1.5.5 2.4.5 1 0 1.8-.2 2.4-.6a4 4 0 0 0 1.6-1.8c.3-.8.5-1.8.5-3V45.5zm30.9 9.1a4.4 4.4 0 0 0-2-3.3 7.5 7.5 0 0 0-4.3-1.1c-1.3 0-2.4.2-3.3.5-.9.4-1.6 1-2 1.6a3.5 3.5 0 0 0-.3 4c.3.5.7.9 1.3 1.2l1.8 1 2 .5 3.2.8c1.3.3 2.5.7 3.7 1.2a13 13 0 0 1 3.2 1.8 8.1 8.1 0 0 1 3 6.5c0 2-.5 3.7-1.5 5.1a10 10 0 0 1-4.4 3.5c-1.8.8-4.1 1.2-6.8 1.2-2.6 0-4.9-.4-6.8-1.2-2-.8-3.4-2-4.5-3.5a10 10 0 0 1-1.7-5.6h6a5 5 0 0 0 3.5 4.6c1 .4 2.2.6 3.4.6 1.3 0 2.5-.2 3.5-.6 1-.4 1.8-1 2.4-1.7a4 4 0 0 0 .8-2.4c0-.9-.2-1.6-.7-2.2a11 11 0 0 0-2.1-1.4l-3.2-1-3.8-1c-2.8-.7-5-1.7-6.6-3.2a7.2 7.2 0 0 1-2.4-5.7 8 8 0 0 1 1.7-5 10 10 0 0 1 4.3-3.5c2-.8 4-1.2 6.4-1.2 2.3 0 4.4.4 6.2 1.2 1.8.8 3.2 2 4.3 3.4 1 1.4 1.5 3 1.5 5h-5.8z"/></svg>
+## File: supabase/migrations/0013_explicit_phases_fix.sql
+````sql
+-- 0013_explicit_phases_fix.sql
+-- Fix next_player so it does not raise an exception, but returns the completed phase block so UI gets realtime update
+
+create or replace function public.next_player(p_auction_id uuid)
+returns public.auction_state
+language plpgsql
+security definer
+as $$
+declare
+  v_state public.auction_state;
+  v_player_id uuid;
+begin
+  select *
+    into v_state
+  from public.auction_state
+  where auction_id = p_auction_id
+  for update;
+
+  if not found then
+    insert into public.auction_state (auction_id, phase)
+    values (p_auction_id, 'phase1')
+    returning * into v_state;
+  end if;
+
+  if v_state.phase = 'phase1' or v_state.phase = 'idle' or v_state.phase like 'completed%' then
+    -- If we were in phase 1, keep pulling from phase 1 upcoming
+    select id
+      into v_player_id
+    from public.players
+    where auction_id = p_auction_id
+      and status = 'upcoming'
+    order by random()
+    limit 1;
+
+    if not found then
+      -- Instead of silently falling back to unsold or throwing exception, peacefully transition to phase_1_complete
+      update public.auction_state
+         set phase = 'phase_1_complete',
+             current_player_id = null,
+             current_bid = null,
+             leading_team_id = null,
+             previous_bid = null,
+             previous_leading_team_id = null
+       where id = v_state.id
+       returning * into v_state;
+      return v_state;
+    end if;
+
+    update public.auction_state
+       set phase = 'phase1'
+     where id = v_state.id;
+
+  elsif v_state.phase = 'phase_2_hype' or v_state.phase = 'phase2' then
+    -- In phase 2, pull ONLY from unsold
+    select id
+      into v_player_id
+    from public.players
+    where auction_id = p_auction_id
+      and status = 'unsold'
+    order by random()
+    limit 1;
+
+    if not found then
+      -- Phase 2 is complete.
+      update public.auction_state
+         set phase = 'completed',
+             current_player_id = null,
+             current_bid = null,
+             leading_team_id = null,
+             previous_bid = null,
+             previous_leading_team_id = null
+       where id = v_state.id
+       returning * into v_state;
+      return v_state;
+    end if;
+
+    update public.auction_state
+       set phase = 'phase2'
+     where id = v_state.id;
+  end if;
+
+  update public.players
+    set status = 'live'
+  where id = v_player_id;
+
+  update public.auction_state
+     set current_player_id = v_player_id,
+         current_bid = null,
+         leading_team_id = null,
+         previous_bid = null,
+         previous_leading_team_id = null
+   where id = v_state.id
+   returning * into v_state;
+
+  return v_state;
+end;
+$$;
 ````
 
-## File: public/vercel.svg
-````xml
-<svg fill="none" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1155 1000"><path d="m577.3 0 577.4 1000H0z" fill="#fff"/></svg>
+## File: supabase/migrations/0014_explicit_phases_typecast.sql
+````sql
+-- 0014_explicit_phases_typecast.sql
+-- Fix the LIKE operator on the custom enum type `auction_phase` by explicitly casting to text.
+
+create or replace function public.next_player(p_auction_id uuid)
+returns public.auction_state
+language plpgsql
+security definer
+as $$
+declare
+  v_state public.auction_state;
+  v_player_id uuid;
+begin
+  select *
+    into v_state
+  from public.auction_state
+  where auction_id = p_auction_id
+  for update;
+
+  if not found then
+    insert into public.auction_state (auction_id, phase)
+    values (p_auction_id, 'phase1')
+    returning * into v_state;
+  end if;
+
+  if v_state.phase = 'phase1' or v_state.phase = 'idle' or v_state.phase::text like 'completed%' then
+    -- If we were in phase 1, keep pulling from phase 1 upcoming
+    select id
+      into v_player_id
+    from public.players
+    where auction_id = p_auction_id
+      and status = 'upcoming'
+    order by random()
+    limit 1;
+
+    if not found then
+      -- Instead of silently falling back to unsold or throwing exception, peacefully transition to phase_1_complete
+      update public.auction_state
+         set phase = 'phase_1_complete',
+             current_player_id = null,
+             current_bid = null,
+             leading_team_id = null,
+             previous_bid = null,
+             previous_leading_team_id = null
+       where id = v_state.id
+       returning * into v_state;
+      return v_state;
+    end if;
+
+    update public.auction_state
+       set phase = 'phase1'
+     where id = v_state.id;
+
+  elsif v_state.phase = 'phase_2_hype' or v_state.phase = 'phase2' then
+    -- In phase 2, pull ONLY from unsold
+    select id
+      into v_player_id
+    from public.players
+    where auction_id = p_auction_id
+      and status = 'unsold'
+    order by random()
+    limit 1;
+
+    if not found then
+      -- Phase 2 is complete.
+      update public.auction_state
+         set phase = 'completed',
+             current_player_id = null,
+             current_bid = null,
+             leading_team_id = null,
+             previous_bid = null,
+             previous_leading_team_id = null
+       where id = v_state.id
+       returning * into v_state;
+      return v_state;
+    end if;
+
+    update public.auction_state
+       set phase = 'phase2'
+     where id = v_state.id;
+  end if;
+
+  update public.players
+    set status = 'live'
+  where id = v_player_id;
+
+  update public.auction_state
+     set current_player_id = v_player_id,
+         current_bid = null,
+         leading_team_id = null,
+         previous_bid = null,
+         previous_leading_team_id = null
+   where id = v_state.id
+   returning * into v_state;
+
+  return v_state;
+end;
+$$;
+
+
+create or replace function public.undo_sale(p_auction_id uuid)
+returns public.auction_state
+language plpgsql
+security definer
+as $$
+declare
+  v_state public.auction_state;
+  v_player public.players;
+begin
+  select *
+    into v_state
+  from public.auction_state
+  where auction_id = p_auction_id
+  for update;
+
+  if not found or v_state.current_player_id is null then
+    raise exception 'No sold or unsold player context available for undo.';
+  end if;
+  
+  -- We don't rollback state.phase directly because we don't know if it was phase1 or phase2, wait, 
+  -- actually we do if we track it, but we can just use the status of the player before the sale if we wanted.
+  -- But usually undo_sale is hit right after end_bid.
+
+  if v_state.previous_bid is null and v_state.previous_leading_team_id is null and v_state.phase::text like 'completed%' then
+    -- Wait, if no one bid, previous_bid might be null, but we still want to rollback an 'unsold' state.
+    -- The key is preventing double undo. We nullify current_player_id at the end of this to prevent it.
+  end if;
+
+  select * into v_player from public.players where id = v_state.current_player_id for update;
+
+  if v_player.status = 'sold' then
+    update public.teams
+       set purse_remaining = purse_remaining + v_player.sold_price,
+           slots_remaining = slots_remaining + 1
+     where id = v_player.sold_team_id;
+  end if;
+
+  -- Revert player status to upcoming (or unsold if we are technically in phase2 completed)
+  update public.players
+     set status = case when v_state.phase = 'completed_unsold' and v_player.status = 'unsold' and v_player.is_captain = false then 'upcoming' else 'upcoming' end,
+         sold_price = null,
+         sold_team_id = null
+   where id = v_player.id;
+
+  -- Set phase back to phase1 or phase2 based on what it was (default phase1 if not known)
+  -- To prevent double undo, we wipe current_player_id or previous_bid so it can't be repeatedly hit.
+  update public.auction_state
+     set phase = case when v_state.phase = 'completed_unsold' or v_state.phase = 'completed_sale' then 'phase1' else 'phase1' end,
+         current_bid = v_state.previous_bid,
+         leading_team_id = v_state.previous_leading_team_id,
+         previous_bid = null,
+         previous_leading_team_id = null,
+         current_player_id = null -- NULLIFY to prevent second undo!
+   where id = v_state.id
+   returning * into v_state;
+
+  return v_state;
+end;
+$$;
 ````
 
-## File: public/window.svg
-````xml
-<svg fill="none" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16"><path fill-rule="evenodd" clip-rule="evenodd" d="M1.5 2.5h13v10a1 1 0 0 1-1 1h-11a1 1 0 0 1-1-1zM0 1h16v11.5a2.5 2.5 0 0 1-2.5 2.5h-11A2.5 2.5 0 0 1 0 12.5zm3.75 4.5a.75.75 0 1 0 0-1.5.75.75 0 0 0 0 1.5M7 4.75a.75.75 0 1 1-1.5 0 .75.75 0 0 1 1.5 0m1.75.75a.75.75 0 1 0 0-1.5.75.75 0 0 0 0 1.5" fill="#666"/></svg>
+## File: supabase/migrations/0015_phase_start.sql
+````sql
+-- 0015_phase_start.sql
+-- Fix next_player to correctly transition from captain_round to phase1
+
+create or replace function public.next_player(p_auction_id uuid)
+returns public.auction_state
+language plpgsql
+security definer
+as $$
+declare
+  v_state public.auction_state;
+  v_player_id uuid;
+begin
+  select *
+    into v_state
+  from public.auction_state
+  where auction_id = p_auction_id
+  for update;
+
+  if not found then
+    insert into public.auction_state (auction_id, phase)
+    values (p_auction_id, 'phase1')
+    returning * into v_state;
+  end if;
+
+  if v_state.phase = 'captain_round' or v_state.phase = 'phase1' or v_state.phase = 'idle' or v_state.phase::text like 'completed%' then
+    -- If we were in phase 1, keep pulling from phase 1 upcoming
+    select id
+      into v_player_id
+    from public.players
+    where auction_id = p_auction_id
+      and status = 'upcoming'
+    order by random()
+    limit 1;
+
+    if not found then
+      -- Instead of silently falling back to unsold or throwing exception, peacefully transition to phase_1_complete
+      update public.auction_state
+         set phase = 'phase_1_complete',
+             current_player_id = null,
+             current_bid = null,
+             leading_team_id = null,
+             previous_bid = null,
+             previous_leading_team_id = null
+       where id = v_state.id
+       returning * into v_state;
+      return v_state;
+    end if;
+
+    update public.auction_state
+       set phase = 'phase1'
+     where id = v_state.id;
+
+  elsif v_state.phase = 'phase_2_hype' or v_state.phase = 'phase2' then
+    -- In phase 2, pull ONLY from unsold
+    select id
+      into v_player_id
+    from public.players
+    where auction_id = p_auction_id
+      and status = 'unsold'
+    order by random()
+    limit 1;
+
+    if not found then
+      -- Phase 2 is complete.
+      update public.auction_state
+         set phase = 'completed',
+             current_player_id = null,
+             current_bid = null,
+             leading_team_id = null,
+             previous_bid = null,
+             previous_leading_team_id = null
+       where id = v_state.id
+       returning * into v_state;
+      return v_state;
+    end if;
+
+    update public.auction_state
+       set phase = 'phase2'
+     where id = v_state.id;
+  end if;
+
+  update public.players
+    set status = 'live'
+  where id = v_player_id;
+
+  update public.auction_state
+     set current_player_id = v_player_id,
+         current_bid = null,
+         leading_team_id = null,
+         previous_bid = null,
+         previous_leading_team_id = null
+   where id = v_state.id
+   returning * into v_state;
+
+  return v_state;
+end;
+$$;
 ````
 
-## File: README.md
-````markdown
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+## File: supabase/migrations/0016_undo_sale_rework.sql
+````sql
+-- 0016_undo_sale_rework.sql
+-- Add previous_player_id to track the last drawn player so we can undo their sale even after a new player is drawn.
 
-## Getting Started
+ALTER TABLE public.auction_state ADD COLUMN IF NOT EXISTS previous_player_id uuid references public.players(id);
 
-First, run the development server:
+-- Update next_player to track the previous player
+create or replace function public.next_player(p_auction_id uuid)
+returns public.auction_state
+language plpgsql
+security definer
+as $$
+declare
+  v_state public.auction_state;
+  v_player_id uuid;
+begin
+  select *
+    into v_state
+  from public.auction_state
+  where auction_id = p_auction_id
+  for update;
 
-```bash
-npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
-```
+  if not found then
+    insert into public.auction_state (auction_id, phase)
+    values (p_auction_id, 'phase1')
+    returning * into v_state;
+  end if;
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+  if v_state.phase = 'captain_round' or v_state.phase = 'phase1' or v_state.phase = 'idle' or v_state.phase::text like 'completed%' then
+    -- If we were in phase 1, keep pulling from phase 1 upcoming
+    select id
+      into v_player_id
+    from public.players
+    where auction_id = p_auction_id
+      and status = 'upcoming'
+    order by random()
+    limit 1;
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+    if not found then
+      -- Phase 1 is complete
+      update public.auction_state
+         set phase = 'phase_1_complete',
+             current_player_id = null,
+             current_bid = null,
+             leading_team_id = null,
+             previous_bid = null,
+             previous_leading_team_id = null
+       where id = v_state.id
+       returning * into v_state;
+      return v_state;
+    end if;
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+    update public.auction_state
+       set phase = 'phase1'
+     where id = v_state.id;
 
-## Learn More
+  elsif v_state.phase = 'phase_2_hype' or v_state.phase = 'phase2' then
+    -- In phase 2, pull ONLY from unsold
+    select id
+      into v_player_id
+    from public.players
+    where auction_id = p_auction_id
+      and status = 'unsold'
+    order by random()
+    limit 1;
 
-To learn more about Next.js, take a look at the following resources:
+    if not found then
+      -- Phase 2 is complete.
+      update public.auction_state
+         set phase = 'completed',
+             current_player_id = null,
+             current_bid = null,
+             leading_team_id = null,
+             previous_bid = null,
+             previous_leading_team_id = null
+       where id = v_state.id
+       returning * into v_state;
+      return v_state;
+    end if;
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+    update public.auction_state
+       set phase = 'phase2'
+     where id = v_state.id;
+  end if;
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
+  update public.players
+    set status = 'live'
+  where id = v_player_id;
 
-## Deploy on Vercel
+  update public.auction_state
+     set 
+         previous_player_id = v_state.current_player_id, -- TRACK THE LAST PLAYER
+         current_player_id = v_player_id,
+         current_bid = null,
+         leading_team_id = null,
+         previous_bid = null,
+         previous_leading_team_id = null
+   where id = v_state.id
+   returning * into v_state;
 
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
+  return v_state;
+end;
+$$;
 
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+
+-- Rewrite undo_sale to handle both 3.5s window and "AFTER next_player but BEFORE start_bid"
+create or replace function public.undo_sale(p_auction_id uuid)
+returns public.auction_state
+language plpgsql
+security definer
+as $$
+declare
+  v_state public.auction_state;
+  v_player public.players;
+  v_target_player_id uuid;
+begin
+  select *
+    into v_state
+  from public.auction_state
+  where auction_id = p_auction_id
+  for update;
+
+  if not found then
+    raise exception 'No auction context available.';
+  end if;
+
+  -- Validation: Can only undo in specific states
+  if v_state.phase::text not in ('phase1', 'phase2', 'completed_sale', 'completed_unsold') then
+    raise exception 'Undo Sale is not permitted in the current phase.';
+  end if;
+
+  if (v_state.phase::text = 'phase1' or v_state.phase::text = 'phase2') and v_state.current_bid is not null then
+    raise exception 'Undo Sale is not permitted after a new bid has started.';
+  end if;
+
+  -- Determine which player to undo
+  if v_state.phase::text like 'completed%' then
+    -- Undoing right after End Bid, player is still the current one visually
+    v_target_player_id := v_state.current_player_id;
+  else
+    -- Undoing AFTER next_player has been drawn
+    v_target_player_id := v_state.previous_player_id;
+  end if;
+
+  if v_target_player_id is null then
+    raise exception 'No sold player context available for undo.';
+  end if;
+
+  select * into v_player from public.players where id = v_target_player_id for update;
+
+  -- Refund the team if sold
+  if v_player.status = 'sold' then
+    update public.teams
+       set purse_remaining = purse_remaining + v_player.sold_price,
+           slots_remaining = slots_remaining + 1
+     where id = v_player.sold_team_id;
+  end if;
+
+  -- Resolve phase & statuses based on WHEN we are undoing
+  if v_state.phase::text like 'completed%' then
+    -- SCENARIO A: Undoing during the 3.5s window. The visually focused player is reverted back to "live".
+    update public.players
+       set status = 'live',
+           sold_price = null,
+           sold_team_id = null
+     where id = v_player.id;
+
+    update public.auction_state
+       set phase = case when v_state.phase::text = 'completed_unsold' or v_state.phase::text = 'completed_sale' then 'phase1' else 'phase1' end,
+           current_bid = null,
+           leading_team_id = null,
+           previous_bid = null,
+           previous_leading_team_id = null,
+           current_player_id = v_target_player_id, 
+           previous_player_id = null -- Prevent double undo
+     where id = v_state.id
+     returning * into v_state;
+
+  else
+    -- SCENARIO B: Undoing AFTER next_player has been drawn. 
+    -- The previous player is quietly sent back to the upcoming/unsold queue. 
+    -- The currently active player on screen is completely untouched.
+    update public.players
+       set status = case when v_state.phase::text = 'phase2' then 'unsold' else 'upcoming' end,
+           sold_price = null,
+           sold_team_id = null
+     where id = v_player.id;
+
+    update public.auction_state
+       set previous_player_id = null -- Wipe tracking to prevent double undo
+     where id = v_state.id
+     returning * into v_state;
+  end if;
+
+  return v_state;
+end;
+$$;
+````
+
+## File: supabase/migrations/0017_phase2_statuses.sql
+````sql
+-- 0017_phase2_statuses.sql
+-- Expand player status to track Phase 2 eligibility natively to prevent infinite draw loops.
+
+ALTER TYPE public.player_status ADD VALUE IF NOT EXISTS 'upcoming_phase2';
+
+-- Modify start_phase2 to move all 'unsold' players into 'upcoming_phase2'
+create or replace function public.start_phase2(p_auction_id uuid)
+returns public.auction_state
+language plpgsql
+security definer
+as $$
+declare
+  v_state public.auction_state;
+begin
+  -- Shift all unsold players into the Phase 2 queue
+  update public.players
+     set status = 'upcoming_phase2'
+   where auction_id = p_auction_id
+     and status = 'unsold';
+
+  -- Trigger the hype screen phase
+  update public.auction_state
+     set phase = 'phase_2_hype'
+   where auction_id = p_auction_id
+   returning * into v_state;
+   
+  return v_state;
+end;
+$$;
+
+
+-- Modify next_player to only pull from 'upcoming_phase2' during Phase 2
+create or replace function public.next_player(p_auction_id uuid)
+returns public.auction_state
+language plpgsql
+security definer
+as $$
+declare
+  v_state public.auction_state;
+  v_player_id uuid;
+begin
+  select *
+    into v_state
+  from public.auction_state
+  where auction_id = p_auction_id
+  for update;
+
+  if not found then
+    insert into public.auction_state (auction_id, phase)
+    values (p_auction_id, 'phase1')
+    returning * into v_state;
+  end if;
+
+  if v_state.phase = 'captain_round' or v_state.phase = 'phase1' or v_state.phase = 'idle' or (v_state.phase::text like 'completed%' and not exists (select 1 from public.players where status = 'upcoming_phase2' and auction_id = p_auction_id)) then
+    -- Wait, the rule is if we were in phase 1, keep pulling from phase 1 upcoming
+    select id
+      into v_player_id
+    from public.players
+    where auction_id = p_auction_id
+      and status = 'upcoming'
+    order by random()
+    limit 1;
+
+    if not found then
+      -- Phase 1 is complete
+      update public.auction_state
+         set phase = 'phase_1_complete',
+             current_player_id = null,
+             current_bid = null,
+             leading_team_id = null,
+             previous_bid = null,
+             previous_leading_team_id = null
+       where id = v_state.id
+       returning * into v_state;
+      return v_state;
+    end if;
+
+    update public.auction_state
+       set phase = 'phase1'
+     where id = v_state.id;
+
+  elsif v_state.phase = 'phase_2_hype' or v_state.phase = 'phase2' or (v_state.phase::text like 'completed%' and exists (select 1 from public.players where status = 'upcoming_phase2' and auction_id = p_auction_id)) then
+    -- In phase 2, pull ONLY from upcoming_phase2
+    select id
+      into v_player_id
+    from public.players
+    where auction_id = p_auction_id
+      and status = 'upcoming_phase2'
+    order by random()
+    limit 1;
+
+    if not found then
+      -- Phase 2 is complete.
+      update public.auction_state
+         set phase = 'phase_2_complete',
+             current_player_id = null,
+             current_bid = null,
+             leading_team_id = null,
+             previous_bid = null,
+             previous_leading_team_id = null
+       where id = v_state.id
+       returning * into v_state;
+      return v_state;
+    end if;
+
+    update public.auction_state
+       set phase = 'phase2'
+     where id = v_state.id;
+  end if;
+
+  update public.players
+    set status = 'live'
+  where id = v_player_id;
+
+  update public.auction_state
+     set 
+         previous_player_id = v_state.current_player_id, 
+         current_player_id = v_player_id,
+         current_bid = null,
+         leading_team_id = null,
+         previous_bid = null,
+         previous_leading_team_id = null
+   where id = v_state.id
+   returning * into v_state;
+
+  return v_state;
+end;
+$$;
+
+
+-- Rewrite undo_sale to use upcoming_phase2
+create or replace function public.undo_sale(p_auction_id uuid)
+returns public.auction_state
+language plpgsql
+security definer
+as $$
+declare
+  v_state public.auction_state;
+  v_player public.players;
+  v_target_player_id uuid;
+begin
+  select *
+    into v_state
+  from public.auction_state
+  where auction_id = p_auction_id
+  for update;
+
+  if not found then
+    raise exception 'No auction context available.';
+  end if;
+
+  if v_state.phase::text not in ('phase1', 'phase2', 'completed_sale', 'completed_unsold') then
+    raise exception 'Undo Sale is not permitted in the current phase.';
+  end if;
+
+  if (v_state.phase::text = 'phase1' or v_state.phase::text = 'phase2') and v_state.current_bid is not null then
+    raise exception 'Undo Sale is not permitted after a new bid has started.';
+  end if;
+
+  if v_state.phase::text like 'completed%' then
+    v_target_player_id := v_state.current_player_id;
+  else
+    v_target_player_id := v_state.previous_player_id;
+  end if;
+
+  if v_target_player_id is null then
+    raise exception 'No sold player context available for undo.';
+  end if;
+
+  select * into v_player from public.players where id = v_target_player_id for update;
+
+  if v_player.status = 'sold' then
+    update public.teams
+       set purse_remaining = purse_remaining + v_player.sold_price,
+           slots_remaining = slots_remaining + 1
+     where id = v_player.sold_team_id;
+  end if;
+
+  if v_state.phase::text like 'completed%' then
+    -- SCENARIO A: Undoing during the 3.5s window
+    update public.players
+       set status = 'live',
+           sold_price = null,
+           sold_team_id = null
+     where id = v_player.id;
+
+    update public.auction_state
+       set phase = case when v_state.phase::text = 'completed_unsold' or v_state.phase::text = 'completed_sale' then 
+                     (case when exists(select 1 from public.players where status = 'upcoming_phase2' and auction_id=p_auction_id) then 'phase2' else 'phase1' end)
+                   else 'phase1' end,
+           current_bid = null,
+           leading_team_id = null,
+           previous_bid = null,
+           previous_leading_team_id = null,
+           current_player_id = v_target_player_id, 
+           previous_player_id = null
+     where id = v_state.id
+     returning * into v_state;
+
+  else
+    -- SCENARIO B: Undoing AFTER next_player has been drawn
+    update public.players
+       set status = case when v_state.phase::text = 'phase2' then 'upcoming_phase2' else 'upcoming' end,
+           sold_price = null,
+           sold_team_id = null
+     where id = v_player.id;
+
+    update public.auction_state
+       set previous_player_id = null
+     where id = v_state.id
+     returning * into v_state;
+  end if;
+
+  return v_state;
+end;
+$$;
+````
+
+## File: supabase/migrations/0018_undo_sale_notice_and_first_bid.sql
+````sql
+-- 0018_undo_sale_notice_and_first_bid.sql
+-- 1. Add column to track undo notice
+ALTER TABLE public.auction_state ADD COLUMN IF NOT EXISTS show_undo_notice boolean DEFAULT false;
+
+-- 2. Update place_bid to ensure first bid = base price
+create or replace function public.place_bid(p_auction_id uuid, p_team_id uuid)
+returns public.auction_state
+language plpgsql
+security definer
+as $$
+declare
+  v_state public.auction_state;
+  v_auction public.auctions;
+  v_team public.teams;
+  v_base_price numeric(12,2);
+  v_increment numeric(12,2);
+  v_next_bid numeric(12,2);
+  v_remaining_slots_after integer;
+  v_required_money numeric(12,2);
+begin
+  select *
+    into v_state
+  from public.auction_state
+  where auction_id = p_auction_id
+  for update;
+
+  if not found or v_state.current_player_id is null then
+    raise exception 'No active player for auction %', p_auction_id;
+  end if;
+
+  select *
+    into v_auction
+  from public.auctions
+  where id = p_auction_id
+  for update;
+
+  v_base_price := (v_auction.settings ->> 'base_price')::numeric;
+  v_increment  := (v_auction.settings ->> 'increment')::numeric;
+
+  if v_base_price is null or v_increment is null then
+    raise exception 'Base price or increment not configured for auction %', p_auction_id;
+  end if;
+
+  select *
+    into v_team
+  from public.teams
+  where id = p_team_id
+    and auction_id = p_auction_id
+  for update;
+
+  if not found then
+    raise exception 'Team % not found for auction %', p_team_id, p_auction_id;
+  end if;
+
+  -- THE FIX: If no leading team, next bid IS the current_bid (base_price).
+  -- Otherwise, it's current_bid + increment.
+  if v_state.leading_team_id is null then
+    v_next_bid := coalesce(v_state.current_bid, v_base_price);
+  else
+    v_next_bid := v_state.current_bid + v_increment;
+  end if;
+
+  -- Purse check
+  if v_team.purse_remaining < v_next_bid then
+    raise exception 'Purse check failed for team %', p_team_id;
+  end if;
+
+  -- Slot check
+  if v_team.slots_remaining <= 0 then
+    raise exception 'Slot check failed for team %', p_team_id;
+  end if;
+
+  -- Minimum squad constraint
+  v_remaining_slots_after := v_team.slots_remaining - 1;
+  v_required_money := v_remaining_slots_after * v_base_price;
+
+  if (v_team.purse_remaining - v_next_bid) < v_required_money then
+    raise exception 'Minimum squad rule failed for team %', p_team_id;
+  end if;
+
+  update public.auction_state
+     set previous_bid = v_state.current_bid,
+         previous_leading_team_id = v_state.leading_team_id,
+         current_bid = v_next_bid,
+         leading_team_id = p_team_id,
+         show_undo_notice = false
+   where id = v_state.id
+   returning * into v_state;
+
+  return v_state;
+end;
+$$;
+
+-- 3. Update undo_sale to restore player and set notice
+create or replace function public.undo_sale(p_auction_id uuid)
+returns public.auction_state
+language plpgsql
+security definer
+as $$
+declare
+  v_state public.auction_state;
+  v_player public.players;
+  v_target_player_id uuid;
+begin
+  select *
+    into v_state
+  from public.auction_state
+  where auction_id = p_auction_id
+  for update;
+
+  if not found then
+    raise exception 'No auction context available.';
+  end if;
+
+  if v_state.phase::text not in ('phase1', 'phase2', 'completed_sale', 'completed_unsold') then
+    raise exception 'Undo Sale is not permitted in the current phase.';
+  end if;
+
+  if (v_state.phase::text = 'phase1' or v_state.phase::text = 'phase2') and v_state.current_bid is not null then
+    raise exception 'Undo Sale is not permitted after a new bid has started.';
+  end if;
+
+  if v_state.phase::text like 'completed%' then
+    v_target_player_id := v_state.current_player_id;
+  else
+    v_target_player_id := v_state.previous_player_id;
+  end if;
+
+  if v_target_player_id is null then
+    raise exception 'No sold player context available for undo.';
+  end if;
+
+  select * into v_player from public.players where id = v_target_player_id for update;
+
+  -- Restore Purse/Slots if it was sold
+  if v_player.status = 'sold' then
+    update public.teams
+       set purse_remaining = purse_remaining + v_player.sold_price,
+           slots_remaining = slots_remaining + 1
+     where id = v_player.sold_team_id;
+  end if;
+
+  -- Restore player to LIVE
+  update public.players
+     set status = 'live',
+         sold_price = null,
+         sold_team_id = null
+   where id = v_target_player_id;
+
+  if v_state.phase::text like 'completed%' then
+    -- SCENARIO A: Undoing during the 3.5s window
+    update public.auction_state
+       set phase = case when v_state.phase::text = 'completed_unsold' or v_state.phase::text = 'completed_sale' then 
+                     (case when exists(select 1 from public.players where status = 'upcoming_phase2' and auction_id=p_auction_id) then 'phase2' else 'phase1' end)
+                   else 'phase1' end,
+           current_bid = null,
+           leading_team_id = null,
+           previous_bid = null,
+           previous_leading_team_id = null,
+           current_player_id = v_target_player_id, 
+           previous_player_id = null,
+           show_undo_notice = true
+     where id = v_state.id
+     returning * into v_state;
+
+  else
+    -- SCENARIO B: Undoing AFTER next_player has been drawn
+    -- If a new player was drawn, move them back to upcoming
+    if v_state.current_player_id is not null then
+      update public.players
+         set status = case when v_state.phase::text = 'phase2' then 'upcoming_phase2' else 'upcoming' end
+       where id = v_state.current_player_id;
+    end if;
+
+    update public.auction_state
+       set current_player_id = v_target_player_id,
+           previous_player_id = null,
+           current_bid = null,
+           leading_team_id = null,
+           previous_bid = null,
+           previous_leading_team_id = null,
+           show_undo_notice = true
+     where id = v_state.id
+     returning * into v_state;
+  end if;
+
+  return v_state;
+end;
+$$;
+
+-- 4. Reset notice in other RPCs
+create or replace function public.next_player(p_auction_id uuid)
+returns public.auction_state
+language plpgsql
+security definer
+as $$
+declare
+  v_state public.auction_state;
+  v_player_id uuid;
+begin
+  select *
+    into v_state
+  from public.auction_state
+  where auction_id = p_auction_id
+  for update;
+
+  if not found then
+    insert into public.auction_state (auction_id, phase)
+    values (p_auction_id, 'phase1')
+    returning * into v_state;
+  end if;
+
+  if v_state.phase = 'captain_round' or v_state.phase = 'phase1' or v_state.phase = 'idle' or (v_state.phase::text like 'completed%' and not exists (select 1 from public.players where status = 'upcoming_phase2' and auction_id = p_auction_id)) then
+    select id
+      into v_player_id
+    from public.players
+    where auction_id = p_auction_id
+      and status = 'upcoming'
+    order by random()
+    limit 1;
+
+    if not found then
+      update public.auction_state
+         set phase = 'phase_1_complete',
+             current_player_id = null,
+             current_bid = null,
+             leading_team_id = null,
+             previous_bid = null,
+             previous_leading_team_id = null,
+             show_undo_notice = false
+       where id = v_state.id
+       returning * into v_state;
+      return v_state;
+    end if;
+
+    update public.auction_state
+       set phase = 'phase1'
+     where id = v_state.id;
+
+  elsif v_state.phase = 'phase_2_hype' or v_state.phase = 'phase2' or (v_state.phase::text like 'completed%' and exists (select 1 from public.players where status = 'upcoming_phase2' and auction_id = p_auction_id)) then
+    select id
+      into v_player_id
+    from public.players
+    where auction_id = p_auction_id
+      and status = 'upcoming_phase2'
+    order by random()
+    limit 1;
+
+    if not found then
+      update public.auction_state
+         set phase = 'phase_2_complete',
+             current_player_id = null,
+             current_bid = null,
+             leading_team_id = null,
+             previous_bid = null,
+             previous_leading_team_id = null,
+             show_undo_notice = false
+       where id = v_state.id
+       returning * into v_state;
+      return v_state;
+    end if;
+
+    update public.auction_state
+       set phase = 'phase2'
+     where id = v_state.id;
+  end if;
+
+  update public.players
+    set status = 'live'
+  where id = v_player_id;
+
+  update public.auction_state
+     set 
+         previous_player_id = v_state.current_player_id, 
+         current_player_id = v_player_id,
+         current_bid = null,
+         leading_team_id = null,
+         previous_bid = null,
+         previous_leading_team_id = null,
+         show_undo_notice = false
+   where id = v_state.id
+   returning * into v_state;
+
+  return v_state;
+end;
+$$;
+
+create or replace function public.start_bid(p_auction_id uuid)
+returns public.auction_state
+language plpgsql
+security definer
+as $$
+declare
+  v_state public.auction_state;
+  v_auction public.auctions;
+  v_base_price numeric(12,2);
+begin
+  select *
+    into v_state
+  from public.auction_state
+  where auction_id = p_auction_id
+  for update;
+
+  if not found or v_state.current_player_id is null then
+    raise exception 'No current player selected for auction %', p_auction_id;
+  end if;
+
+  select *
+    into v_auction
+  from public.auctions
+  where id = p_auction_id
+  for update;
+
+  v_base_price := (v_auction.settings ->> 'base_price')::numeric;
+  if v_base_price is null then
+    raise exception 'Base price not configured for auction %', p_auction_id;
+  end if;
+
+  update public.auction_state
+     set current_bid = v_base_price,
+         leading_team_id = null,
+         previous_bid = null,
+         previous_leading_team_id = null,
+         phase = case when v_state.phase = 'phase1' or v_state.phase = 'idle' or v_state.phase = 'captain_round' then 'phase1' else 'phase2' end,
+         show_undo_notice = false
+   where id = v_state.id
+   returning * into v_state;
+
+  return v_state;
+end;
+$$;
+
+create or replace function public.end_bid(p_auction_id uuid)
+returns public.auction_state
+language plpgsql
+security definer
+as $$
+declare
+  v_state public.auction_state;
+  v_player public.players;
+begin
+  select *
+    into v_state
+  from public.auction_state
+  where auction_id = p_auction_id
+  for update;
+
+  if not found or v_state.current_player_id is null then
+    raise exception 'No active player for auction %', p_auction_id;
+  end if;
+
+  select * into v_player from public.players where id = v_state.current_player_id for update;
+
+  if v_state.leading_team_id is not null then
+    -- SOLD
+    update public.players
+       set status = 'sold',
+           sold_price = v_state.current_bid,
+           sold_team_id = v_state.leading_team_id
+     where id = v_state.current_player_id;
+
+    update public.teams
+       set purse_remaining = purse_remaining - v_state.current_bid,
+           slots_remaining = slots_remaining - 1
+     where id = v_state.leading_team_id;
+
+    update public.auction_state
+       set phase = 'completed_sale',
+           show_undo_notice = false
+     where id = v_state.id
+     returning * into v_state;
+  else
+    -- UNSOLD
+    update public.players
+       set status = case when v_state.phase = 'phase2' then 'unsold_final' else 'unsold' end
+     where id = v_state.current_player_id;
+
+    update public.auction_state
+       set phase = 'completed_unsold',
+           show_undo_notice = false
+     where id = v_state.id
+     returning * into v_state;
+  end if;
+
+  return v_state;
+end;
+$$;
+
+create or replace function public.undo_bid(p_auction_id uuid)
+returns public.auction_state
+language plpgsql
+security definer
+as $$
+declare
+  v_state public.auction_state;
+begin
+  select *
+    into v_state
+  from public.auction_state
+  where auction_id = p_auction_id
+  for update;
+
+  if not found then
+    raise exception 'No auction context available.';
+  end if;
+
+  if v_state.previous_bid is null then
+    raise exception 'No previous bid available to undo.';
+  end if;
+
+  update public.auction_state
+     set current_bid = previous_bid,
+         leading_team_id = previous_leading_team_id,
+         previous_bid = null,
+         previous_leading_team_id = null,
+         show_undo_notice = false
+   where id = v_state.id
+   returning * into v_state;
+
+  return v_state;
+end;
+$$;
+````
+
+## File: supabase/migrations/0019_add_image_urls.sql
+````sql
+-- Add image URL columns for player photos and team logos
+-- This migration adds support for mandatory image uploads
+
+-- Add photo_url column to players table
+ALTER TABLE public.players 
+ADD COLUMN IF NOT EXISTS photo_url text;
+
+-- Add logo_url column to teams table
+ALTER TABLE public.teams 
+ADD COLUMN IF NOT EXISTS logo_url text;
+
+-- Create indexes for photo_url and logo_url for faster queries
+CREATE INDEX IF NOT EXISTS idx_players_photo_url ON public.players(photo_url);
+CREATE INDEX IF NOT EXISTS idx_teams_logo_url ON public.teams(logo_url);
+````
+
+## File: supabase/migrations/0020_storage_buckets_setup.sql
+````sql
+-- Create storage buckets for player photos and team logos
+-- Allows anonymous users to upload files
+
+-- Insert buckets into storage.buckets table
+INSERT INTO storage.buckets (id, name, public, owner, created_at, updated_at, file_size_limit, allowed_mime_types)
+VALUES 
+  ('player-photos', 'player-photos', true, NULL, now(), now(), 5242880, ARRAY['image/jpeg', 'image/png', 'image/gif', 'image/webp']),
+  ('team-logos', 'team-logos', true, NULL, now(), now(), 5242880, ARRAY['image/jpeg', 'image/png', 'image/gif', 'image/webp'])
+ON CONFLICT (id) DO NOTHING;
+
+-- Policy for player-photos: Allow anonymous uploads to player-photos bucket
+DROP POLICY IF EXISTS "Allow anonymous uploads to player-photos" ON storage.objects;
+CREATE POLICY "Allow anonymous uploads to player-photos"
+ON storage.objects FOR INSERT
+WITH CHECK (bucket_id = 'player-photos');
+
+-- Policy for player-photos: Allow public read access
+DROP POLICY IF EXISTS "Allow public read access to player-photos" ON storage.objects;
+CREATE POLICY "Allow public read access to player-photos"
+ON storage.objects FOR SELECT
+USING (bucket_id = 'player-photos');
+
+-- Policy for team-logos: Allow anonymous uploads to team-logos bucket
+DROP POLICY IF EXISTS "Allow anonymous uploads to team-logos" ON storage.objects;
+CREATE POLICY "Allow anonymous uploads to team-logos"
+ON storage.objects FOR INSERT
+WITH CHECK (bucket_id = 'team-logos');
+
+-- Policy for team-logos: Allow public read access
+DROP POLICY IF EXISTS "Allow public read access to team-logos" ON storage.objects;
+CREATE POLICY "Allow public read access to team-logos"
+ON storage.objects FOR SELECT
+USING (bucket_id = 'team-logos');
+
+-- Optional: Allow authenticated users to delete their own uploads
+DROP POLICY IF EXISTS "Allow users to delete their uploads" ON storage.objects;
+CREATE POLICY "Allow users to delete their uploads"
+ON storage.objects FOR DELETE
+USING (
+  bucket_id IN ('player-photos', 'team-logos')
+  AND auth.uid() IS NOT NULL
+);
+````
+
+## File: supabase/migrations/0021_fix_rpc_bugs.sql
+````sql
+-- 0021_fix_rpc_bugs.sql
+-- 1. Fix auto_allocate_ordered to use jsonb settings correctly
+create or replace function public.auto_allocate_ordered(p_auction_id uuid, p_ordered_player_ids uuid[])
+returns void
+language plpgsql
+security definer
+as $$
+declare
+  v_base_price numeric(12,2);
+  v_player_id uuid;
+  v_team record;
+begin
+  -- Access base_price from the settings jsonb column
+  select (settings ->> 'base_price')::numeric
+    into v_base_price
+  from public.auctions
+  where id = p_auction_id;
+
+  if v_base_price is null then
+    raise exception 'Base price not configured for auction %', p_auction_id;
+  end if;
+
+  foreach v_player_id in array p_ordered_player_ids
+  loop
+    -- Double check player is actually unsold before allocating
+    if not exists (select 1 from public.players where id = v_player_id and status = 'unsold' and auction_id = p_auction_id) then
+      continue;
+    end if;
+
+    -- Pick the team with the highest slots remaining that can afford the base price in this auction
+    select id, purse_remaining, slots_remaining
+      into v_team
+    from public.teams
+    where auction_id = p_auction_id
+      and slots_remaining > 0
+      and purse_remaining >= v_base_price
+    order by slots_remaining desc, purse_remaining desc
+    limit 1
+    for update;
+
+    -- If no team can take them, skip
+    if not found then
+      continue;
+    end if;
+
+    -- Assign player to team
+    update public.players
+       set status = 'sold',
+           sold_price = v_base_price,
+           sold_team_id = v_team.id
+     where id = v_player_id;
+
+    -- Deduct from team
+    update public.teams
+       set purse_remaining = purse_remaining - v_base_price,
+           slots_remaining = slots_remaining - 1
+     where id = v_team.id;
+  end loop;
+
+end;
+$$;
+
+-- 2. Ensure place_bid has fallback for settings
+create or replace function public.place_bid(p_auction_id uuid, p_team_id uuid)
+returns public.auction_state
+language plpgsql
+security definer
+as $$
+declare
+  v_state public.auction_state;
+  v_auction public.auctions;
+  v_team public.teams;
+  v_base_price numeric(12,2);
+  v_increment numeric(12,2);
+  v_next_bid numeric(12,2);
+  v_remaining_slots_after integer;
+  v_required_money numeric(12,2);
+begin
+  select *
+    into v_state
+  from public.auction_state
+  where auction_id = p_auction_id
+  for update;
+
+  if not found or v_state.current_player_id is null then
+    raise exception 'No active player for auction %', p_auction_id;
+  end if;
+
+  select *
+    into v_auction
+  from public.auctions
+  where id = p_auction_id
+  for update;
+
+  v_base_price := coalesce((v_auction.settings ->> 'base_price')::numeric, 0);
+  v_increment  := coalesce((v_auction.settings ->> 'increment')::numeric, 0);
+
+  if v_base_price <= 0 or v_increment <= 0 then
+    raise exception 'Base price or increment not properly configured for auction %', p_auction_id;
+  end if;
+
+  select *
+    into v_team
+  from public.teams
+  where id = p_team_id
+    and auction_id = p_auction_id
+  for update;
+
+  if not found then
+    raise exception 'Team % not found for auction %', p_team_id, p_auction_id;
+  end if;
+
+  -- Logic for the first bid vs subsequent bids
+  if v_state.leading_team_id is null then
+    v_next_bid := coalesce(v_state.current_bid, v_base_price);
+  else
+    v_next_bid := v_state.current_bid + v_increment;
+  end if;
+
+  -- Purse check
+  if v_team.purse_remaining < v_next_bid then
+    raise exception 'Purse check failed for team %', p_team_id;
+  end if;
+
+  -- Slot check
+  if v_team.slots_remaining <= 0 then
+    raise exception 'Slot check failed for team %', p_team_id;
+  end if;
+
+  -- Minimum squad constraint
+  v_remaining_slots_after := v_team.slots_remaining - 1;
+  v_required_money := v_remaining_slots_after * v_base_price;
+
+  if (v_team.purse_remaining - v_next_bid) < v_required_money then
+    raise exception 'Minimum squad rule failed for team %', p_team_id;
+  end if;
+
+  update public.auction_state
+     set previous_bid = v_state.current_bid,
+         previous_leading_team_id = v_state.leading_team_id,
+         current_bid = v_next_bid,
+         leading_team_id = p_team_id,
+         show_undo_notice = false
+   where id = v_state.id
+   returning * into v_state;
+
+  return v_state;
+end;
+$$;
+````
+
+## File: supabase/migrations/0022_fix_enum_typecasts.sql
+````sql
+-- 0022_fix_enum_typecasts.sql
+-- This migration fixes the "column 'phase' is of type auction_phase but expression is of type text" error
+-- by adding explicit casts to public.auction_phase for all CASE and literal assignments.
+
+-- 1. Fix next_player
+create or replace function public.next_player(p_auction_id uuid)
+returns public.auction_state
+language plpgsql
+security definer
+as $$
+declare
+  v_state public.auction_state;
+  v_player_id uuid;
+begin
+  select *
+    into v_state
+  from public.auction_state
+  where auction_id = p_auction_id
+  for update;
+
+  if not found then
+    insert into public.auction_state (auction_id, phase)
+    values (p_auction_id, 'phase1'::public.auction_phase)
+    returning * into v_state;
+  end if;
+
+  if v_state.phase = 'captain_round' or v_state.phase = 'phase1' or v_state.phase = 'idle' or (v_state.phase::text like 'completed%' and not exists (select 1 from public.players where status = 'upcoming_phase2' and auction_id = p_auction_id)) then
+    select id
+      into v_player_id
+    from public.players
+    where auction_id = p_auction_id
+      and status = 'upcoming'
+    order by random()
+    limit 1;
+
+    if not found then
+      update public.auction_state
+         set phase = 'phase_1_complete'::public.auction_phase,
+             current_player_id = null,
+             current_bid = null,
+             leading_team_id = null,
+             previous_bid = null,
+             previous_leading_team_id = null,
+             show_undo_notice = false
+       where id = v_state.id
+       returning * into v_state;
+      return v_state;
+    end if;
+
+    update public.auction_state
+       set phase = 'phase1'::public.auction_phase
+     where id = v_state.id;
+
+  elsif v_state.phase = 'phase_2_hype' or v_state.phase = 'phase2' or (v_state.phase::text like 'completed%' and exists (select 1 from public.players where status = 'upcoming_phase2' and auction_id = p_auction_id)) then
+    select id
+      into v_player_id
+    from public.players
+    where auction_id = p_auction_id
+      and status = 'upcoming_phase2'
+    order by random()
+    limit 1;
+
+    if not found then
+      update public.auction_state
+         set phase = 'phase_2_complete'::public.auction_phase,
+             current_player_id = null,
+             current_bid = null,
+             leading_team_id = null,
+             previous_bid = null,
+             previous_leading_team_id = null,
+             show_undo_notice = false
+       where id = v_state.id
+       returning * into v_state;
+      return v_state;
+    end if;
+
+    update public.auction_state
+       set phase = 'phase2'::public.auction_phase
+     where id = v_state.id;
+  end if;
+
+  update public.players
+    set status = 'live'
+  where id = v_player_id;
+
+  update public.auction_state
+     set 
+         previous_player_id = v_state.current_player_id, 
+         current_player_id = v_player_id,
+         current_bid = null,
+         leading_team_id = null,
+         previous_bid = null,
+         previous_leading_team_id = null,
+         show_undo_notice = false
+   where id = v_state.id
+   returning * into v_state;
+
+  return v_state;
+end;
+$$;
+
+-- 2. Fix start_bid
+create or replace function public.start_bid(p_auction_id uuid)
+returns public.auction_state
+language plpgsql
+security definer
+as $$
+declare
+  v_state public.auction_state;
+  v_auction public.auctions;
+  v_base_price numeric(12,2);
+begin
+  select *
+    into v_state
+  from public.auction_state
+  where auction_id = p_auction_id
+  for update;
+
+  if not found or v_state.current_player_id is null then
+    raise exception 'No current player selected for auction %', p_auction_id;
+  end if;
+
+  select *
+    into v_auction
+  from public.auctions
+  where id = p_auction_id
+  for update;
+
+  v_base_price := (v_auction.settings ->> 'base_price')::numeric;
+  if v_base_price is null then
+    raise exception 'Base price not configured for auction %', p_auction_id;
+  end if;
+
+  update public.auction_state
+     set current_bid = v_base_price,
+         leading_team_id = null,
+         previous_bid = null,
+         previous_leading_team_id = null,
+         phase = (case when v_state.phase::text in ('phase1', 'idle', 'captain_round') then 'phase1' else 'phase2' end)::public.auction_phase,
+         show_undo_notice = false
+   where id = v_state.id
+   returning * into v_state;
+
+  return v_state;
+end;
+$$;
+
+-- 3. Fix undo_sale
+create or replace function public.undo_sale(p_auction_id uuid)
+returns public.auction_state
+language plpgsql
+security definer
+as $$
+declare
+  v_state public.auction_state;
+  v_player public.players;
+  v_target_player_id uuid;
+begin
+  select *
+    into v_state
+  from public.auction_state
+  where auction_id = p_auction_id
+  for update;
+
+  if not found then
+    raise exception 'No auction context available.';
+  end if;
+
+  if v_state.phase::text not in ('phase1', 'phase2', 'completed_sale', 'completed_unsold') then
+    raise exception 'Undo Sale is not permitted in the current phase.';
+  end if;
+
+  if (v_state.phase::text = 'phase1' or v_state.phase::text = 'phase2') and v_state.current_bid is not null then
+    raise exception 'Undo Sale is not permitted after a new bid has started.';
+  end if;
+
+  if v_state.phase::text like 'completed%' then
+    v_target_player_id := v_state.current_player_id;
+  else
+    v_target_player_id := v_state.previous_player_id;
+  end if;
+
+  if v_target_player_id is null then
+    raise exception 'No sold player context available for undo.';
+  end if;
+
+  select * into v_player from public.players where id = v_target_player_id for update;
+
+  -- Restore Purse/Slots if it was sold
+  if v_player.status = 'sold' then
+    update public.teams
+       set purse_remaining = purse_remaining + v_player.sold_price,
+           slots_remaining = slots_remaining + 1
+     where id = v_player.sold_team_id;
+  end if;
+
+  -- Restore player to LIVE
+  update public.players
+     set status = 'live',
+         sold_price = null,
+         sold_team_id = null
+   where id = v_target_player_id;
+
+  if v_state.phase::text like 'completed%' then
+    -- SCENARIO A: Undoing during the 3.5s window
+    update public.auction_state
+       set phase = (case when v_state.phase::text in ('completed_unsold', 'completed_sale') then 
+                      (case when exists(select 1 from public.players where status = 'upcoming_phase2' and auction_id=p_auction_id) then 'phase2' else 'phase1' end)
+                    else 'phase1' end)::public.auction_phase,
+           current_bid = null,
+           leading_team_id = null,
+           previous_bid = null,
+           previous_leading_team_id = null,
+           current_player_id = v_target_player_id, 
+           previous_player_id = null,
+           show_undo_notice = true
+     where id = v_state.id
+     returning * into v_state;
+
+  else
+    -- SCENARIO B: Undoing AFTER next_player has been drawn
+    -- If a new player was drawn, move them back to upcoming
+    if v_state.current_player_id is not null then
+      update public.players
+         set status = case when v_state.phase::text = 'phase2' then 'upcoming_phase2' else 'upcoming' end
+       where id = v_state.current_player_id;
+    end if;
+
+    update public.auction_state
+       set current_player_id = v_target_player_id,
+           previous_player_id = null,
+           current_bid = null,
+           leading_team_id = null,
+           previous_bid = null,
+           previous_leading_team_id = null,
+           show_undo_notice = true
+     where id = v_state.id
+     returning * into v_state;
+  end if;
+
+  return v_state;
+end;
+$$;
+
+-- 4. Fix end_bid
+create or replace function public.end_bid(p_auction_id uuid)
+returns public.auction_state
+language plpgsql
+security definer
+as $$
+declare
+  v_state public.auction_state;
+  v_player public.players;
+begin
+  select *
+    into v_state
+  from public.auction_state
+  where auction_id = p_auction_id
+  for update;
+
+  if not found or v_state.current_player_id is null then
+    raise exception 'No active player for auction %', p_auction_id;
+  end if;
+
+  select * into v_player from public.players where id = v_state.current_player_id for update;
+
+  if v_state.leading_team_id is not null then
+    -- SOLD
+    update public.players
+       set status = 'sold',
+           sold_price = v_state.current_bid,
+           sold_team_id = v_state.leading_team_id
+     where id = v_state.current_player_id;
+
+    update public.teams
+       set purse_remaining = purse_remaining - v_state.current_bid,
+           slots_remaining = slots_remaining - 1
+     where id = v_state.leading_team_id;
+
+    update public.auction_state
+       set phase = 'completed_sale'::public.auction_phase,
+           show_undo_notice = false
+     where id = v_state.id
+     returning * into v_state;
+  else
+    -- UNSOLD
+    update public.players
+       set status = case when v_state.phase::text = 'phase2' then 'unsold_final' else 'unsold' end
+     where id = v_state.current_player_id;
+
+    update public.auction_state
+       set phase = 'completed_unsold'::public.auction_phase,
+           show_undo_notice = false
+     where id = v_state.id
+     returning * into v_state;
+  end if;
+
+  return v_state;
+end;
+$$;
+````
+
+## File: supabase/migrations/0023_fix_player_status_casts.sql
+````sql
+-- 0023_fix_player_status_casts.sql
+-- This migration fixes the "column 'status' is of type player_status but expression is of type text" error
+-- by adding explicit casts to public.player_status for all RPC status updates.
+
+-- 1. Fix next_player
+create or replace function public.next_player(p_auction_id uuid)
+returns public.auction_state
+language plpgsql
+security definer
+as $$
+declare
+  v_state public.auction_state;
+  v_player_id uuid;
+begin
+  select *
+    into v_state
+  from public.auction_state
+  where auction_id = p_auction_id
+  for update;
+
+  if not found then
+    insert into public.auction_state (auction_id, phase)
+    values (p_auction_id, 'phase1'::public.auction_phase)
+    returning * into v_state;
+  end if;
+
+  if v_state.phase = 'captain_round' or v_state.phase = 'phase1' or v_state.phase = 'idle' or (v_state.phase::text like 'completed%' and not exists (select 1 from public.players where status = 'upcoming_phase2' and auction_id = p_auction_id)) then
+    select id
+      into v_player_id
+    from public.players
+    where auction_id = p_auction_id
+      and status = 'upcoming'
+    order by random()
+    limit 1;
+
+    if not found then
+      update public.auction_state
+         set phase = 'phase_1_complete'::public.auction_phase,
+             current_player_id = null,
+             current_bid = null,
+             leading_team_id = null,
+             previous_bid = null,
+             previous_leading_team_id = null,
+             show_undo_notice = false
+       where id = v_state.id
+       returning * into v_state;
+      return v_state;
+    end if;
+
+    update public.auction_state
+       set phase = 'phase1'::public.auction_phase
+     where id = v_state.id;
+
+  elsif v_state.phase = 'phase_2_hype' or v_state.phase = 'phase2' or (v_state.phase::text like 'completed%' and exists (select 1 from public.players where status = 'upcoming_phase2' and auction_id = p_auction_id)) then
+    select id
+      into v_player_id
+    from public.players
+    where auction_id = p_auction_id
+      and status = 'upcoming_phase2'
+    order by random()
+    limit 1;
+
+    if not found then
+      update public.auction_state
+         set phase = 'phase_2_complete'::public.auction_phase,
+             current_player_id = null,
+             current_bid = null,
+             leading_team_id = null,
+             previous_bid = null,
+             previous_leading_team_id = null,
+             show_undo_notice = false
+       where id = v_state.id
+       returning * into v_state;
+      return v_state;
+    end if;
+
+    update public.auction_state
+       set phase = 'phase2'::public.auction_phase
+     where id = v_state.id;
+  end if;
+
+  update public.players
+    set status = 'live'::public.player_status
+  where id = v_player_id;
+
+  update public.auction_state
+     set 
+         previous_player_id = v_state.current_player_id, 
+         current_player_id = v_player_id,
+         current_bid = null,
+         leading_team_id = null,
+         previous_bid = null,
+         previous_leading_team_id = null,
+         show_undo_notice = false
+   where id = v_state.id
+   returning * into v_state;
+
+  return v_state;
+end;
+$$;
+
+-- 2. Fix undo_sale
+create or replace function public.undo_sale(p_auction_id uuid)
+returns public.auction_state
+language plpgsql
+security definer
+as $$
+declare
+  v_state public.auction_state;
+  v_player public.players;
+  v_target_player_id uuid;
+begin
+  select *
+    into v_state
+  from public.auction_state
+  where auction_id = p_auction_id
+  for update;
+
+  if not found then
+    raise exception 'No auction context available.';
+  end if;
+
+  if v_state.phase::text not in ('phase1', 'phase2', 'completed_sale', 'completed_unsold') then
+    raise exception 'Undo Sale is not permitted in the current phase.';
+  end if;
+
+  if (v_state.phase::text = 'phase1' or v_state.phase::text = 'phase2') and v_state.current_bid is not null then
+    raise exception 'Undo Sale is not permitted after a new bid has started.';
+  end if;
+
+  if v_state.phase::text like 'completed%' then
+    v_target_player_id := v_state.current_player_id;
+  else
+    v_target_player_id := v_state.previous_player_id;
+  end if;
+
+  if v_target_player_id is null then
+    raise exception 'No sold player context available for undo.';
+  end if;
+
+  select * into v_player from public.players where id = v_target_player_id for update;
+
+  -- Restore Purse/Slots if it was sold
+  if v_player.status = 'sold' then
+    update public.teams
+       set purse_remaining = purse_remaining + v_player.sold_price,
+           slots_remaining = slots_remaining + 1
+     where id = v_player.sold_team_id;
+  end if;
+
+  -- Restore player to LIVE
+  update public.players
+     set status = 'live'::public.player_status,
+         sold_price = null,
+         sold_team_id = null
+   where id = v_target_player_id;
+
+  if v_state.phase::text like 'completed%' then
+    -- SCENARIO A: Undoing during the 3.5s window
+    update public.auction_state
+       set phase = (case when v_state.phase::text in ('completed_unsold', 'completed_sale') then 
+                      (case when exists(select 1 from public.players where status = 'upcoming_phase2' and auction_id=p_auction_id) then 'phase2' else 'phase1' end)
+                    else 'phase1' end)::public.auction_phase,
+           current_bid = null,
+           leading_team_id = null,
+           previous_bid = null,
+           previous_leading_team_id = null,
+           current_player_id = v_target_player_id, 
+           previous_player_id = null,
+           show_undo_notice = true
+     where id = v_state.id
+     returning * into v_state;
+
+  else
+    -- SCENARIO B: Undoing AFTER next_player has been drawn
+    -- If a new player was drawn, move them back to upcoming
+    if v_state.current_player_id is not null then
+      update public.players
+         set status = (case when v_state.phase::text = 'phase2' then 'upcoming_phase2' else 'upcoming' end)::public.player_status
+       where id = v_state.current_player_id;
+    end if;
+
+    update public.auction_state
+       set current_player_id = v_target_player_id,
+           previous_player_id = null,
+           current_bid = null,
+           leading_team_id = null,
+           previous_bid = null,
+           previous_leading_team_id = null,
+           show_undo_notice = true
+     where id = v_state.id
+     returning * into v_state;
+  end if;
+
+  return v_state;
+end;
+$$;
+
+-- 3. Fix end_bid
+create or replace function public.end_bid(p_auction_id uuid)
+returns public.auction_state
+language plpgsql
+security definer
+as $$
+declare
+  v_state public.auction_state;
+  v_player public.players;
+begin
+  select *
+    into v_state
+  from public.auction_state
+  where auction_id = p_auction_id
+  for update;
+
+  if not found or v_state.current_player_id is null then
+    raise exception 'No active player for auction %', p_auction_id;
+  end if;
+
+  select * into v_player from public.players where id = v_state.current_player_id for update;
+
+  if v_state.leading_team_id is not null then
+    -- SOLD
+    update public.players
+       set status = 'sold'::public.player_status,
+           sold_price = v_state.current_bid,
+           sold_team_id = v_state.leading_team_id
+     where id = v_state.current_player_id;
+
+    update public.teams
+       set purse_remaining = purse_remaining - v_state.current_bid,
+           slots_remaining = slots_remaining - 1
+     where id = v_state.leading_team_id;
+
+    update public.auction_state
+       set phase = 'completed_sale'::public.auction_phase,
+           show_undo_notice = false
+     where id = v_state.id
+     returning * into v_state;
+  else
+    -- UNSOLD
+    update public.players
+       set status = (case when v_state.phase::text = 'phase2' then 'unsold_final' else 'unsold' end)::public.player_status
+     where id = v_state.current_player_id;
+
+    update public.auction_state
+       set phase = 'completed_unsold'::public.auction_phase,
+           show_undo_notice = false
+     where id = v_state.id
+     returning * into v_state;
+  end if;
+
+  return v_state;
+end;
+$$;
+
+-- 4. Fix start_phase2
+create or replace function public.start_phase2(p_auction_id uuid)
+returns public.auction_state
+language plpgsql
+security definer
+as $$
+declare
+  v_state public.auction_state;
+begin
+  -- Shift all unsold players into the Phase 2 queue
+  update public.players
+     set status = 'upcoming_phase2'::public.player_status
+   where auction_id = p_auction_id
+     and status = 'unsold';
+
+  -- Trigger the hype screen phase
+  update public.auction_state
+     set phase = 'phase_2_hype'::public.auction_phase
+   where auction_id = p_auction_id
+   returning * into v_state;
+   
+  return v_state;
+end;
+$$;
+
+-- 5. Fix auto_allocate_ordered
+create or replace function public.auto_allocate_ordered(p_auction_id uuid, p_ordered_player_ids uuid[])
+returns void
+language plpgsql
+security definer
+as $$
+declare
+  v_base_price numeric(12,2);
+  v_player_id uuid;
+  v_team record;
+begin
+  -- Access base_price from the settings jsonb column
+  select (settings ->> 'base_price')::numeric
+    into v_base_price
+  from public.auctions
+  where id = p_auction_id;
+
+  if v_base_price is null then
+    raise exception 'Base price not configured for auction %', p_auction_id;
+  end if;
+
+  foreach v_player_id in array p_ordered_player_ids
+  loop
+    -- Double check player is actually unsold before allocating
+    if not exists (select 1 from public.players where id = v_player_id and status = 'unsold' and auction_id = p_auction_id) then
+      continue;
+    end if;
+
+    -- Pick the team with the highest slots remaining that can afford the base price in this auction
+    select id, purse_remaining, slots_remaining
+      into v_team
+    from public.teams
+    where auction_id = p_auction_id
+      and slots_remaining > 0
+      and purse_remaining >= v_base_price
+    order by slots_remaining desc, purse_remaining desc
+    limit 1
+    for update;
+
+    -- If no team can take them, skip
+    if not found then
+      continue;
+    end if;
+
+    -- Assign player to team
+    update public.players
+       set status = 'sold'::public.player_status,
+           sold_price = v_base_price,
+           sold_team_id = v_team.id
+     where id = v_player_id;
+
+    -- Deduct from team
+    update public.teams
+       set purse_remaining = purse_remaining - v_base_price,
+           slots_remaining = slots_remaining - 1
+     where id = v_team.id;
+  end loop;
+
+end;
+$$;
+````
+
+## File: supabase/migrations/0024_manual_slot_filling.sql
+````sql
+-- 0024_manual_slot_filling.sql
+-- This migration removes auto-allocation logic and replaces it with a manual assignment RPC.
+
+-- 1. Create assign_unsold_player RPC
+create or replace function public.assign_unsold_player(p_player_id uuid, p_team_id uuid)
+returns void
+language plpgsql
+security definer
+as $$
+declare
+  v_base_price numeric(12,2);
+  v_auction_id uuid;
+  v_team record;
+begin
+  -- Get player and auction context
+  select auction_id into v_auction_id from public.players where id = p_player_id;
+  
+  -- Get base price
+  select (settings ->> 'base_price')::numeric into v_base_price from public.auctions where id = v_auction_id;
+
+  -- Get team and lock for update
+  select * into v_team from public.teams where id = p_team_id for update;
+
+  if not found then
+    raise exception 'Team not found';
+  end if;
+
+  if v_team.purse_remaining < v_base_price then
+    raise exception 'Team does not have enough purse remaining';
+  end if;
+
+  if v_team.slots_remaining <= 0 then
+    raise exception 'Team does not have any slots remaining';
+  end if;
+
+  -- Assign player to team
+  update public.players
+     set status = 'sold'::public.player_status,
+         sold_price = v_base_price,
+         sold_team_id = p_team_id
+   where id = p_player_id;
+
+  -- Deduct from team
+  update public.teams
+     set purse_remaining = purse_remaining - v_base_price,
+         slots_remaining = slots_remaining - 1
+   where id = p_team_id;
+
+end;
+$$;
+
+-- 2. Drop the auto_allocate_ordered function
+drop function if exists public.auto_allocate_ordered(uuid, uuid[]);
 ````
 
 ## File: tsconfig.json
