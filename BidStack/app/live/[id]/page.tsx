@@ -86,9 +86,9 @@ export default function LiveAuctionPage({
         <div className="absolute top-[-10%] left-[-10%] w-[40%] h-[40%] bg-emerald-500/10 blur-[120px] rounded-full animate-pulse" />
         <div className="absolute bottom-[-10%] right-[-10%] w-[40%] h-[40%] bg-blue-500/10 blur-[120px] rounded-full animate-pulse [animation-delay:2s]" />
       </div>
-      <nav className="relative z-50 border-b border-slate-800 bg-slate-900/40 backdrop-blur-xl px-3 sm:px-4 md:px-6 py-2 sm:py-3 flex-shrink-0">
-        <div className="flex items-center justify-between gap-2 sm:gap-4 min-h-[60px]">
-          <div className="flex items-center gap-2 sm:gap-4 md:gap-8 min-w-0 flex-1">
+      <nav className="relative z-50 border-b border-slate-800 bg-slate-900/40 backdrop-blur-xl py-fluid-sm flex-shrink-0">
+        <div className="container-fluid flex items-center justify-between gap-fluid-md min-h-[50px]">
+          <div className="flex items-center gap-fluid-md min-w-0 flex-1">
             <div
               className="flex items-center gap-2 sm:gap-3 cursor-pointer group flex-shrink-0"
               onClick={() => setSelectedTeam(null)}
@@ -114,15 +114,15 @@ export default function LiveAuctionPage({
           </button>
         </div>
       </nav>
-      <main className="relative z-10 flex-1 flex overflow-hidden w-full gap-2 sm:gap-3 md:gap-4 lg:gap-6 px-2 sm:px-3 md:px-4 lg:px-6 py-2 sm:py-3 md:py-4 lg:py-6">
-        <div className="flex-1 flex flex-col gap-2 sm:gap-3 md:gap-4 lg:gap-6 overflow-hidden min-w-0">
+      <main className="relative z-10 flex-1 flex overflow-hidden w-full gap-fluid-md container-fluid py-fluid-md">
+        <div className="flex-1 flex flex-col gap-fluid-md overflow-hidden min-w-0">
           {selectedTeam ? (
-            <div className="flex-1 flex flex-col h-full bg-slate-900/20 rounded-xl sm:rounded-2xl md:rounded-3xl border border-slate-800/50 p-3 sm:p-4 md:p-6 overflow-hidden">
+            <div className="flex-1 flex flex-col h-full bg-slate-900/20 rounded-2xl border border-slate-800/50 p-fluid-md overflow-hidden">
               <button
                 onClick={() => setSelectedTeam(null)}
-                className="self-start mb-3 md:mb-6 flex items-center gap-2 text-slate-500 hover:text-emerald-400 font-black text-[8px] md:text-[10px] uppercase tracking-widest transition-colors flex-shrink-0"
+                className="self-start mb-fluid-md flex items-center gap-1.5 text-slate-500 hover:text-emerald-400 font-bold text-xs uppercase tracking-widest transition-colors flex-shrink-0"
               >
-                <LayoutDashboard size={12} />
+                <LayoutDashboard size={10} />
                 Back
               </button>
               <div className="flex-1 overflow-auto">
@@ -134,16 +134,16 @@ export default function LiveAuctionPage({
               </div>
             </div>
           ) : showPlayerRepository ? (
-            <div className="flex-1 flex flex-col h-full bg-slate-900/20 rounded-xl sm:rounded-2xl md:rounded-3xl border border-slate-800/50 p-3 sm:p-4 md:p-6 overflow-hidden">
-              <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-2 mb-3 md:mb-4 flex-shrink-0">
+            <div className="flex-1 flex flex-col h-full bg-slate-900/20 rounded-2xl border border-slate-800/50 p-fluid-md overflow-hidden" data-density="compact">
+              <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-fluid-sm mb-fluid-md flex-shrink-0">
                 <button
                   onClick={() => setShowPlayerRepository(false)}
-                  className="flex items-center gap-2 text-slate-500 hover:text-emerald-400 font-black text-[8px] md:text-[10px] uppercase tracking-widest transition-colors"
+                  className="flex items-center gap-1.5 text-slate-500 hover:text-emerald-400 font-bold text-xs uppercase tracking-widest transition-colors"
                 >
-                  <LayoutDashboard size={12} />
+                  <LayoutDashboard size={10} />
                   Back
                 </button>
-                <div className="text-[7px] md:text-[9px] font-black text-slate-500 uppercase tracking-[0.15em] whitespace-nowrap">
+                <div className="text-[10px] font-bold text-slate-500 uppercase tracking-widest whitespace-nowrap">
                   Showing all players • Scroll to browse
                 </div>
               </div>
@@ -170,73 +170,70 @@ export default function LiveAuctionPage({
                       .slice()
                       .sort((a, b) => a.name.localeCompare(b.name))
                       .map((player) => {
-                      const team = teams.find(
-                        (t) => t.id === player.sold_team_id,
-                      );
-                      return (
-                        <div
-                          key={player.id}
-                          className="p-2 sm:p-3 rounded-lg sm:rounded-xl border border-slate-800 bg-slate-900/40 flex items-center gap-2 sm:gap-3 group hover:border-emerald-500/30 transition-all shadow-lg"
-                        >
-                          <div className="flex-shrink-0">
-                            <PlayerAvatar
-                              id={player.id}
-                              name={player.name}
-                              role={player.role}
-                              photoUrl={player.photo_url}
-                              size="sm"
-                              isCaptain={player.is_captain}
-                            />
-                          </div>
-                          <div className="flex-1 min-w-0 flex flex-col justify-between">
-                            <div>
-                              <div className="text-[9px] sm:text-xs font-bold text-white truncate">
-                                {player.name}
-                              </div>
-                              <div className="text-[7px] md:text-[8px] font-black text-slate-500 uppercase tracking-tighter">
-                                {player.role}
-                              </div>
+                        const team = teams.find(
+                          (t) => t.id === player.sold_team_id,
+                        );
+                        return (
+                          <div
+                            key={player.id}
+                            className="p-2 sm:p-3 rounded-lg sm:rounded-xl border border-slate-800 bg-slate-900/40 flex items-center gap-2 sm:gap-3 group hover:border-emerald-500/30 transition-all shadow-lg"
+                          >
+                            <div className="flex-shrink-0">
+                              <PlayerAvatar
+                                id={player.id}
+                                name={player.name}
+                                role={player.role}
+                                photoUrl={player.photo_url}
+                                size="sm"
+                                isCaptain={player.is_captain}
+                              />
                             </div>
-                            {player.status === "sold" ? (
-                              team && (
-                                <div className="mt-1 flex items-center gap-1 min-w-0">
-                                  <TeamLogo
-                                    name={team.name}
-                                    logoUrl={team.logo_url}
-                                    size="sm"
-                                  />
-                                  <div className="text-[7px] md:text-[8px] font-black text-emerald-400 uppercase truncate">
-                                    {team.name}
-                                  </div>
+                            <div className="flex-1 min-w-0 flex flex-col justify-between">
+                              <div>
+                                <div className="text-[9px] sm:text-xs font-bold text-white truncate">
+                                  {player.name}
                                 </div>
-                              )
-                            ) : (
-                              <div
-                                className={`mt-1 text-[7px] md:text-[8px] font-black uppercase tracking-widest ${player.status === "live" ? "text-amber-500 animate-pulse" : "text-slate-600"}`}
-                              >
-                                {player.status}
+                                <div className="text-[7px] md:text-[8px] font-black text-slate-500 uppercase tracking-tighter">
+                                  {player.role}
+                                </div>
+                              </div>
+                              {player.status === "sold" ? (
+                                team && (
+                                  <div className="mt-1 flex items-center gap-1 min-w-0">
+                                    <TeamLogo
+                                      name={team.name}
+                                      logoUrl={team.logo_url}
+                                      size="sm"
+                                    />
+                                    <div className="text-[7px] md:text-[8px] font-black text-emerald-400 uppercase truncate">
+                                      {team.name}
+                                    </div>
+                                  </div>
+                                )
+                              ) : (
+                                <div
+                                  className={`mt-1 text-[7px] md:text-[8px] font-black uppercase tracking-widest ${player.status === "live" ? "text-amber-500 animate-pulse" : "text-slate-600"}`}
+                                >
+                                  {player.status}
+                                </div>
+                              )}
+                            </div>
+                            {player.status === "sold" && (
+                              <div className="text-right flex-shrink-0 text-[8px] sm:text-xs font-mono font-bold text-slate-300">
+                                ₹{player.sold_price?.toLocaleString("en-IN")}
                               </div>
                             )}
                           </div>
-                          {player.status === "sold" && (
-                            <div className="text-right flex-shrink-0 text-[8px] sm:text-xs font-mono font-bold text-slate-300">
-                              ₹
-                              {player.sold_price
-                                ? Math.round(player.sold_price / 100000) + "L"
-                                : "0"}
-                            </div>
-                          )}
-                        </div>
-                      );
-                    })}
+                        );
+                      })}
                   </div>
                 </div>
               </div>
             </div>
           ) : (
-            <div className="flex-1 relative rounded-xl sm:rounded-2xl md:rounded-3xl bg-slate-900/40 border border-slate-800 overflow-hidden flex flex-col">
+            <div className="flex-1 relative rounded-2xl bg-slate-900/40 border border-slate-800 overflow-hidden flex flex-col">
               <div className="absolute inset-0 bg-[radial-gradient(circle_at_top,_#10b98111,_transparent_60%)] pointer-events-none" />
-              <div className="flex-1 flex flex-col items-center justify-center p-3 sm:p-4 md:p-6 lg:p-12 relative z-10 text-center overflow-y-auto">
+              <div className="flex-1 flex flex-col items-center justify-center p-fluid-lg relative z-10 text-center overflow-y-auto">
                 <AnimatePresence mode="wait">
                   {state?.phase === "captain_round" ? (
                     <motion.div
@@ -246,11 +243,11 @@ export default function LiveAuctionPage({
                       exit={{ opacity: 0 }}
                       className="flex flex-col items-center w-full"
                     >
-                      <div className="text-center mb-4 md:mb-8 lg:mb-12">
-                        <h2 className="text-3xl sm:text-4xl md:text-5xl lg:text-6xl font-black italic tracking-tighter text-amber-500 uppercase mb-2 md:mb-4 animate-pulse">
+                      <div className="text-center mb-fluid-md">
+                        <h2 className="italic tracking-tighter text-amber-500 uppercase mb-fluid-sm animate-pulse">
                           Captain Reveal
                         </h2>
-                        <p className="max-w-xs sm:max-w-md mx-auto text-[9px] sm:text-xs md:text-sm text-slate-400 font-medium px-2">
+                        <p className="max-w-md mx-auto text-sm text-slate-400 font-medium px-2">
                           Franchises selecting leadership via Blind Bidding...
                         </p>
                       </div>
@@ -268,9 +265,9 @@ export default function LiveAuctionPage({
                                 animate={{ opacity: 1, y: 0 }}
                                 className={`relative p-2 sm:p-3 md:p-4 lg:p-6 rounded-lg sm:rounded-xl md:rounded-2xl lg:rounded-3xl border transition-all duration-500 flex flex-col items-center gap-1 md:gap-2 lg:gap-4 ${matchedTeam ? "bg-emerald-500/10 border-emerald-500 shadow-[0_0_40px_rgba(16,185,129,0.2)]" : "bg-slate-900/40 border-slate-800"}`}
                               >
-                                <div className="absolute -top-1.5 -right-1.5 sm:-top-2 sm:-right-2 z-20">
+                                <div className="absolute top-0 right-0 z-10">
                                   {matchedTeam ? (
-                                    <div className="bg-emerald-500 text-slate-950 text-[7px] sm:text-[8px] font-black px-1.5 sm:px-2 py-px rounded-full shadow-lg animate-bounce">
+                                    <div className="bg-emerald-500 text-slate-950 text-[7px] sm:text-[8px] font-black px-10.5 sm:px-2 py-px rounded-full shadow-lg animate-bounce">
                                       ✓
                                     </div>
                                   ) : (
@@ -316,13 +313,13 @@ export default function LiveAuctionPage({
                                       ₹
                                       {matchedTeam.captain_id
                                         ? Math.round(
-                                            captain.sold_price! / 100000,
-                                          ) + "L"
-                                        : "0"}
+                                          captain.sold_price!,
+                                        ) 
+                                        : 0}
                                     </div>
                                   </div>
                                 ) : (
-                                  <div className="mt-1 flex gap-0.5">
+                                  <div className="mt-1 flex gap-1.5">
                                     <div className="w-0.5 h-0.5 md:w-1 md:h-1 rounded-full bg-amber-500/40 animate-bounce [animation-delay:-0.3s]" />
                                     <div className="w-0.5 h-0.5 md:w-1 md:h-1 rounded-full bg-amber-500/40 animate-bounce [animation-delay:-0.15s]" />
                                     <div className="w-0.5 h-0.5 md:w-1 md:h-1 rounded-full bg-amber-500/40 animate-bounce" />
@@ -351,10 +348,10 @@ export default function LiveAuctionPage({
                           size="xl"
                         />
                       </div>
-                      <div className="text-[7px] md:text-[9px] lg:text-[10px] font-black text-emerald-500 uppercase tracking-[0.2em] md:tracking-[0.4em] mb-1 md:mb-2 lg:mb-3">
+                      <div className="text-[10px] font-black text-emerald-500 uppercase tracking-[0.4em] mb-fluid-sm">
                         Live Representation
                       </div>
-                      <h2 className="text-2xl sm:text-4xl md:text-5xl lg:text-7xl font-black italic tracking-tighter text-white uppercase truncate max-w-full px-2 drop-shadow-2xl">
+                      <h2 className="italic tracking-tighter text-white uppercase truncate max-w-full px-2 drop-shadow-2xl">
                         {currentPlayer.name}
                       </h2>
                       <div className="flex flex-col sm:flex-row items-center gap-1 sm:gap-2 md:gap-3 lg:gap-6 mt-2 sm:mt-3 md:mt-4 flex-wrap justify-center px-2">
@@ -460,8 +457,7 @@ export default function LiveAuctionPage({
                   <div className="text-sm md:text-lg lg:text-2xl font-black text-emerald-500 italic">
                     ₹
                     {Math.round(
-                      players.reduce((sum, p) => sum + (p.sold_price || 0), 0) /
-                        100000,
+                      players.reduce((sum, p) => sum + (p.sold_price || 0), 0)
                     )}
                     L
                   </div>

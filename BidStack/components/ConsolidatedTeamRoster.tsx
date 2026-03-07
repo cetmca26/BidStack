@@ -60,10 +60,10 @@ export default function ConsolidatedTeamRoster({ auction, teams, players }: Cons
     }, {} as Record<string, Player[]>);
 
     return (
-        <div className="flex flex-col gap-8">
-            <div className="grid grid-cols-1 lg:grid-cols-[300px,1fr] gap-8">
+        <div className="flex flex-col gap-fluid-lg">
+            <div className="grid grid-cols-1 lg:grid-cols-12 gap-fluid-lg">
                 {/* Team Selector Sidebar */}
-                <div className="space-y-4">
+                <div className="lg:col-span-3 space-y-fluid-sm">
                     <h3 className="text-sm font-black text-slate-500 uppercase tracking-widest px-2">Teams</h3>
                     <div className="space-y-2">
                         {teams.map((team) => (
@@ -71,8 +71,8 @@ export default function ConsolidatedTeamRoster({ auction, teams, players }: Cons
                                 key={team.id}
                                 onClick={() => setSelectedTeamId(team.id)}
                                 className={`w-full flex items-center gap-4 p-4 rounded-2xl transition-all border-2 ${selectedTeamId === team.id
-                                        ? "bg-slate-900 border-amber-500 shadow-lg shadow-amber-900/20"
-                                        : "bg-slate-900/40 border-slate-800 hover:border-slate-700"
+                                    ? "bg-slate-900 border-amber-500 shadow-lg shadow-amber-900/20"
+                                    : "bg-slate-900/40 border-slate-800 hover:border-slate-700"
                                     }`}
                             >
                                 <TeamLogo name={team.name} logoUrl={team.logo_url} size="sm" />
@@ -90,8 +90,8 @@ export default function ConsolidatedTeamRoster({ auction, teams, players }: Cons
                 </div>
 
                 {/* Team Roster Grid */}
-                <div className="flex-1">
-                    <Card className="bg-slate-900/40 border-slate-800 p-8 rounded-[32px] min-h-[600px] backdrop-blur-xl">
+                <div className="lg:col-span-9">
+                    <Card className="bg-slate-900/40 border-slate-800 p-fluid-lg rounded-3xl min-h-[600px] backdrop-blur-xl">
                         {selectedTeam ? (
                             <>
                                 <div className="flex items-center justify-between mb-12 border-b border-slate-800 pb-8">

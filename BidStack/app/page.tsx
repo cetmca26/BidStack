@@ -95,14 +95,14 @@ export default function Home() {
   const hasLiveAuctions = liveAuctionIds.size > 0;
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-slate-950 via-slate-900 to-slate-950 px-6 py-10 text-slate-50">
-      <div className="mx-auto flex max-w-6xl flex-col gap-8">
-        <header className="flex flex-col items-start justify-between gap-4 md:flex-row md:items-center">
-          <div>
-            <h1 className="text-3xl font-semibold tracking-tight md:text-4xl">
+    <div className="min-h-screen bg-gradient-to-br from-slate-950 via-slate-900 to-slate-950 py-fluid-lg text-slate-50">
+      <div className="container-fluid flex flex-col gap-fluid-lg">
+        <header className="flex flex-col items-start justify-between gap-fluid-md md:flex-row md:items-center">
+          <div className="max-w-(--breakpoint-md)">
+            <h1 className="tracking-tight">
               Sports Auction Platform
             </h1>
-            <p className="mt-2 max-w-xl text-sm text-slate-300">
+            <p className="mt-fluid-sm text-sm text-slate-300">
               Join live player auctions, track teams in real time, and register for upcoming events.
             </p>
           </div>
@@ -115,10 +115,10 @@ export default function Home() {
           </div>
         </header>
 
-        <section className="grid gap-6 md:grid-cols-[2fr,3fr]">
-          <Card className="border-slate-800 bg-slate-900/70 p-5 shadow-xl shadow-black/60">
-            <div className="mb-3 flex items-center justify-between">
-              <h2 className="text-sm font-semibold uppercase tracking-[0.18em] text-slate-400">
+        <section className="fluid-grid">
+          <Card className="col-span-12 md:col-span-5 border-slate-800 bg-slate-900/70 shadow-xl shadow-black/60">
+            <div className="mb-fluid-sm flex items-center justify-between px-fluid pt-fluid">
+              <h2 className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-400">
                 Live Auctions
               </h2>
               {hasLiveAuctions && (
@@ -165,9 +165,9 @@ export default function Home() {
             )}
           </Card>
 
-          <Card className="border-slate-800 bg-slate-900/70 p-5 shadow-xl shadow-black/60">
-            <div className="mb-3 flex items-center justify-between">
-              <h2 className="text-sm font-semibold uppercase tracking-[0.18em] text-slate-400">
+          <Card className="col-span-12 md:col-span-7 border-slate-800 bg-slate-900/70 shadow-xl shadow-black/60">
+            <div className="mb-fluid-sm flex items-center justify-between px-fluid pt-fluid">
+              <h2 className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-400">
                 All Auctions
               </h2>
               <span className="text-xs text-slate-400">

@@ -195,39 +195,48 @@ export default function AdminAuctionPage({ params }: { params: Promise<{ id: str
 
     setLoadingAction(`bid_${teamId}`);
     try {
+      // 🔍 DEBUG SESSION
+      const { data: { session } } = await supabase.auth.getSession();
+      console.log("SESSION TOKEN:", session?.access_token?.slice(0, 20));
       // Calculate next bid amount
       const base_price = auction.settings.base_price;
       const increment = auction.settings.increment;
       const current_bid = state.current_bid ?? base_price;
       const next_bid = state.leading_team_id === null ? current_bid : current_bid + increment;
 
-      const url = `${process.env.NEXT_PUBLIC_SUPABASE_URL}/functions/v1/place-bid`;
-
-      const response = await fetch(url, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'apikey': process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || ''
-        },
-        body: JSON.stringify({
+      const { data: result, error: invokeError } = await supabase.functions.invoke('place-bid', {
+        body: {
           auction_id: auctionId,
           team_id: teamId,
           bid_amount: next_bid
-        })
+        }
       });
 
-      if (!response.ok) {
-        const errorText = await response.text();
-        console.error('Edge Function error:', errorText);
-        throw new Error(`Bid failed: ${errorText || response.statusText}`);
+      if (invokeError) {
+        console.error('FULL INVOKE ERROR:', invokeError);
+        let errorBody = 'No body';
+
+        try {
+          if (invokeError instanceof Error && 'context' in (invokeError as any)) {
+            const context = (invokeError as any).context;
+            if (context && typeof context.text === 'function') {
+              errorBody = await context.text();
+            }
+          }
+        } catch (e) {
+          console.error('Failed to read error body:', e);
+        }
+
+        const msg = `Status: ${invokeError.name}\nMessage: ${invokeError.message}\nBody: ${errorBody}`;
+        console.error('Detailed Bid Failure:', msg);
+        throw new Error(msg);
       }
 
-      const result = await response.json();
       console.log('Bid successful:', result);
 
     } catch (err: any) {
-      console.error("Bid error:", err.message);
-      window.alert(`Bid failed: ${err.message}`);
+      console.error("Bid error catch:", err);
+      window.alert(`Bid Execution Failed:\n\n${err.message}`);
     } finally {
       setLoadingAction(null);
     }

@@ -32,6 +32,8 @@ export default function VerifyAuctionPage({ params }: { params: Promise<{ id: st
 
     const [authLoading, setAuthLoading] = useState(true);
     const [processing, setProcessing] = useState<string | null>(null);
+    const [expandUnsoldList, setExpandUnsoldList] = useState(false);
+    const UNSOLD_DISPLAY_LIMIT = 5;
 
     useEffect(() => {
         const checkAuth = async () => {
@@ -205,7 +207,7 @@ export default function VerifyAuctionPage({ params }: { params: Promise<{ id: st
                             </h2>
                         </div>
 
-                        <div className="grid gap-4 md:grid-cols-2">
+                        <div className="grid gap-4 grid-cols-1 sm:grid-cols-2 lg:grid-cols-1 xl:grid-cols-2">
                             {teams.map((team) => {
                                 const count = auction.settings.max_players - team.slots_remaining;
                                 const isSatisfied = count >= auction.settings.min_players;
@@ -271,15 +273,15 @@ export default function VerifyAuctionPage({ params }: { params: Promise<{ id: st
                     </div>
 
                     {/* Unsold Players Section */}
-                    <div className="space-y-6">
+                    <div className="space-y-6 lg:col-span-1">
                         <div className="flex items-center justify-between">
                             <h2 className="text-sm font-semibold uppercase tracking-[0.2em] text-slate-500 flex items-center gap-2">
                                 <UserPlus className="h-4 w-4" /> Unsold Pool ({unsoldPlayers.length})
                             </h2>
                         </div>
 
-                        <Card className="border-slate-800 bg-slate-900/60 p-2 shadow-2xl overflow-hidden flex flex-col max-h-[70vh]">
-                            <div className="overflow-y-auto pr-1 space-y-2 p-2 custom-scrollbar">
+                        <Card className="border-slate-800 bg-slate-900/60 p-2 shadow-2xl overflow-hidden flex flex-col max-h-fit md:max-h-[calc(100vh-400px)]">
+                            <div className="overflow-y-auto pr-1 space-y-2 p-2 custom-scrollbar max-h-[600px]">
                                 {unsoldPlayers.length === 0 ? (
                                     <div className="flex flex-col items-center justify-center py-12 text-center space-y-4">
                                         <div className="h-16 w-16 rounded-full bg-slate-800/50 flex items-center justify-center">
@@ -291,43 +293,63 @@ export default function VerifyAuctionPage({ params }: { params: Promise<{ id: st
                                         </div>
                                     </div>
                                 ) : (
-                                    unsoldPlayers.map((player) => (
-                                        <div key={player.id} className="p-3 rounded-lg border border-slate-800 bg-slate-950/40 hover:bg-slate-800/40 transition-all duration-200">
-                                            <div className="flex justify-between items-start gap-2 mb-3">
-                                                <div>
-                                                    <p className="font-bold text-white text-sm">{player.name}</p>
-                                                    <p className="text-[10px] uppercase tracking-wider text-slate-500">{player.role}</p>
+                                    <>
+                                        {unsoldPlayers.slice(0, expandUnsoldList ? unsoldPlayers.length : UNSOLD_DISPLAY_LIMIT).map((player) => (
+                                            <div key={player.id} className="p-3 rounded-lg border border-slate-800 bg-slate-950/40 hover:bg-slate-800/40 transition-all duration-200">
+                                                <div className="flex justify-between items-start gap-2 mb-3">
+                                                    <div>
+                                                        <p className="font-bold text-white text-sm">{player.name}</p>
+                                                        <p className="text-[10px] uppercase tracking-wider text-slate-500">{player.role}</p>
+                                                    </div>
+                                                    <div className="px-2 py-0.5 rounded border border-slate-700 text-[9px] uppercase tracking-widest bg-slate-900 text-slate-400 h-5 flex items-center whitespace-nowrap">
+                                                        Unsold
+                                                    </div>
                                                 </div>
-                                                <div className="px-2 py-0.5 rounded border border-slate-700 text-[9px] uppercase tracking-widest bg-slate-900 text-slate-400 h-5 flex items-center">
-                                                    Unsold
-                                                </div>
-                                            </div>
 
-                                            <div className="space-y-2">
-                                                <Label className="text-[10px] text-slate-500 uppercase tracking-widest font-bold">Quick Match to Team</Label>
-                                                <select
-                                                    className="w-full bg-slate-900 border border-slate-700 rounded-md py-1.5 px-2 text-xs text-slate-300 outline-none focus:ring-1 focus:ring-emerald-500 transition-all"
-                                                    onChange={(e) => {
-                                                        if (e.target.value) handleAssign(player.id, e.target.value);
-                                                        e.target.value = "";
-                                                    }}
-                                                    disabled={!!processing}
-                                                >
-                                                    <option value="">Choose a team...</option>
-                                                    {teams
-                                                        .filter(t => t.slots_remaining > 0 && t.purse_remaining >= (auction?.settings.base_price || 0))
-                                                        .map(t => (
-                                                            <option key={t.id} value={t.id}>
-                                                                {t.name} ({auction.settings.max_players - t.slots_remaining}/{auction.settings.max_players})
-                                                            </option>
-                                                        ))
-                                                    }
-                                                </select>
+                                                <div className="space-y-2">
+                                                    <Label className="text-[10px] text-slate-500 uppercase tracking-widest font-bold">Quick Match to Team</Label>
+                                                    <select
+                                                        className="w-full bg-slate-900 border border-slate-700 rounded-md py-1.5 px-2 text-xs text-slate-300 outline-none focus:ring-1 focus:ring-emerald-500 transition-all"
+                                                        onChange={(e) => {
+                                                            if (e.target.value) handleAssign(player.id, e.target.value);
+                                                            e.target.value = "";
+                                                        }}
+                                                        disabled={!!processing}
+                                                    >
+                                                        <option value="">Choose a team...</option>
+                                                        {teams
+                                                            .filter(t => t.slots_remaining > 0 && t.purse_remaining >= (auction?.settings.base_price || 0))
+                                                            .map(t => (
+                                                                <option key={t.id} value={t.id}>
+                                                                    {t.name} ({auction.settings.max_players - t.slots_remaining}/{auction.settings.max_players})
+                                                                </option>
+                                                            ))
+                                                        }
+                                                    </select>
+                                                </div>
                                             </div>
-                                        </div>
-                                    ))
+                                        ))}
+                                    </>
                                 )}
                             </div>
+                            {unsoldPlayers.length > UNSOLD_DISPLAY_LIMIT && (
+                                <Button
+                                    variant="ghost"
+                                    size="sm"
+                                    className="w-full mt-2 text-slate-400 hover:text-slate-200 hover:bg-slate-800/50 text-xs border-t border-slate-800"
+                                    onClick={() => setExpandUnsoldList(!expandUnsoldList)}
+                                >
+                                    {expandUnsoldList ? (
+                                        <>
+                                            ↑ Show Less ({UNSOLD_DISPLAY_LIMIT})
+                                        </>
+                                    ) : (
+                                        <>
+                                            ↓ Show More ({unsoldPlayers.length - UNSOLD_DISPLAY_LIMIT} more)
+                                        </>
+                                    )}
+                                </Button>
+                            )}
                         </Card>
 
                         <div className="flex items-center gap-2 text-slate-600">

@@ -18,6 +18,8 @@ interface LiveSidebarProps {
 export function LiveSidebar({ teams, players, onTeamClick, onExpandPlayers, maxPlayers }: LiveSidebarProps) {
     const [search, setSearch] = useState("");
     const [filter, setFilter] = useState<Player["status"] | "all">("all");
+    const [expandSidebarPlayers, setExpandSidebarPlayers] = useState(false);
+    const SIDEBAR_PLAYER_LIMIT = 5;
 
     const filteredPlayers = useMemo(() => {
         return players.filter((p) => {
@@ -30,9 +32,9 @@ export function LiveSidebar({ teams, players, onTeamClick, onExpandPlayers, maxP
     const soldPlayers = useMemo(() => players.filter(p => p.status === 'sold'), [players]);
 
     return (
-        <div className="flex flex-col h-full gap-6">
+        <div className="flex flex-col h-full gap-fluid">
             {/* Teams Overview */}
-            <Card className="border-slate-800 bg-slate-900/50 backdrop-blur-md p-4 flex flex-col gap-4">
+            <Card className="border-slate-800 bg-slate-900/50 backdrop-blur-md p-fluid flex flex-col gap-fluid-sm">
                 <div className="flex items-center gap-2 text-emerald-400 font-bold text-xs uppercase tracking-widest">
                     <Shield size={14} />
                     Franchises
@@ -69,7 +71,7 @@ export function LiveSidebar({ teams, players, onTeamClick, onExpandPlayers, maxP
             </Card>
 
             {/* Player List */}
-            <Card className="flex-1 border-slate-800 bg-slate-900/50 backdrop-blur-md p-4 flex flex-col gap-4 overflow-hidden">
+            <Card className="flex-1 border-slate-800 bg-slate-900/50 backdrop-blur-md p-fluid flex flex-col gap-fluid-sm overflow-hidden" data-density="compact">
                 <div className="flex items-center justify-between">
                     <div className="flex items-center gap-2 text-amber-500 font-bold text-xs uppercase tracking-widest">
                         <Users size={14} />
@@ -112,7 +114,9 @@ export function LiveSidebar({ teams, players, onTeamClick, onExpandPlayers, maxP
                 </div>
 
                 <div className="flex-1 overflow-y-auto pr-2 custom-scrollbar space-y-2">
-                    {filteredPlayers.map((player) => {
+                    {filteredPlayers
+                        .slice(0, expandSidebarPlayers ? filteredPlayers.length : SIDEBAR_PLAYER_LIMIT)
+                        .map((player) => {
                         const team = teams.find(t => t.id === player.sold_team_id);
                         return (
                             <div
@@ -149,6 +153,18 @@ export function LiveSidebar({ teams, players, onTeamClick, onExpandPlayers, maxP
                         );
                     })}
                 </div>
+                {filteredPlayers.length > SIDEBAR_PLAYER_LIMIT && (
+                    <button
+                        onClick={() => setExpandSidebarPlayers(!expandSidebarPlayers)}
+                        className="w-full py-2 px-3 text-[10px] font-bold text-slate-400 hover:text-slate-200 bg-slate-950/40 hover:bg-slate-800/50 border border-slate-800 hover:border-slate-700 rounded-lg transition-all uppercase tracking-widest"
+                    >
+                        {expandSidebarPlayers ? (
+                            <>↑ Show Less ({SIDEBAR_PLAYER_LIMIT})</>
+                        ) : (
+                            <>↓ Show More ({filteredPlayers.length - SIDEBAR_PLAYER_LIMIT})</>
+                        )}
+                    </button>
+                )}
             </Card>
 
             <style jsx global>{`
