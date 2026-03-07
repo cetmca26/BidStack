@@ -124,7 +124,7 @@ export default function VerifyAuctionPage({ params }: { params: Promise<{ id: st
             if (error) {
                 alert("Finalization failed: " + error.message);
             } else {
-                router.push("/admin");
+                router.push(`/admin/auction/${auctionId}`);
             }
         } finally {
             setProcessing(null);
