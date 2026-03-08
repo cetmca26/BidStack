@@ -95,15 +95,16 @@ export default function Home() {
   const hasLiveAuctions = liveAuctionIds.size > 0;
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-slate-950 via-slate-900 to-slate-950 py-fluid-lg text-slate-50">
-      <div className="container-fluid flex flex-col gap-fluid-lg">
+    <div className="min-h-screen bg-[url('/CourtSide_landing.png')] bg-cover bg-center bg-fixed px-6 py-10 text-slate-50 relative">
+      <div className="absolute inset-0 bg-black/10 pointer-events-none"></div>
+      <div className="container-fluid flex flex-col gap-fluid-lg relative z-10">
         <header className="flex flex-col items-start justify-between gap-fluid-md md:flex-row md:items-center">
           <div className="max-w-(--breakpoint-md)">
-            <h1 className="tracking-tight">
-              Sports Auction Platform
+            <h1 className="tracking-tight text-indigo-800">
+              BidStack
             </h1>
-            <p className="mt-fluid-sm text-sm text-slate-300">
-              Join live player auctions, track teams in real time, and register for upcoming events.
+            <p className="mt-fluid-sm text-l text-indigo-800">
+              Official Auction platform for MCA Premier League 2026.
             </p>
           </div>
           <div className="flex flex-wrap gap-3">
@@ -116,13 +117,13 @@ export default function Home() {
         </header>
 
         <section className="fluid-grid">
-          <Card className="col-span-12 md:col-span-5 border-slate-800 bg-slate-900/70 shadow-xl shadow-black/60">
-            <div className="mb-fluid-sm flex items-center justify-between px-fluid pt-fluid">
-              <h2 className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-400">
+          <Card className="col-span-12 md:col-span-5 border-slate-800 bg-slate-900/60 shadow-xl shadow-black/50">
+            <div className="mb-fluid-sm flex items-center justify-center px-fluid pt-fluid">
+              <h2 className="text-xs font-semibold uppercase tracking-[0.28em] text-slate-400">
                 Live Auctions
               </h2>
               {hasLiveAuctions && (
-                <span className="rounded-full bg-emerald-500/20 px-3 py-0.5 text-xs font-medium text-emerald-300">
+                <span className="rounded-full bg-emerald-500/20 px-6 py-0.5 text-xs font-medium text-emerald-300">
                   Live now
                 </span>
               )}

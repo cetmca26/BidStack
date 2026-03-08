@@ -213,8 +213,11 @@ export default function AuctionDetailPage({ params }: { params: Promise<{ id: st
   const upcomingPlayers = players.filter((p) => p.status === "upcoming");
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-slate-950 via-slate-900 to-slate-950 px-6 py-10 text-slate-50">
-      <div className="mx-auto flex max-w-6xl flex-col gap-6">
+    <div className="min-h-screen bg-[url('/CourtSide_landing.png')] bg-cover bg-center bg-fixed px-6 py-10 text-slate-50 relative">
+
+      <div className="absolute inset-0 bg-black/50"></div>
+
+      <div className="relative z-10 mx-auto flex max-w-6xl flex-col gap-6">
         <div className="mb-2">
           <Button
             variant="ghost"
