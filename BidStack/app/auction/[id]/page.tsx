@@ -353,8 +353,12 @@ export default function AuctionDetailPage({ params }: { params: Promise<{ id: st
                     id="role"
                     value={role}
                     onChange={(e) => setRole(e.target.value)}
-                    className="w-full rounded-md border-2 px-3 py-2 text-sm outline-none focus:ring-2 transition-all duration-300"
-                    style={{ backgroundColor: 'rgba(61, 74, 87, 0.6)', borderColor: '#7A8B9F', color: '#EAEBEC', focusRingColor: '#E6A850' }}
+                    className="w-full rounded-md border-2 px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-[#E6A850] transition-all duration-300"
+                    style={{
+                      backgroundColor: 'rgba(61, 74, 87, 0.6)',
+                      borderColor: '#7A8B9F',
+                      color: '#EAEBEC'
+                    }}
                   >
                     <option value="" style={{ backgroundColor: '#3D4A57', color: '#EAEBEC' }}>Select role</option>
                     {roleOptions.map((r) => (
