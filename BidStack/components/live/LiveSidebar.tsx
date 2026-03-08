@@ -117,54 +117,54 @@ export function LiveSidebar({ teams, players, onTeamClick, onExpandPlayers, maxP
                     {filteredPlayers
                         .slice(0, expandSidebarPlayers ? filteredPlayers.length : SIDEBAR_PLAYER_LIMIT)
                         .map((player) => {
-                        const team = teams.find(t => t.id === player.sold_team_id);
-                        return (
-                            <div
-                                key={player.id}
-                                className="p-3 rounded-xl border border-slate-800/50 bg-slate-950/20 flex items-center justify-between group hover:border-slate-700 transition-all"
-                            >
-                                <div>
-                                    <div className="text-sm font-semibold text-slate-200 group-hover:text-white transition-colors">
-                                        {player.name}
-                                    </div>
-                                    <div className="text-[10px] text-slate-500 uppercase tracking-tight">
-                                        {player.role} {player.is_captain && "• Captain"}
-                                    </div>
-                                </div>
-                                <div className="text-right">
-                                    {player.status === 'sold' && team ? (
-                                        <>
-                                            <div className="text-[10px] font-black text-emerald-500 uppercase">
-                                                {team.name}
-                                            </div>
-                                            <div className="text-[10px] font-mono text-slate-400">
-                                                ₹{player.sold_price?.toLocaleString("en-IN")}
-                                            </div>
-                                        </>
-                                    ) : (
-                                        <div className={`text-[10px] font-bold uppercase ${player.status === 'live' ? "text-amber-500 animate-pulse" :
-                                            player.status === 'upcoming' ? "text-rose-500" : "text-slate-600"
-                                            }`}>
-                                            {player.status}
+                            const team = teams.find(t => t.id === player.sold_team_id);
+                            return (
+                                <div
+                                    key={player.id}
+                                    className="p-3 rounded-xl border border-slate-800/50 bg-slate-950/20 flex items-center justify-between group hover:border-slate-700 transition-all"
+                                >
+                                    <div>
+                                        <div className="text-sm font-semibold text-slate-200 group-hover:text-white transition-colors">
+                                            {player.name}
                                         </div>
-                                    )}
+                                        <div className="text-[10px] text-slate-500 uppercase tracking-tight">
+                                            {player.role} {player.is_captain && "• Captain"}
+                                        </div>
+                                    </div>
+                                    <div className="text-right">
+                                        {player.status === 'sold' && team ? (
+                                            <>
+                                                <div className="text-[10px] font-black text-emerald-500 uppercase">
+                                                    {team.name}
+                                                </div>
+                                                <div className="text-[10px] font-mono text-slate-400">
+                                                    ₹{player.sold_price?.toLocaleString("en-IN")}
+                                                </div>
+                                            </>
+                                        ) : (
+                                            <div className={`text-[10px] font-bold uppercase ${player.status === 'live' ? "text-amber-500 animate-pulse" :
+                                                player.status === 'upcoming' ? "text-rose-500" : "text-slate-600"
+                                                }`}>
+                                                {player.status}
+                                            </div>
+                                        )}
+                                    </div>
                                 </div>
-                            </div>
-                        );
-                    })}
+                            );
+                        })}
                 </div>
-                {filteredPlayers.length > SIDEBAR_PLAYER_LIMIT && (
-                    <button
-                        onClick={() => setExpandSidebarPlayers(!expandSidebarPlayers)}
-                        className="w-full py-2 px-3 text-[10px] font-bold text-slate-400 hover:text-slate-200 bg-slate-950/40 hover:bg-slate-800/50 border border-slate-800 hover:border-slate-700 rounded-lg transition-all uppercase tracking-widest"
-                    >
-                        {expandSidebarPlayers ? (
-                            <>↑ Show Less ({SIDEBAR_PLAYER_LIMIT})</>
-                        ) : (
-                            <>↓ Show More ({filteredPlayers.length - SIDEBAR_PLAYER_LIMIT})</>
-                        )}
-                    </button>
-                )}
+                {/* {filteredPlayers.length > SIDEBAR_PLAYER_LIMIT && (
+                    // <button
+                    //     onClick={() => setExpandSidebarPlayers(!expandSidebarPlayers)}
+                    //     className="w-full py-2 px-3 text-[10px] font-bold text-slate-400 hover:text-slate-200 bg-slate-950/40 hover:bg-slate-800/50 border border-slate-800 hover:border-slate-700 rounded-lg transition-all uppercase tracking-widest"
+                    // >
+                    //     {expandSidebarPlayers ? (
+                    //         <>↑ Show Less ({SIDEBAR_PLAYER_LIMIT})</>
+                    //     ) : (
+                    //         <>↓ Show More ({filteredPlayers.length - SIDEBAR_PLAYER_LIMIT})</>
+                    //     )}
+                    // </button>
+                )} */}
             </Card>
 
             <style jsx global>{`

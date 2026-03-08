@@ -51,11 +51,13 @@ components.json
 components/ConsolidatedTeamRoster.tsx
 components/ImageUploadField.tsx
 components/ImageViewerModal.tsx
+components/live/AuctionHero.tsx
 components/live/BiddingPIP.tsx
 components/live/LiveSidebar.tsx
 components/live/RecapStats.tsx
 components/live/SaleFeedback.tsx
 components/live/TeamFormation.tsx
+components/live/TeamRosterPanel.tsx
 components/live/UnsoldFeedback.tsx
 components/PlayerAvatar.tsx
 components/TeamLogo.tsx
@@ -70,14 +72,22 @@ components/ui/tabs.tsx
 eslint.config.mjs
 lib/hooks/useAuctionState.ts
 lib/imageCompression.ts
+lib/shared/playerUtils.ts
 lib/supabase.ts
 lib/utils.ts
 next.config.ts
 package.json
 postcss.config.mjs
+public/android-chrome-192x192.png
+public/android-chrome-512x512.png
+public/apple-touch-icon.png
+public/CourtSide_landing.png
+public/favicon-16x16.png
+public/favicon-32x32.png
 public/file.svg
 public/globe.svg
 public/next.svg
+public/site.webmanifest
 public/vercel.svg
 public/window.svg
 README.md
@@ -120,6 +130,7 @@ supabase/migrations/0029_fix_rpc_ambiguous_column.sql
 supabase/migrations/0030_refactor_execute_bid.sql
 supabase/migrations/0031_optimize_bidding_latency.sql
 supabase/migrations/0032_add_unsold_final_enum.sql
+supabase/migrations/0032_admin_authorization_checks.sql
 tsconfig.json
 ```
 
@@ -759,7 +770,7 @@ export default function AdminAuctionPage({ params }: { params: Promise<{ id: str
               variant="destructive"
               size="sm"
               onClick={handleEndBid}
-              disabled={loadingAction === "end_bid" || !state?.current_player_id || state?.phase?.startsWith("completed")}
+              disabled={loadingAction === "end_bid" || !state?.current_player_id || state?.phase?.startsWith("completed") || state?.current_bid === null}
             >
               End Bid
             </Button>
@@ -1022,6 +1033,8 @@ export default function ManageTeamsPage({ params }: { params: Promise<{ id: stri
   const [logoError, setLogoError] = useState<string | null>(null);
   const [creatingTeam, setCreatingTeam] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [checkingAuth, setCheckingAuth] = useState(true);
+  const [isAuthed, setIsAuthed] = useState(false);
 
   const [togglingRegistration, setTogglingRegistration] = useState(false);
   const [lockingAuction, setLockingAuction] = useState(false);
@@ -1031,8 +1044,37 @@ export default function ManageTeamsPage({ params }: { params: Promise<{ id: stri
   const [selectedImageUrl, setSelectedImageUrl] = useState<string | null>(null);
   const [selectedImageTitle, setSelectedImageTitle] = useState("");
 
+  // Auth check
   useEffect(() => {
-    if (!auctionId) return;
+    const checkAdmin = async () => {
+      const { data: { session } } = await supabase.auth.getSession();
+      if (!session) {
+        router.replace("/admin/login");
+        return;
+      }
+
+      const { data: profile } = await supabase
+        .from("profiles")
+        .select("role")
+        .eq("id", session.user.id)
+        .maybeSingle();
+
+      if (profile?.role !== "admin") {
+        await supabase.auth.signOut();
+        router.replace("/admin/login");
+        return;
+      }
+
+      setIsAuthed(true);
+      setCheckingAuth(false);
+    };
+
+    checkAdmin();
+  }, [router]);
+
+  // Data loading (only after auth is verified)
+  useEffect(() => {
+    if (!isAuthed || !auctionId) return;
     const load = async () => {
       const [{ data: auctionData, error: auctionError }, { data: teamData }, { data: playerData }] =
         await Promise.all([
@@ -1052,7 +1094,7 @@ export default function ManageTeamsPage({ params }: { params: Promise<{ id: stri
     };
 
     load();
-  }, [auctionId, router]);
+  }, [auctionId, router, isAuthed]);
 
   const upcomingPlayers = useMemo(
     () => players.filter((p) => p.status === "upcoming"),
@@ -1190,6 +1232,21 @@ export default function ManageTeamsPage({ params }: { params: Promise<{ id: stri
     }, {} as Record<string, number>);
     return new Set(Object.entries(counts).filter(([_, count]) => count > 1).map(([ip]) => ip));
   }, [players]);
+
+  if (checkingAuth) {
+    return (
+      <div className="min-h-screen bg-slate-950 flex flex-col items-center justify-center">
+        <div className="h-12 w-12 border-4 border-emerald-500 border-t-transparent rounded-full animate-spin" />
+        <div className="mt-4 text-emerald-500 font-black uppercase tracking-widest text-xs">
+          Verifying Access...
+        </div>
+      </div>
+    );
+  }
+
+  if (!isAuthed) {
+    return null;
+  }
 
   if (!auction) {
     return <div className="p-6 text-slate-50">Loading Verification Hub...</div>;
@@ -2678,8 +2735,11 @@ export default function AuctionDetailPage({ params }: { params: Promise<{ id: st
   const upcomingPlayers = players.filter((p) => p.status === "upcoming");
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-slate-950 via-slate-900 to-slate-950 px-6 py-10 text-slate-50">
-      <div className="mx-auto flex max-w-6xl flex-col gap-6">
+    <div className="min-h-screen bg-[url('/CourtSide_landing.png')] bg-cover bg-center bg-fixed px-6 py-10 text-slate-50 relative">
+
+      <div className="absolute inset-0 bg-black/50"></div>
+
+      <div className="relative z-10 mx-auto flex max-w-6xl flex-col gap-6">
         <div className="mb-2">
           <Button
             variant="ghost"
@@ -2871,6 +2931,7 @@ export default function AuctionDetailPage({ params }: { params: Promise<{ id: st
   --color-foreground: var(--foreground);
   --font-sans: var(--font-geist-sans);
   --font-mono: var(--font-geist-mono);
+  --font-heading: var(--font-oswald);
   --color-sidebar-ring: var(--sidebar-ring);
   --color-sidebar-border: var(--sidebar-border);
   --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
@@ -2922,6 +2983,10 @@ export default function AuctionDetailPage({ params }: { params: Promise<{ id: st
   --spacing-fluid-md: clamp(1rem, 0.8rem + 1vw, 1.5rem);
   --spacing-fluid-lg: clamp(1.5rem, 1rem + 2.5vw, 3rem);
   --spacing-fluid-xl: clamp(2.5rem, 2rem + 5vw, 6rem);
+
+  /* Auction Layout Padding */
+  --spacing-auction-pad: clamp(0.5rem, 0.4rem + 1vw, 1.5rem);
+  --spacing-auction-gap: clamp(0.5rem, 0.4rem + 0.8vw, 1rem);
 }
 
 :root {
@@ -3082,6 +3147,7 @@ export default function AuctionDetailPage({ params }: { params: Promise<{ id: st
 ````typescript
 import type { Metadata } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
+import { Oswald } from "next/font/google";
 import "./globals.css";
 
 const geistSans = Geist({
@@ -3094,9 +3160,15 @@ const geistMono = Geist_Mono({
   subsets: ["latin"],
 });
 
+const oswald = Oswald({
+  variable: "--font-oswald",
+  subsets: ["latin"],
+  weight: ["400", "500", "600", "700"],
+});
+
 export const metadata: Metadata = {
-  title: "Create Next App",
-  description: "Generated by create next app",
+  title: "BidStack",
+  description: "Sports Auction Platform of CET MCA 2026",
 };
 
 export default function RootLayout({
@@ -3107,7 +3179,7 @@ export default function RootLayout({
   return (
     <html lang="en" className="dark">
       <body
-        className={`${geistSans.variable} ${geistMono.variable} antialiased`}
+        className={`${geistSans.variable} ${geistMono.variable} ${oswald.variable} antialiased`}
       >
         {children}
       </body>
@@ -3121,19 +3193,23 @@ export default function RootLayout({
 "use client";
 
 import { useRouter } from "next/navigation";
-import { use, useEffect, useMemo, useState } from "react";
+import { use, useEffect, useMemo, useState, useRef } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { Team, Player, useAuctionState } from "@/lib/hooks/useAuctionState";
 import { PlayerAvatar } from "@/components/PlayerAvatar";
 import { TeamLogo } from "@/components/TeamLogo";
-import { LiveSidebar } from "@/components/live/LiveSidebar";
-import { TeamFormation } from "@/components/live/TeamFormation";
+import ConsolidatedTeamRoster from "@/components/ConsolidatedTeamRoster";
 import { BiddingPIP } from "@/components/live/BiddingPIP";
 import { SaleFeedback } from "@/components/live/SaleFeedback";
 import { UnsoldFeedback } from "@/components/live/UnsoldFeedback";
-import { formatPrice, formatPriceCompact } from "@/lib/utils";
-import { Gavel, LayoutDashboard, Menu, X, Search } from "lucide-react";
-import { Input } from "@/components/ui/input";
+import { Gavel, LayoutDashboard, PanelRightClose, PanelRightOpen, PanelRight, Users } from "lucide-react";
+import AuctionHero from "@/components/live/AuctionHero";
+import {
+  getTeamPlayers,
+  groupPlayersByRole,
+  getCaptain,
+  getMVP,
+} from "@/lib/shared/playerUtils";
 
 export default function LiveAuctionPage({
   params,
@@ -3149,65 +3225,94 @@ export default function LiveAuctionPage({
     state,
     currentPlayer,
     leadingTeam,
+    lastSale,
     loading,
   } = useAuctionState(auctionId);
   const [selectedTeam, setSelectedTeam] = useState<Team | null>(null);
-  const [showFeedbackOverlay, setShowFeedbackOverlay] = useState<"sold" | "unsold" | null>(null);
+  const [showSoldAnimation, setShowSoldAnimation] = useState(false);
   const [lastSoldPlayer, setLastSoldPlayer] = useState<any>(null);
   const [lastSoldTeam, setLastSoldTeam] = useState<any>(null);
   const [lastSoldPrice, setLastSoldPrice] = useState<number | null>(null);
-  const [isSidebarOpen, setIsSidebarOpen] = useState(false);
+  const [showUnsoldAnimation, setShowUnsoldAnimation] = useState(false);
+  const [lastUnsoldPlayer, setLastUnsoldPlayer] = useState<any>(null);
   const [showPlayerRepository, setShowPlayerRepository] = useState(false);
-  const [repositorySearch, setRepositorySearch] = useState("");
-  const [repositoryFilter, setRepositoryFilter] = useState<Player["status"] | "all">("all");
+  const [isSquadPanelOpen, setIsSquadPanelOpen] = useState(false);
 
-  const filteredRepositoryPlayers = useMemo(() => {
-    return players.filter((p) => {
-      const matchesSearch = p.name.toLowerCase().includes(repositorySearch.toLowerCase());
-      const matchesFilter = repositoryFilter === "all" ? true : p.status.includes(repositoryFilter);
-      return matchesSearch && matchesFilter;
-    });
-  }, [players, repositorySearch, repositoryFilter]);
   useEffect(() => {
-    if (state?.phase === "completed_sale" || state?.phase === "completed_unsold") {
-      const currentPlayerEntity = players.find((p) => p.id === state.current_player_id);
+    // default to open on desktop
+    setIsSquadPanelOpen(window.innerWidth >= 1024);
+  }, []);
+  const soldFeedbackStartTimeRef = useRef<number | null>(null);
+  const unsoldFeedbackStartTimeRef = useRef<number | null>(null);
 
-      if (state.phase === "completed_sale") {
-        const soldTeam = teams.find((t) => t.id === state.leading_team_id);
-        if (currentPlayerEntity && soldTeam) {
-          setLastSoldPlayer(currentPlayerEntity);
-          setLastSoldTeam(soldTeam);
-          setLastSoldPrice(state.current_bid || 0);
-          setShowFeedbackOverlay("sold");
-        }
-      } else if (state.phase === "completed_unsold" && currentPlayerEntity) {
-        setLastSoldPlayer(currentPlayerEntity);
-        setShowFeedbackOverlay("unsold");
+  const currentView = selectedTeam ? "roster" : showPlayerRepository ? "repository" : "auction";
+
+  const pipPhase =
+    state?.phase === "completed_sale" || (showSoldAnimation) ? "sold" :
+      state?.phase === "completed_unsold" || (showUnsoldAnimation) ? "unsold" :
+        "bidding";
+
+  // Use the explicitly captured sold/unsold items if the animation is actively running
+  const pipPlayer =
+    showSoldAnimation ? lastSoldPlayer :
+      showUnsoldAnimation ? lastUnsoldPlayer :
+        lastSale?.player ?? currentPlayer;
+
+  const pipTeam =
+    showSoldAnimation ? lastSoldTeam :
+      lastSale?.team ?? leadingTeam;
+
+  const pipPrice =
+    showSoldAnimation ? lastSoldPrice :
+      lastSale?.price ?? state?.current_bid ?? null;
+
+  const getPlayerRepositoryCount = useMemo(() => {
+    if (typeof window === "undefined") return players.length;
+    const width = window.innerWidth;
+    if (width < 640) return Math.min(4, players.length);
+    if (width < 1024) return Math.min(8, players.length);
+    if (width < 1280) return Math.min(12, players.length);
+    return Math.min(20, players.length);
+  }, [players.length]);
+  // Handle sold feedback animation - show when phase is completed_sale
+  useEffect(() => {
+    if (state?.phase === "completed_sale") {
+      const soldPlayer = players.find((p) => p.id === state.current_player_id);
+      const soldTeam = teams.find((t) => t.id === state.leading_team_id);
+      if (soldPlayer && soldTeam) {
+        setLastSoldPlayer(soldPlayer);
+        setLastSoldTeam(soldTeam);
+        setLastSoldPrice(state.current_bid || 0);
+        setShowSoldAnimation(true);
+        soldFeedbackStartTimeRef.current = Date.now();
       }
-
-      // 4-second synchronized hold for either Sold or Unsold
-      const timer = setTimeout(() => {
-        setShowFeedbackOverlay(null);
-      }, 4000);
-      return () => clearTimeout(timer);
-    } else {
-      setShowFeedbackOverlay(null);
+    } else if (showSoldAnimation) {
+      // Phase changed away from completed_sale - close animation
+      setShowSoldAnimation(false);
+      soldFeedbackStartTimeRef.current = null;
     }
-  }, [
-    state?.phase,
-    state?.current_player_id,
-    state?.leading_team_id,
-    state?.current_bid,
-    players,
-    teams,
-  ]);
+  }, [state?.phase, state?.current_player_id, state?.leading_team_id, state?.current_bid, players, teams]);
 
+  // Handle unsold feedback animation - show when phase is completed_unsold
   useEffect(() => {
-    if (auction?.status === "completed") {
+    if (state?.phase === "completed_unsold") {
+      const unsoldPlayer = players.find((p) => p.id === state.current_player_id);
+      if (unsoldPlayer) {
+        setLastUnsoldPlayer(unsoldPlayer);
+        setShowUnsoldAnimation(true);
+        unsoldFeedbackStartTimeRef.current = Date.now();
+      }
+    } else if (showUnsoldAnimation) {
+      // Phase changed away from completed_unsold - close animation
+      setShowUnsoldAnimation(false);
+      unsoldFeedbackStartTimeRef.current = null;
+    }
+  }, [state?.phase, state?.current_player_id, players]);
+  useEffect(() => {
+    if (!loading && auction?.status === "completed") {
       router.replace(`/live/${auctionId}/recap`);
     }
-  }, [auction?.status, auctionId, router]);
-
+  }, [auction?.status, auctionId, loading, router]);
   if (loading || !auction) {
     return (
       <div className="min-h-screen bg-slate-950 flex flex-col items-center justify-center">
@@ -3218,12 +3323,8 @@ export default function LiveAuctionPage({
       </div>
     );
   }
-
-  if (auction.status === "completed") {
-    return null;
-  }
   return (
-    <div className="min-h-screen bg-slate-950 text-slate-50 flex flex-col font-sans selection:bg-emerald-500 selection:text-slate-950 overflow-hidden">
+    <div className="h-screen bg-slate-950 text-slate-50 flex flex-col font-sans selection:bg-emerald-500 selection:text-slate-950 overflow-hidden">
       <div className="fixed inset-0 z-0 overflow-hidden pointer-events-none">
         <div className="absolute top-[-10%] left-[-10%] w-[40%] h-[40%] bg-emerald-500/10 blur-[120px] rounded-full animate-pulse" />
         <div className="absolute bottom-[-10%] right-[-10%] w-[40%] h-[40%] bg-blue-500/10 blur-[120px] rounded-full animate-pulse [animation-delay:2s]" />
@@ -3248,82 +3349,47 @@ export default function LiveAuctionPage({
               </div>
             </div>
           </div>
-          <button
-            onClick={() => setIsSidebarOpen(!isSidebarOpen)}
-            className="lg:hidden h-8 sm:h-10 w-8 sm:w-10 bg-slate-900 border border-slate-700 rounded-lg sm:rounded-xl flex items-center justify-center text-slate-400 hover:text-white flex-shrink-0"
-          >
-            {isSidebarOpen ? <X size={18} /> : <Menu size={18} />}
-          </button>
         </div>
       </nav>
-      <main className="relative z-10 flex-1 flex overflow-hidden w-full gap-fluid-md container-fluid py-fluid-md">
-        <div className="flex-1 flex flex-col gap-fluid-md overflow-hidden min-w-0">
+      <main className="relative z-10 flex-1 flex flex-col xl:flex-row overflow-y-auto xl:overflow-hidden w-full gap-[--spacing-auction-gap] p-[--spacing-auction-pad]">
+        <div className={`flex flex-col gap-[--spacing-auction-gap] overflow-hidden min-w-0 min-h-[60vh] xl:min-h-0 ${selectedTeam ? 'w-full' : 'flex-1'}`}>
           {selectedTeam ? (
-            <div className="flex-1 flex flex-col h-full bg-slate-900/20 rounded-2xl border border-slate-800/50 p-fluid-md overflow-hidden">
-              <button
-                onClick={() => setSelectedTeam(null)}
-                className="self-start mb-fluid-md flex items-center gap-1.5 text-slate-500 hover:text-emerald-400 font-bold text-xs uppercase tracking-widest transition-colors flex-shrink-0"
-              >
-                <LayoutDashboard size={10} />
-                Back
-              </button>
-              <div className="flex-1 overflow-auto">
-                <TeamFormation
-                  team={selectedTeam}
+            <div className="flex-1 flex flex-col h-full bg-[var(--color-bg-panel)] rounded-2xl border border-slate-800 overflow-hidden relative" data-density="compact">
+              <div className="absolute top-4 left-4 z-50">
+                <button
+                  onClick={() => setSelectedTeam(null)}
+                  className="flex items-center gap-1.5 bg-slate-900/80 backdrop-blur px-3 py-1.5 rounded-full text-slate-400 hover:text-emerald-400 font-bold text-xs uppercase tracking-widest transition-colors border border-slate-700"
+                >
+                  <LayoutDashboard size={12} />
+                  Back to Auction
+                </button>
+              </div>
+              <div className="flex-1 flex flex-col h-full min-h-0 pt-14 p-2 sm:p-4">
+                <ConsolidatedTeamRoster
+                  auction={auction as any}
+                  teams={teams}
                   players={players}
-                  sportType={auction.sport_type}
                 />
               </div>
             </div>
           ) : showPlayerRepository ? (
-            <div className="flex-1 flex flex-col h-full bg-slate-900/20 rounded-2xl border border-slate-800/50 p-fluid-md overflow-hidden" data-density="compact">
-              <div className="flex flex-col sm:flex-row items-center justify-between gap-fluid-sm mb-fluid-md flex-shrink-0">
+            <div className="flex-1 flex flex-col h-full bg-[var(--color-bg-panel)] rounded-2xl border border-slate-800 p-fluid-md overflow-hidden" data-density="compact">
+              <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-fluid-sm mb-fluid-md flex-shrink-0">
                 <button
                   onClick={() => setShowPlayerRepository(false)}
-                  className="flex items-center gap-1.5 text-slate-500 hover:text-emerald-400 font-bold text-xs uppercase tracking-widest transition-colors w-full sm:w-auto"
+                  className="flex items-center gap-1.5 text-slate-500 hover:text-emerald-400 font-bold text-xs uppercase tracking-widest transition-colors"
                 >
                   <LayoutDashboard size={10} />
                   Back
                 </button>
-                <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2 sm:gap-4 w-full sm:w-auto">
-                  <div className="relative w-full sm:w-64">
-                    <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-500" size={14} />
-                    <Input
-                      placeholder="Search players..."
-                      value={repositorySearch}
-                      onChange={(e) => setRepositorySearch(e.target.value)}
-                      className="pl-9 bg-slate-950/50 border-slate-800 text-sm h-9 ring-offset-slate-950 focus-visible:ring-emerald-500"
-                    />
-                  </div>
-                  <div className="flex gap-2 overflow-x-auto custom-scrollbar pb-1 sm:pb-0">
-                    {(["all", "upcoming", "live", "sold"] as const).map((f) => (
-                      <button
-                        key={f}
-                        onClick={() => setRepositoryFilter(f)}
-                        className={`px-3 py-1 rounded-full text-[10px] font-bold uppercase tracking-wider transition-all whitespace-nowrap border ${repositoryFilter === f
-                          ? "bg-emerald-500/20 border-emerald-500 text-emerald-400"
-                          : "bg-slate-950/40 border-slate-800 text-slate-500 hover:border-slate-700"
-                          }`}
-                      >
-                        {f}
-                      </button>
-                    ))}
-                  </div>
+                <div className="text-[10px] font-bold text-slate-500 uppercase tracking-widest whitespace-nowrap">
+                  Showing all players • Scroll to browse
                 </div>
               </div>
               <div className="flex-1 overflow-hidden flex flex-col">
                 <div className="flex-1 overflow-y-auto pr-2 custom-scrollbar">
-                  {/* custom scrollbar styles reused here */}
-                  <motion.div
-                    className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-2 sm:gap-3 md:gap-4"
-                    initial="hidden"
-                    animate="visible"
-                    variants={{
-                      hidden: { opacity: 0 },
-                      visible: { opacity: 1, transition: { staggerChildren: 0.02 } }
-                    }}
-                  >
-                    {filteredRepositoryPlayers
+                  <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-2 lg:grid-cols-3 gap-2 sm:gap-3 md:gap-4">
+                    {players
                       .slice()
                       .sort((a, b) => a.name.localeCompare(b.name))
                       .map((player) => {
@@ -3331,16 +3397,11 @@ export default function LiveAuctionPage({
                           (t) => t.id === player.sold_team_id,
                         );
                         return (
-                          <motion.div
+                          <div
                             key={player.id}
-                            variants={{
-                              hidden: { opacity: 0, y: 10 },
-                              visible: { opacity: 1, y: 0 }
-                            }}
-                            className="p-3 sm:p-4 rounded-xl sm:rounded-2xl border border-slate-800/80 bg-slate-900/60 backdrop-blur-sm flex items-center gap-3 group hover:border-emerald-500/50 hover:shadow-[0_0_15px_rgba(16,185,129,0.15)] transition-all duration-300"
+                            className="p-2 sm:p-3 rounded-lg sm:rounded-xl border border-slate-800 bg-[var(--color-bg-card)] flex items-center gap-2 sm:gap-3 group hover:border-emerald-500/30 transition-all shadow-lg"
                           >
-                            <div className="flex-shrink-0 relative">
-                              {player.status === "live" && <div className="absolute inset-0 bg-amber-500/20 blur-xl rounded-full animate-pulse" />}
+                            <div className="flex-shrink-0">
                               <PlayerAvatar
                                 id={player.id}
                                 name={player.name}
@@ -3352,50 +3413,48 @@ export default function LiveAuctionPage({
                             </div>
                             <div className="flex-1 min-w-0 flex flex-col justify-between">
                               <div>
-                                <div className="text-sm font-bold text-white truncate group-hover:text-emerald-300 transition-colors">
+                                <div className="text-[9px] sm:text-xs font-bold text-white truncate">
                                   {player.name}
                                 </div>
-                                <div className="text-[9px] font-black text-slate-500 uppercase tracking-widest mt-0.5">
+                                <div className="text-[7px] md:text-[8px] font-black text-slate-500 uppercase tracking-tighter">
                                   {player.role}
                                 </div>
                               </div>
                               {player.status === "sold" ? (
                                 team && (
-                                  <div className="mt-2 flex items-center gap-1.5 min-w-0 bg-emerald-950/20 px-2 py-0.5 rounded border border-emerald-900/40 w-max">
+                                  <div className="mt-1 flex items-center gap-1 min-w-0">
                                     <TeamLogo
                                       name={team.name}
                                       logoUrl={team.logo_url}
                                       size="sm"
                                     />
-                                    <div className="text-[9px] font-black text-emerald-400 uppercase truncate">
+                                    <div className="text-[7px] md:text-[8px] font-black text-emerald-400 uppercase truncate">
                                       {team.name}
                                     </div>
                                   </div>
                                 )
                               ) : (
                                 <div
-                                  className={`mt-2 text-[9px] font-black uppercase tracking-widest px-2 py-0.5 rounded border w-max ${player.status === "live" ? "text-amber-400 bg-amber-500/10 border-amber-500/30 animate-pulse" :
-                                    player.status.includes("unsold") ? "text-rose-400 bg-rose-500/10 border-rose-500/30" : "text-slate-500 bg-slate-800/50 border-slate-700/50"
-                                    }`}
+                                  className={`mt-1 text-[7px] md:text-[8px] font-black uppercase tracking-widest ${player.status === "live" ? "text-amber-500 animate-pulse" : "text-slate-600"}`}
                                 >
-                                  {player.status.replace("_", " ")}
+                                  {player.status}
                                 </div>
                               )}
                             </div>
                             {player.status === "sold" && (
-                              <div className="text-right flex-shrink-0 text-sm font-mono font-black text-emerald-300">
-                                {formatPrice(player.sold_price)}
+                              <div className="text-right flex-shrink-0 text-[8px] sm:text-xs font-mono font-bold text-slate-300">
+                                ₹{player.sold_price?.toLocaleString("en-IN")}
                               </div>
                             )}
-                          </motion.div>
+                          </div>
                         );
                       })}
-                  </motion.div>
+                  </div>
                 </div>
               </div>
             </div>
           ) : (
-            <div className="flex-1 relative rounded-2xl bg-slate-900/40 border border-slate-800 overflow-hidden flex flex-col">
+            <div className="flex-1 relative rounded-2xl bg-[var(--color-bg-panel)] border border-slate-800 overflow-hidden flex flex-col">
               <div className="absolute inset-0 bg-[radial-gradient(circle_at_top,_#10b98111,_transparent_60%)] pointer-events-none" />
               <div className="flex-1 flex flex-col items-center justify-center p-fluid-lg relative z-10 text-center overflow-y-auto">
                 <AnimatePresence mode="wait">
@@ -3429,9 +3488,9 @@ export default function LiveAuctionPage({
                                 animate={{ opacity: 1, y: 0 }}
                                 className={`relative p-2 sm:p-3 md:p-4 lg:p-6 rounded-lg sm:rounded-xl md:rounded-2xl lg:rounded-3xl border transition-all duration-500 flex flex-col items-center gap-1 md:gap-2 lg:gap-4 ${matchedTeam ? "bg-emerald-500/10 border-emerald-500 shadow-[0_0_40px_rgba(16,185,129,0.2)]" : "bg-slate-900/40 border-slate-800"}`}
                               >
-                                <div className="absolute top-0 right-0 z-10">
+                                <div className="absolute -top-1.5 -right-1.5 sm:-top-2 sm:-right-2 z-20">
                                   {matchedTeam ? (
-                                    <div className="bg-emerald-500 text-slate-950 text-[7px] sm:text-[8px] font-black px-10.5 sm:px-2 py-px rounded-full shadow-lg animate-bounce">
+                                    <div className="bg-emerald-500 text-slate-950 text-[7px] sm:text-[8px] font-black px-1.5 sm:px-2 py-px rounded-full shadow-lg animate-bounce">
                                       ✓
                                     </div>
                                   ) : (
@@ -3477,13 +3536,13 @@ export default function LiveAuctionPage({
                                       ₹
                                       {matchedTeam.captain_id
                                         ? Math.round(
-                                          captain.sold_price!,
-                                        )
-                                        : 0}
+                                          captain.sold_price! / 100000,
+                                        ) + "L"
+                                        : "0"}
                                     </div>
                                   </div>
                                 ) : (
-                                  <div className="mt-1 flex gap-1.5">
+                                  <div className="mt-1 flex gap-0.5">
                                     <div className="w-0.5 h-0.5 md:w-1 md:h-1 rounded-full bg-amber-500/40 animate-bounce [animation-delay:-0.3s]" />
                                     <div className="w-0.5 h-0.5 md:w-1 md:h-1 rounded-full bg-amber-500/40 animate-bounce [animation-delay:-0.15s]" />
                                     <div className="w-0.5 h-0.5 md:w-1 md:h-1 rounded-full bg-amber-500/40 animate-bounce" />
@@ -3494,80 +3553,36 @@ export default function LiveAuctionPage({
                           })}{" "}
                       </div>
                     </motion.div>
-                  ) : currentPlayer ? (
-                    <motion.div
-                      key={currentPlayer.id}
-                      initial={{ opacity: 0, scale: 0.9, y: 20 }}
-                      animate={{ opacity: 1, scale: 1, y: 0 }}
-                      exit={{ opacity: 0, scale: 1.1, y: -20 }}
-                      className="flex flex-col items-center w-full max-w-4xl"
-                    >
-                      <div className="relative mb-2 sm:mb-4 md:mb-6 lg:mb-8">
-                        <div className="absolute inset-0 bg-emerald-500/20 blur-[80px] rounded-full scale-150 animate-pulse" />
-                        <PlayerAvatar
-                          id={currentPlayer.id}
-                          name={currentPlayer.name}
-                          role={currentPlayer.role}
-                          photoUrl={currentPlayer.photo_url}
-                          size="xl"
+                  ) : currentPlayer && state?.current_bid !== null ? (
+                    <div className="h-full flex flex-col">
+
+                      <div className="flex-1 p-6">
+
+                        <AuctionHero
+                          player={currentPlayer}
+                          bid={state?.current_bid || auction.settings.base_price}
+                          basePrice={auction.settings.base_price}
+                          team={leadingTeam}
                         />
+
                       </div>
-                      <div className="text-[10px] font-black text-emerald-500 uppercase tracking-[0.4em] mb-fluid-sm">
-                        Live Representation
+
+                    </div>
+                  ) : currentPlayer && state?.current_bid === null ? (
+                    <motion.div
+                      initial={{ opacity: 0 }}
+                      animate={{ opacity: 1 }}
+                      className="text-slate-600 text-center"
+                    >
+                      <div className="h-12 sm:h-16 md:h-20 lg:h-24 w-12 sm:w-16 md:w-20 lg:w-24 bg-[var(--color-bg-card)] rounded-full flex items-center justify-center mb-3 md:mb-4 lg:mb-6 mx-auto border border-slate-800 animate-pulse">
+                        <Gavel size={24} className="text-amber-500" />
                       </div>
-                      <h2 className="italic tracking-tighter text-white uppercase truncate max-w-full px-2 drop-shadow-2xl">
-                        {currentPlayer.name}
-                      </h2>
-                      <div className="flex flex-col sm:flex-row items-center gap-1 sm:gap-2 md:gap-3 lg:gap-6 mt-2 sm:mt-3 md:mt-4 flex-wrap justify-center px-2">
-                        <span className="text-sm sm:text-base md:text-xl lg:text-2xl font-black text-emerald-200/50 italic uppercase tracking-tight md:tracking-widest">
-                          {currentPlayer.role}
-                        </span>
-                        <div className="h-0.5 w-0.5 md:h-1 md:w-1 rounded-full bg-slate-700 hidden sm:block" />
-                        <div className="flex items-center gap-1 md:gap-2 bg-slate-950/80 px-2 md:px-4 py-1 md:py-2 rounded-md md:rounded-xl border border-slate-800">
-                          <div className="text-[7px] md:text-[9px] lg:text-[10px] font-black text-slate-500 uppercase tracking-tighter md:tracking-widest">
-                            Base
-                          </div>
-                          <div className="text-sm md:text-lg lg:text-xl font-mono font-black text-white">
-                            {formatPrice(auction.settings.base_price)}
-                          </div>
-                        </div>
-                      </div>
-                      <div className="mt-4 md:mt-8 lg:mt-12 flex flex-col items-center w-full px-2">
-                        <div className="text-[7px] md:text-[9px] lg:text-[11px] font-black text-slate-400 uppercase tracking-[0.15em] md:tracking-[0.25em] lg:tracking-[0.3em] mb-2 md:mb-3 lg:mb-4">
-                          Current Bid
-                        </div>
-                        <div className="relative w-full max-w-sm">
-                          <div className="absolute inset-0 bg-emerald-500/20 blur-[40px] rounded-full animate-bounce" />
-                          <div className="relative bg-emerald-500 text-slate-950 px-4 sm:px-6 md:px-8 lg:px-12 py-2 sm:py-3 md:py-4 lg:py-6 rounded-lg sm:rounded-2xl md:rounded-3xl shadow-[0_0_80px_rgba(16,185,129,0.4)] border-2 md:border-4 border-white/20">
-                            <div className="text-2xl sm:text-3xl md:text-5xl lg:text-8xl font-black font-mono tracking-tighter italic">
-                              {formatPrice(state?.current_bid || auction.settings.base_price)}
-                            </div>
-                          </div>
-                        </div>
-                        <div className="mt-3 md:mt-6 lg:mt-8 flex flex-col items-center gap-0.5 md:gap-1 lg:gap-2">
-                          {leadingTeam ? (
-                            <>
-                              <div className="text-[7px] md:text-[9px] lg:text-[10px] font-black text-emerald-500 uppercase tracking-tighter md:tracking-widest">
-                                Held By
-                              </div>
-                              <div className="text-sm sm:text-base md:text-lg lg:text-2xl font-black text-white italic uppercase flex items-center gap-1 md:gap-2 lg:gap-3">
-                                <TeamLogo
-                                  name={leadingTeam.name}
-                                  logoUrl={leadingTeam.logo_url}
-                                  size="sm"
-                                />
-                                <span className="truncate max-w-xs">
-                                  {leadingTeam.name}
-                                </span>
-                              </div>
-                            </>
-                          ) : (
-                            <div className="text-xs sm:text-sm md:text-base lg:text-xl font-black text-slate-600 uppercase italic animate-pulse">
-                              Awaiting bids...
-                            </div>
-                          )}
-                        </div>
-                      </div>
+                      <h3 className="text-base sm:text-lg md:text-xl lg:text-2xl font-black italic uppercase tracking-tighter text-amber-400">
+                        Ready for Bidding
+                      </h3>
+                      <p className="text-[8px] sm:text-xs md:text-sm font-medium mt-1 text-amber-300">
+                        Awaiting admin to start bidding...
+                      </p>
                     </motion.div>
                   ) : (
                     <motion.div
@@ -3612,55 +3627,56 @@ export default function LiveAuctionPage({
                     Total
                   </div>
                   <div className="text-sm md:text-lg lg:text-2xl font-black text-emerald-500 italic">
-                    {formatPriceCompact(players.reduce((sum, p) => sum + (p.sold_price || 0), 0))}
+                    ₹
+                    {Math.round(
+                      players.reduce((sum, p) => sum + (p.sold_price || 0), 0) /
+                      100000,
+                    )}
+                    L
                   </div>
                 </div>
               </div>
             </div>
           )}
         </div>
-        <div
-          className={`fixed inset-y-0 right-0 z-[60] w-full max-w-[85vw] sm:max-w-xs md:max-w-sm lg:relative lg:block lg:w-auto transform transition-transform duration-500 ease-in-out bg-slate-950 border-l border-slate-800 ${isSidebarOpen ? "translate-x-0" : "translate-x-full lg:translate-x-0"} overflow-hidden flex flex-col`}
-        >
-          <div className="flex-1 overflow-y-auto">
-            <LiveSidebar
-              teams={teams}
-              players={players}
-              onTeamClick={(team) => {
-                setSelectedTeam(team);
-                setShowPlayerRepository(false);
-                setIsSidebarOpen(false);
-              }}
-              onExpandPlayers={() => {
-                setShowPlayerRepository(true);
-                setSelectedTeam(null);
-                setIsSidebarOpen(false);
-              }}
-              maxPlayers={auction.settings.max_players}
-            />
+
+        {/* Action Panel for opening Roster selection from Auction View */}
+        {!selectedTeam && (
+          <div className={`w-full xl:w-[30%] flex-shrink-0 flex-col h-auto xl:h-full min-h-[120px]`}>
+            <div className="h-full flex flex-col gap-4">
+              <button onClick={() => setSelectedTeam(teams[0] || null)} className="w-full flex-1 rounded-2xl border-2 border-dashed border-emerald-500/20 hover:border-emerald-500/50 hover:bg-emerald-500/5 transition-all flex flex-col items-center justify-center text-emerald-500/50 hover:text-emerald-500 group">
+                <LayoutDashboard className="mb-2 group-hover:scale-110 transition-transform" />
+                <span className="text-sm font-black uppercase tracking-widest leading-none">View Squads</span>
+              </button>
+              <button onClick={() => { setShowPlayerRepository(true); setSelectedTeam(null); }} className="w-full flex-1 rounded-2xl border-2 border-dashed border-sky-500/20 hover:border-sky-500/50 hover:bg-sky-500/5 transition-all flex flex-col items-center justify-center text-sky-500/50 hover:text-sky-500 group">
+                <Users className="mb-2 group-hover:scale-110 transition-transform" />
+                <span className="text-sm font-black uppercase tracking-widest leading-none">Repository</span>
+              </button>
+            </div>
           </div>
-        </div>
+        )}
       </main>
       <AnimatePresence>
-        {(selectedTeam || showPlayerRepository || showFeedbackOverlay) && (
+        {(selectedTeam || showPlayerRepository) && (
           <BiddingPIP
-            player={showFeedbackOverlay ? lastSoldPlayer : currentPlayer}
-            leadingTeam={showFeedbackOverlay ? lastSoldTeam : leadingTeam}
-            currentBid={showFeedbackOverlay ? lastSoldPrice : state?.current_bid ?? null}
-            phase={showFeedbackOverlay || "bidding"}
+            player={pipPlayer}
+            leadingTeam={pipTeam}
+            currentBid={pipPrice}
+            phase={pipPhase}
           />
         )}
       </AnimatePresence>
       <SaleFeedback
-        player={lastSoldPlayer || currentPlayer}
-        team={lastSoldTeam || leadingTeam || null}
-        price={lastSoldPrice || state?.current_bid || null}
-        isVisible={showFeedbackOverlay === "sold" && !selectedTeam && !showPlayerRepository}
+        player={lastSoldPlayer}
+        team={lastSoldTeam}
+        price={lastSoldPrice}
+        isVisible={showSoldAnimation}
+        currentView={currentView}
       />
-
       <UnsoldFeedback
-        player={lastSoldPlayer || currentPlayer}
-        isVisible={showFeedbackOverlay === "unsold" && !selectedTeam && !showPlayerRepository}
+        player={lastUnsoldPlayer}
+        isVisible={showUnsoldAnimation}
+        currentView={currentView}
       />
     </div>
   );
@@ -3862,15 +3878,16 @@ export default function Home() {
   const hasLiveAuctions = liveAuctionIds.size > 0;
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-slate-950 via-slate-900 to-slate-950 py-fluid-lg text-slate-50">
-      <div className="container-fluid flex flex-col gap-fluid-lg">
+    <div className="min-h-screen bg-[url('/CourtSide_landing.png')] bg-cover bg-center bg-fixed px-6 py-10 text-slate-50 relative">
+      <div className="absolute inset-0 bg-black/10 pointer-events-none"></div>
+      <div className="container-fluid flex flex-col gap-fluid-lg relative z-10">
         <header className="flex flex-col items-start justify-between gap-fluid-md md:flex-row md:items-center">
           <div className="max-w-(--breakpoint-md)">
-            <h1 className="tracking-tight">
-              Sports Auction Platform
+            <h1 className="tracking-tight text-indigo-800">
+              BidStack
             </h1>
-            <p className="mt-fluid-sm text-sm text-slate-300">
-              Join live player auctions, track teams in real time, and register for upcoming events.
+            <p className="mt-fluid-sm text-l text-indigo-800">
+              Official Auction platform for MCA Premier League 2026.
             </p>
           </div>
           <div className="flex flex-wrap gap-3">
@@ -3883,13 +3900,13 @@ export default function Home() {
         </header>
 
         <section className="fluid-grid">
-          <Card className="col-span-12 md:col-span-5 border-slate-800 bg-slate-900/70 shadow-xl shadow-black/60">
-            <div className="mb-fluid-sm flex items-center justify-between px-fluid pt-fluid">
-              <h2 className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-400">
+          <Card className="col-span-12 md:col-span-5 border-slate-800 bg-slate-900/60 shadow-xl shadow-black/50">
+            <div className="mb-fluid-sm flex items-center justify-center px-fluid pt-fluid">
+              <h2 className="text-xs font-semibold uppercase tracking-[0.28em] text-slate-400">
                 Live Auctions
               </h2>
               {hasLiveAuctions && (
-                <span className="rounded-full bg-emerald-500/20 px-3 py-0.5 text-xs font-medium text-emerald-300">
+                <span className="rounded-full bg-emerald-500/20 px-6 py-0.5 text-xs font-medium text-emerald-300">
                   Live now
                 </span>
               )}
@@ -4032,30 +4049,19 @@ export default function Home() {
 import { useState, useEffect, useMemo } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { Card } from "@/components/ui/card";
-import { PlayerAvatar } from "@/components/PlayerAvatar";
 import { TeamLogo } from "@/components/TeamLogo";
-import { Star, TrendingUp, UserCheck, Wallet, Users, Crown, Sparkles } from "lucide-react";
+import { UserCheck, Wallet, TrendingUp, Users, PanelRightClose, PanelRightOpen, PanelRight } from "lucide-react";
 import { formatPrice } from "@/lib/utils";
-
-interface Player {
-    id: string;
-    sold_team_id: string | null;
-    status: string;
-    role: string;
-    name: string;
-    photo_url: string | null;
-    sold_price: number | null;
-    is_captain?: boolean;
-}
-
-interface Team {
-    id: string;
-    name: string;
-    logo_url: string | null;
-    manager: string | null;
-    purse_remaining: number;
-    captain_id?: string | null;
-}
+import { Player, Team } from "@/lib/hooks/useAuctionState";
+import {
+    getTeamPlayers,
+    groupPlayersByRole,
+    getCaptain,
+    getMVP,
+    computeTeamStats,
+} from "@/lib/shared/playerUtils";
+import { TeamFormation } from "@/components/live/TeamFormation";
+import { TeamRosterPanel } from "@/components/live/TeamRosterPanel";
 
 interface Auction {
     id: string;
@@ -4070,8 +4076,19 @@ interface ConsolidatedTeamRosterProps {
     players: Player[];
 }
 
-export default function ConsolidatedTeamRoster({ auction, teams, players }: ConsolidatedTeamRosterProps) {
+export default function ConsolidatedTeamRoster({
+    auction,
+    teams,
+    players,
+}: ConsolidatedTeamRosterProps) {
     const [selectedTeamId, setSelectedTeamId] = useState<string | null>(null);
+    const [isSquadPanelOpen, setIsSquadPanelOpen] = useState(false);
+    const [activeTab, setActiveTab] = useState<"highlights" | "rosters">("highlights");
+
+    useEffect(() => {
+        // default to open on desktop
+        setIsSquadPanelOpen(window.innerWidth >= 1024);
+    }, []);
 
     useEffect(() => {
         if (teams.length > 0 && !selectedTeamId) {
@@ -4079,290 +4096,249 @@ export default function ConsolidatedTeamRoster({ auction, teams, players }: Cons
         }
     }, [teams, selectedTeamId]);
 
-    const selectedTeam = teams.find((t: Team) => t.id === selectedTeamId);
-    const teamPlayers = players.filter((p: Player) => p.sold_team_id === selectedTeamId);
+    const selectedTeam = teams.find((t) => t.id === selectedTeamId) || null;
 
-    const isFootball = auction.sport_type === "football";
-    const roles = isFootball
-        ? ["Forward", "Midfielder", "Defender", "Goalkeeper"]
-        : ["Batsman", "Wicketkeeper", "Allrounder", "Bowler"];
+    // ─── Computed data using shared utilities ───
+    const teamPlayers = useMemo(
+        () => (selectedTeamId ? getTeamPlayers(players, selectedTeamId) : []),
+        [players, selectedTeamId],
+    );
 
-    const groupedPlayers = useMemo(() => {
-        return roles.reduce((acc: Record<string, Player[]>, role: string) => {
-            acc[role] = teamPlayers.filter((player: Player) => player.role === role && !player.is_captain);
-            return acc;
-        }, {} as Record<string, Player[]>);
-    }, [teamPlayers, roles]);
+    const groupedPlayers = useMemo(
+        () => groupPlayersByRole(teamPlayers, auction.sport_type),
+        [teamPlayers, auction.sport_type],
+    );
 
-    // Captain for this team
-    const captain = useMemo(() => {
-        return teamPlayers.find(p => p.is_captain) || null;
-    }, [teamPlayers]);
-
-    // MVP = highest-priced non-captain player
-    const mvp = useMemo(() => {
-        const nonCaptains = teamPlayers.filter(p => !p.is_captain);
-        if (nonCaptains.length === 0) return null;
-        return [...nonCaptains].sort((a, b) => (b.sold_price || 0) - (a.sold_price || 0))[0];
-    }, [teamPlayers]);
-
-    const totalSpend = useMemo(() =>
-        teamPlayers.reduce((sum: number, p: Player) => sum + (p.sold_price || 0), 0),
-        [teamPlayers]
+    const captain = useMemo(() => getCaptain(teamPlayers), [teamPlayers]);
+    const mvp = useMemo(() => getMVP(teamPlayers), [teamPlayers]);
+    const stats = useMemo(
+        () =>
+            selectedTeam
+                ? computeTeamStats(selectedTeam, teamPlayers)
+                : { totalSpend: 0, avgPerPlayer: 0, signings: 0 },
+        [selectedTeam, teamPlayers],
     );
 
     return (
-        <div className="flex flex-col gap-fluid-lg">
-            <div className="grid grid-cols-1 lg:grid-cols-12 gap-fluid-lg">
-                {/* Team Selector Sidebar */}
-                <div className="lg:col-span-3 space-y-fluid-sm">
-                    <h3 className="text-sm font-black text-slate-500 uppercase tracking-widest px-2">Teams</h3>
-                    <div className="space-y-2">
-                        {teams.map((team) => {
-                            const teamPlayerCount = players.filter(p => p.sold_team_id === team.id).length;
-                            return (
-                                <button
-                                    key={team.id}
-                                    onClick={() => setSelectedTeamId(team.id)}
-                                    className={`w-full flex items-center gap-4 p-4 rounded-2xl transition-all border-2 ${selectedTeamId === team.id
-                                        ? "bg-slate-900 border-amber-500 shadow-lg shadow-amber-900/20"
-                                        : "bg-slate-900/40 border-slate-800 hover:border-slate-700"
-                                        }`}
-                                >
-                                    <TeamLogo name={team.name} logoUrl={team.logo_url} size="sm" />
-                                    <div className="text-left flex-1 min-w-0">
-                                        <div className={`font-bold truncate ${selectedTeamId === team.id ? "text-white" : "text-slate-400"}`}>
-                                            {team.name}
-                                        </div>
-                                        <div className="flex items-center gap-2 mt-0.5">
-                                            <span className="text-[10px] text-slate-500 uppercase font-black">
-                                                {teamPlayerCount} players
-                                            </span>
-                                            <span className="text-[10px] text-emerald-500/70 font-mono font-bold">
-                                                {formatPrice(team.purse_remaining)} left
-                                            </span>
-                                        </div>
-                                    </div>
-                                </button>
-                            );
-                        })}
-                    </div>
+        <div className="flex flex-col gap-6">
+            {/* Team Selector Pills (Horizontal) */}
+            <div className="flex overflow-x-auto pb-4 -mx-4 px-4 sm:mx-0 sm:px-0 custom-scrollbar gap-3 snap-x">
+                {teams.map((team) => {
+                    const count = getTeamPlayers(players, team.id).length;
+                    const isActive = selectedTeamId === team.id;
+                    return (
+                        <button
+                            key={team.id}
+                            onClick={() => setSelectedTeamId(team.id)}
+                            className={`flex-shrink-0 flex items-center gap-3 px-4 py-3 rounded-xl transition-all border snap-center whitespace-nowrap ${isActive
+                                ? "bg-emerald-500 border-emerald-400 shadow-lg shadow-emerald-500/20"
+                                : "bg-slate-900/40 border-slate-700 hover:border-slate-500"
+                                }`}
+                        >
+                            <TeamLogo name={team.name} logoUrl={team.logo_url} size="sm" />
+                            <div className="text-left">
+                                <div className={`font-bold text-sm ${isActive ? "text-slate-950" : "text-white"}`}>
+                                    {team.name}
+                                </div>
+                                <div className={`text-[10px] font-black uppercase tracking-widest flex gap-2 mt-0.5 ${isActive ? "text-emerald-950/70" : "text-slate-500"}`}>
+                                    <span>{count} players</span>
+                                    <span>•</span>
+                                    <span className={isActive ? "text-emerald-950 font-mono" : "text-emerald-500 font-mono"}>
+                                        {formatPrice(team.purse_remaining)} left
+                                    </span>
+                                </div>
+                            </div>
+                        </button>
+                    );
+                })}
+            </div>
+
+            {/* Tab Toggle Bar */}
+            <div className="flex justify-center">
+                <div className="bg-slate-900 border border-slate-800 p-1 rounded-full flex items-center">
+                    <button
+                        onClick={() => setActiveTab("highlights")}
+                        className={`px-6 py-2 rounded-full text-xs font-bold uppercase tracking-widest transition-colors ${activeTab === "highlights"
+                            ? "bg-emerald-500 text-slate-950"
+                            : "text-slate-400 hover:text-slate-200"
+                            }`}
+                    >
+                        Highlights
+                    </button>
+                    <button
+                        onClick={() => setActiveTab("rosters")}
+                        className={`px-6 py-2 rounded-full text-xs font-bold uppercase tracking-widest transition-colors ${activeTab === "rosters"
+                            ? "bg-emerald-500 text-slate-950"
+                            : "text-slate-400 hover:text-slate-200"
+                            }`}
+                    >
+                        Final Rosters
+                    </button>
                 </div>
+            </div>
 
-                {/* Team Roster Detail */}
-                <div className="lg:col-span-9">
-                    <Card className="bg-slate-900/40 border-slate-800 rounded-3xl min-h-[600px] backdrop-blur-xl overflow-hidden">
-                        {selectedTeam ? (
-                            <div className="flex flex-col h-full">
-                                {/* Team Header — TeamFormation style */}
-                                <div className="flex flex-col sm:flex-row items-center justify-between bg-slate-900/60 backdrop-blur-md p-6 border-b border-slate-800 gap-4">
-                                    <div className="flex items-center gap-6">
-                                        <motion.div
-                                            initial={{ scale: 0.8, opacity: 0 }}
-                                            animate={{ scale: 1, opacity: 1 }}
-                                            transition={{ type: "spring", bounce: 0.5 }}
-                                        >
-                                            <TeamLogo name={selectedTeam.name} logoUrl={selectedTeam.logo_url} size="lg" />
-                                        </motion.div>
-                                        <div>
-                                            <h2 className="text-3xl font-black text-white uppercase italic tracking-tighter">
-                                                {selectedTeam.name}
-                                            </h2>
-                                            <div className="flex items-center gap-3 mt-1">
-                                                <span className="text-amber-400 font-bold text-sm tracking-widest uppercase">
-                                                    {selectedTeam.manager}
-                                                </span>
-                                                <div className="h-1 w-1 rounded-full bg-slate-700" />
-                                                <div className="flex items-center gap-1.5 text-slate-400 text-xs font-bold uppercase tracking-wider">
-                                                    <UserCheck size={14} className="text-emerald-500" />
-                                                    {teamPlayers.length} Signings
-                                                </div>
-                                            </div>
-                                        </div>
-                                    </div>
-
-                                    <div className="grid grid-cols-2 gap-3">
-                                        <div className="bg-slate-950/60 rounded-xl p-3 border border-slate-800/50 min-w-[140px]">
-                                            <div className="flex items-center gap-1.5 text-[10px] font-black text-slate-500 uppercase tracking-widest mb-1">
-                                                <Wallet size={12} className="text-emerald-500" />
-                                                Remaining
-                                            </div>
-                                            <div className="text-xl font-mono font-bold text-emerald-400">
-                                                {formatPrice(selectedTeam.purse_remaining)}
-                                            </div>
-                                        </div>
-                                        <div className="bg-slate-950/60 rounded-xl p-3 border border-slate-800/50 min-w-[140px]">
-                                            <div className="flex items-center gap-1.5 text-[10px] font-black text-slate-500 uppercase tracking-widest mb-1">
-                                                <TrendingUp size={12} className="text-amber-500" />
-                                                Total Spend
-                                            </div>
-                                            <div className="text-xl font-mono font-bold text-amber-400">
-                                                {formatPrice(totalSpend)}
-                                            </div>
-                                        </div>
-                                    </div>
-                                </div>
-
-                                {/* Captain & MVP Highlights */}
-                                <div className="grid grid-cols-1 md:grid-cols-2 gap-4 p-6 border-b border-slate-800/50">
-                                    {/* Captain Card */}
-                                    <div className="relative rounded-2xl border-2 border-amber-500/30 bg-gradient-to-br from-amber-950/20 to-slate-900/40 p-5 flex items-center gap-5 overflow-hidden">
-                                        <div className="absolute top-0 right-0 w-32 h-32 bg-amber-500/5 blur-[60px] rounded-full" />
-                                        <div className="flex items-center gap-2 text-amber-500 font-black text-[10px] uppercase tracking-[0.3em] absolute top-3 left-5">
-                                            <Crown size={12} fill="currentColor" />
-                                            Captain
-                                        </div>
-                                        {captain ? (
-                                            <>
-                                                <div className="relative mt-4 flex-shrink-0">
-                                                    <div className="absolute inset-0 bg-amber-500/20 blur-2xl rounded-full" />
-                                                    <PlayerAvatar
-                                                        id={captain.id}
-                                                        name={captain.name}
-                                                        role={captain.role}
-                                                        photoUrl={captain.photo_url}
-                                                        size="lg"
-                                                        isCaptain={true}
-                                                    />
-                                                </div>
-                                                <div className="mt-4 flex-1 min-w-0">
-                                                    <h4 className="text-xl font-black text-white italic uppercase tracking-tighter truncate">
-                                                        {captain.name}
-                                                    </h4>
-                                                    <div className="text-[11px] text-amber-500 font-bold uppercase tracking-[0.2em] mt-0.5">
-                                                        {captain.role}
-                                                    </div>
-                                                    <div className="mt-2 px-4 py-1.5 rounded-full bg-slate-950/80 border border-amber-500/40 text-amber-400 font-mono font-bold text-base inline-block">
-                                                        {formatPrice(captain.sold_price)}
-                                                    </div>
-                                                </div>
-                                            </>
-                                        ) : (
-                                            <div className="mt-4 flex-1 flex items-center justify-center py-4 text-slate-600 text-sm italic">
-                                                No captain assigned
-                                            </div>
-                                        )}
-                                    </div>
-
-                                    {/* MVP Card */}
-                                    <div className="relative rounded-2xl border-2 border-emerald-500/30 bg-gradient-to-br from-emerald-950/20 to-slate-900/40 p-5 flex items-center gap-5 overflow-hidden">
-                                        <div className="absolute top-0 right-0 w-32 h-32 bg-emerald-500/5 blur-[60px] rounded-full" />
-                                        <div className="flex items-center gap-2 text-emerald-500 font-black text-[10px] uppercase tracking-[0.3em] absolute top-3 left-5">
-                                            <Sparkles size={12} fill="currentColor" />
-                                            Most Valuable
-                                        </div>
-                                        {mvp ? (
-                                            <>
-                                                <div className="relative mt-4 flex-shrink-0">
-                                                    <div className="absolute inset-0 bg-emerald-500/20 blur-2xl rounded-full" />
-                                                    <PlayerAvatar
-                                                        id={mvp.id}
-                                                        name={mvp.name}
-                                                        role={mvp.role}
-                                                        photoUrl={mvp.photo_url}
-                                                        size="lg"
-                                                    />
-                                                </div>
-                                                <div className="mt-4 flex-1 min-w-0">
-                                                    <h4 className="text-xl font-black text-white italic uppercase tracking-tighter truncate">
-                                                        {mvp.name}
-                                                    </h4>
-                                                    <div className="text-[11px] text-emerald-500 font-bold uppercase tracking-[0.2em] mt-0.5">
-                                                        {mvp.role}
-                                                    </div>
-                                                    <div className="mt-2 px-4 py-1.5 rounded-full bg-slate-950/80 border border-emerald-500/40 text-emerald-400 font-mono font-bold text-base inline-block">
-                                                        {formatPrice(mvp.sold_price)}
-                                                    </div>
-                                                </div>
-                                            </>
-                                        ) : (
-                                            <div className="mt-4 flex-1 flex items-center justify-center py-4 text-slate-600 text-sm italic">
-                                                No non-captain signings
-                                            </div>
-                                        )}
-                                    </div>
-                                </div>
-
-                                {/* Formation-Style Role Grid */}
-                                <div className="flex-1 p-6">
-                                    <div className="relative rounded-3xl overflow-hidden border border-slate-800 shadow-2xl bg-slate-950 min-h-[400px]">
-                                        {/* Pitch Markings */}
-                                        <div
-                                            className="absolute inset-0 opacity-20"
-                                            style={{
-                                                backgroundImage: isFootball
-                                                    ? "linear-gradient(to bottom, transparent 49%, rgba(16, 185, 129, 0.4) 50%, transparent 51%), radial-gradient(circle at center, rgba(16, 185, 129, 0.4) 10%, transparent 11%)"
-                                                    : "radial-gradient(ellipse at center, rgba(34, 197, 94, 0.3) 0%, transparent 70%)",
-                                                backgroundColor: isFootball ? "#064e3b" : "#14532d",
-                                            }}
+            {/* Main Content Area */}
+            <div className="w-full">
+                <Card className="bg-slate-900/40 border-slate-800 rounded-3xl min-h-[600px] backdrop-blur-xl overflow-hidden">
+                    {selectedTeam ? (
+                        <div className="flex flex-col h-full min-h-0">
+                            {/* Team Header */}
+                            <div className="flex flex-col sm:flex-row items-center justify-between bg-slate-900/60 backdrop-blur-md p-5 sm:p-6 border-b border-slate-800 gap-4 flex-shrink-0">
+                                <div className="flex items-center gap-5">
+                                    <motion.div
+                                        initial={{ scale: 0.8, opacity: 0 }}
+                                        animate={{ scale: 1, opacity: 1 }}
+                                        transition={{ type: "spring", bounce: 0.5 }}
+                                    >
+                                        <TeamLogo
+                                            name={selectedTeam.name}
+                                            logoUrl={selectedTeam.logo_url}
+                                            size="lg"
                                         />
-                                        <div className="absolute inset-0 bg-gradient-to-t from-slate-950 via-transparent to-transparent opacity-60" />
-
-                                        {/* Player Formation Grid */}
-                                        <div className="relative z-10 flex flex-col justify-around py-10 px-8 gap-8">
-                                            {roles.map((role) => (
-                                                <div key={role} className="flex flex-col items-center gap-4">
-                                                    <div className="text-[10px] font-black text-white/30 uppercase tracking-[0.4em] border-b border-white/5 w-full text-center pb-2">
-                                                        {role}
-                                                    </div>
-                                                    <div className="flex flex-wrap justify-center gap-6">
-                                                        <AnimatePresence mode="popLayout">
-                                                            {groupedPlayers[role]?.map((player) => (
-                                                                <motion.div
-                                                                    key={player.id}
-                                                                    layout
-                                                                    initial={{ scale: 0, opacity: 0, y: 20 }}
-                                                                    animate={{ scale: 1, opacity: 1, y: 0 }}
-                                                                    exit={{ scale: 0, opacity: 0 }}
-                                                                    transition={{
-                                                                        type: "spring",
-                                                                        stiffness: 260,
-                                                                        damping: 20,
-                                                                        layout: { duration: 0.3 }
-                                                                    }}
-                                                                    className="flex flex-col items-center group"
-                                                                >
-                                                                    <div className="relative">
-                                                                        <PlayerAvatar
-                                                                            id={player.id}
-                                                                            name={player.name}
-                                                                            role={player.role}
-                                                                            photoUrl={player.photo_url}
-                                                                            size="lg"
-                                                                            showBadge={false}
-                                                                        />
-                                                                    </div>
-                                                                    <div className="mt-2 text-center">
-                                                                        <div className="text-xs font-bold text-white group-hover:text-emerald-400 transition-colors truncate max-w-[80px]">
-                                                                            {player.name}
-                                                                        </div>
-                                                                        <div className="text-[10px] font-mono text-emerald-500/80">
-                                                                            {formatPrice(player.sold_price)}
-                                                                        </div>
-                                                                    </div>
-                                                                </motion.div>
-                                                            ))}
-                                                            {(!groupedPlayers[role] || groupedPlayers[role].length === 0) && (
-                                                                <div className="h-20 w-20 rounded-full border border-dashed border-white/10 flex items-center justify-center text-white/5 text-[10px] font-black uppercase tracking-tighter italic">
-                                                                    Empty Slot
-                                                                </div>
-                                                            )}
-                                                        </AnimatePresence>
-                                                    </div>
-                                                </div>
-                                            ))}
+                                    </motion.div>
+                                    <div>
+                                        <h2 className="text-2xl sm:text-3xl font-heading font-bold text-white uppercase tracking-tighter">
+                                            {selectedTeam.name}
+                                        </h2>
+                                        <div className="flex items-center gap-3 mt-1">
+                                            <span className="text-amber-400 font-bold text-sm tracking-widest uppercase">
+                                                {selectedTeam.manager}
+                                            </span>
+                                            <div className="h-1 w-1 rounded-full bg-slate-700" />
+                                            <div className="flex items-center gap-1.5 text-slate-400 text-xs font-bold uppercase tracking-wider">
+                                                <UserCheck size={14} className="text-emerald-500" />
+                                                {stats.signings} Signings
+                                            </div>
                                         </div>
                                     </div>
                                 </div>
+
+                                <div className="grid grid-cols-2 gap-3">
+                                    <div className="bg-slate-950/60 rounded-xl p-3 border border-slate-800/50 min-w-[130px]">
+                                        <div className="flex items-center gap-1.5 text-[10px] font-black text-slate-500 uppercase tracking-widest mb-1">
+                                            <Wallet size={12} className="text-emerald-500" />
+                                            Remaining
+                                        </div>
+                                        <div className="text-lg sm:text-xl font-mono font-bold text-emerald-400">
+                                            {formatPrice(selectedTeam.purse_remaining)}
+                                        </div>
+                                    </div>
+                                    <div className="relative bg-slate-950/60 rounded-xl p-3 border border-slate-800/50 min-w-[130px]">
+                                        <div className="flex items-center gap-1.5 text-[10px] font-black text-slate-500 uppercase tracking-widest mb-1">
+                                            <TrendingUp size={12} className="text-amber-500" />
+                                            Total Spend
+                                        </div>
+                                        <div className="text-lg sm:text-xl font-mono font-bold text-amber-400">
+                                            {formatPrice(stats.totalSpend)}
+                                        </div>
+
+                                        {/* Toggle Button for Squad Panel positioned inside header or next to it */}
+                                        <button
+                                            onClick={() => setIsSquadPanelOpen(!isSquadPanelOpen)}
+                                            className={`absolute -bottom-10 right-0 sm:top-1/2 sm:-translate-y-1/2 sm:-right-24 md:-right-28 sm:bottom-auto flex items-center gap-1.5 font-bold text-xs uppercase tracking-widest transition-colors ${isSquadPanelOpen ? "text-emerald-400" : "text-slate-500 hover:text-slate-300"
+                                                }`}
+                                        >
+                                            {isSquadPanelOpen ? <PanelRightClose size={14} /> : <PanelRightOpen size={14} />}
+                                            <span className="hidden sm:inline">Squad</span>
+                                        </button>
+                                    </div>
+                                </div>
                             </div>
-                        ) : (
-                            <div className="w-full h-full flex flex-col items-center justify-center text-slate-500 p-12">
-                                <Users size={48} className="opacity-10 mb-4" />
-                                <p className="text-sm italic font-bold uppercase tracking-widest">Select a team to view their final roster</p>
-                            </div>
-                        )}
-                    </Card>
-                </div>
+
+                            {/* Conditional Content Based on Active Tab */}
+                            {activeTab === "highlights" ? (
+                                <div className="flex-1 flex flex-col lg:flex-row gap-4 p-4 sm:p-6 overflow-hidden min-h-0">
+                                    {/* Formation — hero area */}
+                                    <div className="flex-1 min-h-[500px] lg:min-h-0 flex flex-col overflow-y-auto lg:overflow-hidden rounded-2xl bg-slate-950">
+                                        <div className="flex items-center justify-end p-2 lg:hidden">
+                                            <button
+                                                onClick={() => setIsSquadPanelOpen(!isSquadPanelOpen)}
+                                                className={`flex items-center gap-1.5 font-bold text-xs uppercase tracking-widest transition-colors ${isSquadPanelOpen ? "text-emerald-400" : "text-slate-500 hover:text-slate-300"
+                                                    }`}
+                                            >
+                                                {isSquadPanelOpen ? <PanelRightClose size={14} /> : <PanelRightOpen size={14} />}
+                                                <span className="inline">Squad</span>
+                                            </button>
+                                        </div>
+                                        <TeamFormation
+                                            groupedPlayers={groupedPlayers}
+                                            captain={captain}
+                                            sportType={auction.sport_type}
+                                        />
+                                    </div>
+
+                                    {/* Captain and MVP Highlights directly here on desktop, or side panel space */}
+                                    <AnimatePresence mode="wait">
+                                        {isSquadPanelOpen && (
+                                            <motion.div
+                                                initial={{ width: 0, opacity: 0, scale: 0.95 }}
+                                                animate={{ width: "auto", opacity: 1, scale: 1 }}
+                                                exit={{ width: 0, opacity: 0, scale: 0.95 }}
+                                                transition={{ type: "spring", stiffness: 300, damping: 30 }}
+                                                className="lg:w-[340px] xl:w-[380px] flex-shrink-0 overflow-y-auto origin-right custom-scrollbar"
+                                            >
+                                                <div className="w-full h-full min-w-[300px] space-y-4">
+                                                    <div className="text-sm font-black text-slate-500 uppercase tracking-widest mt-2 px-2">
+                                                        Team Star Players
+                                                    </div>
+                                                    <TeamRosterPanel
+                                                        captain={captain}
+                                                        mvp={mvp}
+                                                        teamPlayers={[]} // Specifically only highlight captain and MVP here
+                                                    />
+                                                </div>
+                                            </motion.div>
+                                        )}
+                                    </AnimatePresence>
+                                </div>
+                            ) : (
+                                <div className="flex-1 p-4 sm:p-6 overflow-y-auto">
+                                    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
+                                        {teamPlayers.map(player => (
+                                            <div key={player.id} className="bg-slate-900 border border-slate-800 rounded-xl p-3 flex items-center gap-3">
+                                                <div className="w-12 h-12 rounded-lg bg-slate-800 overflow-hidden flex-shrink-0">
+                                                    {player.photo_url ? (
+                                                        <img src={player.photo_url} alt={player.name} className="w-full h-full object-cover object-top" />
+                                                    ) : (
+                                                        <div className="w-full h-full flex items-center justify-center font-heading font-bold text-slate-500">
+                                                            {player.name.charAt(0)}
+                                                        </div>
+                                                    )}
+                                                </div>
+                                                <div className="flex-1 min-w-0">
+                                                    <div className="font-bold text-sm text-white truncate uppercase tracking-tight font-heading">
+                                                        {player.name}
+                                                    </div>
+                                                    <div className="text-[10px] font-black text-slate-500 uppercase tracking-widest mt-0.5">
+                                                        {player.role}
+                                                    </div>
+                                                    <div className="text-xs font-mono font-bold text-emerald-500 mt-1">
+                                                        {formatPrice(player.sold_price)}
+                                                    </div>
+                                                </div>
+                                                {player.is_captain && (
+                                                    <div className="bg-amber-500 text-amber-950 text-[10px] font-black px-2 py-0.5 rounded-sm uppercase">C</div>
+                                                )}
+                                            </div>
+                                        ))}
+                                        {teamPlayers.length === 0 && (
+                                            <div className="col-span-full py-12 text-center text-slate-500 italic uppercase font-bold tracking-widest text-sm">
+                                                No players signed yet.
+                                            </div>
+                                        )}
+                                    </div>
+                                </div>
+                            )}
+                        </div>
+                    ) : (
+                        <div className="w-full h-full flex flex-col items-center justify-center text-slate-500 p-12">
+                            <Users size={48} className="opacity-10 mb-4" />
+                            <p className="text-sm italic font-bold uppercase tracking-widest">
+                                Select a team to view their final roster
+                            </p>
+                        </div>
+                    )}
+                </Card>
             </div>
         </div>
     );
@@ -4623,6 +4599,122 @@ export function ImageViewerModal({
 }
 ````
 
+## File: components/live/AuctionHero.tsx
+````typescript
+"use client"
+
+import { motion } from "framer-motion"
+
+export default function AuctionHero({
+    player,
+    bid,
+    basePrice,
+    team
+}: any) {
+
+    return (
+        <div className="relative w-full h-full grid grid-cols-1 md:grid-cols-2 overflow-hidden rounded-2xl bg-[#03070a]">
+
+            {/* LEFT SIDE — PLAYER IMAGE */}
+            <div className="relative h-full min-h-[200px] md:min-h-0 w-full overflow-hidden">
+
+                <img
+                    src={player.photo_url}
+                    alt={player.name}
+                    className="absolute inset-0 w-full h-full object-cover object-top"
+                />
+
+                {/* gradient fade — bottom on mobile, right on desktop */}
+                <div className="absolute inset-0 bg-gradient-to-b md:bg-gradient-to-r from-transparent via-transparent to-[#03070a]" />
+                <div className="absolute inset-0 bg-gradient-to-r from-black/40 via-transparent to-transparent hidden md:block" />
+
+            </div>
+
+
+            {/* RIGHT SIDE */}
+            <div className="relative flex flex-col justify-center px-[clamp(1.5rem,1rem+2vw,4rem)] py-[clamp(1rem,0.8rem+1.5vw,2.5rem)] gap-[clamp(0.75rem,0.5rem+1vw,1.5rem)]">
+
+                {/* LIVE AUCTION */}
+                <div className="flex items-center gap-2 text-red-400 text-xs tracking-[0.35em] font-semibold">
+                    <span className="w-2 h-2 bg-red-500 rounded-full animate-pulse" />
+                    LIVE AUCTION
+                </div>
+
+
+                {/* PLAYER NAME */}
+                <h1 className="text-[clamp(2rem,1.5rem+3vw,4.5rem)] font-extrabold italic text-white leading-[0.9] tracking-tight">
+                    {player.name}
+                </h1>
+
+
+                {/* BASE PRICE */}
+                <div className="flex items-center gap-4 text-sm text-slate-400 tracking-widest">
+
+                    BASE PRICE
+
+                    <div className="h-[1px] w-16 md:w-24 bg-slate-700" />
+
+                    ₹{basePrice.toLocaleString("en-IN")}
+
+                </div>
+
+
+                {/* BID PANEL */}
+                <motion.div
+                    key={bid}
+                    initial={{ scale: 0.95 }}
+                    animate={{ scale: 1 }}
+                    transition={{ duration: 0.25 }}
+                    className="relative mt-2 md:mt-4 w-full max-w-md"
+                >
+
+                    {/* glow */}
+                    <div className="absolute inset-0 bg-emerald-500 blur-[90px] opacity-40 rounded-xl" />
+
+                    <div className="relative bg-emerald-500 rounded-xl px-[clamp(1.25rem,1rem+1.5vw,2.5rem)] py-[clamp(1rem,0.8rem+1vw,2rem)] shadow-lg">
+
+                        <div className="text-[10px] tracking-[0.35em] font-bold text-black/70 mb-2">
+                            CURRENT BID
+                        </div>
+
+                        <div className="text-[clamp(1.75rem,1.5rem+2vw,3rem)] font-black italic text-black tracking-tight">
+                            ₹{bid.toLocaleString("en-IN")}
+                        </div>
+
+
+                        {/* TEAM */}
+                        <div className="flex items-center gap-3 mt-4 md:mt-6 pt-3 md:pt-4 border-t border-black/20">
+
+                            <span className="text-[10px] tracking-[0.3em] font-bold text-black/60">
+                                HELD BY
+                            </span>
+
+                            <div className="flex items-center gap-2">
+
+                                <img
+                                    src={team?.logo_url}
+                                    className="w-6 h-6 md:w-7 md:h-7 rounded-full"
+                                />
+
+                                <span className="font-bold text-black text-sm md:text-base">
+                                    {team?.name}
+                                </span>
+
+                            </div>
+
+                        </div>
+
+                    </div>
+
+                </motion.div>
+
+            </div>
+
+        </div>
+    )
+}
+````
+
 ## File: components/live/BiddingPIP.tsx
 ````typescript
 "use client";
@@ -4747,12 +4839,12 @@ export function BiddingPIP({ player, leadingTeam, currentBid, phase = "bidding" 
 ````typescript
 "use client";
 
-import { useMemo } from "react";
+import { useState, useMemo } from "react";
 import { Card } from "@/components/ui/card";
-import { Users, Shield, TrendingUp } from "lucide-react";
+import { Input } from "@/components/ui/input";
+import { Search, Filter, Users, Shield, TrendingUp } from "lucide-react";
 import { Team, Player } from "@/lib/hooks/useAuctionState";
 import { TeamLogo } from "@/components/TeamLogo";
-import { formatPrice } from "@/lib/utils";
 
 interface LiveSidebarProps {
     teams: Team[];
@@ -4763,11 +4855,20 @@ interface LiveSidebarProps {
 }
 
 export function LiveSidebar({ teams, players, onTeamClick, onExpandPlayers, maxPlayers }: LiveSidebarProps) {
+    const [search, setSearch] = useState("");
+    const [filter, setFilter] = useState<Player["status"] | "all">("all");
+    const [expandSidebarPlayers, setExpandSidebarPlayers] = useState(false);
     const SIDEBAR_PLAYER_LIMIT = 5;
 
-    const upcomingPlayers = useMemo(() => {
-        return players.filter(p => ["upcoming", "upcoming_phase2"].includes(p.status));
-    }, [players]);
+    const filteredPlayers = useMemo(() => {
+        return players.filter((p) => {
+            const matchesSearch = p.name.toLowerCase().includes(search.toLowerCase());
+            const matchesFilter = filter === "all" ? true : p.status === filter;
+            return matchesSearch && matchesFilter;
+        });
+    }, [players, search, filter]);
+
+    const soldPlayers = useMemo(() => players.filter(p => p.status === 'sold'), [players]);
 
     return (
         <div className="flex flex-col h-full gap-fluid">
@@ -4797,7 +4898,7 @@ export function LiveSidebar({ teams, players, onTeamClick, onExpandPlayers, maxP
                             </div>
                             <div className="text-right">
                                 <div className="text-xs font-mono text-emerald-500">
-                                    {formatPrice(team.purse_remaining)}
+                                    ₹{team.purse_remaining.toLocaleString("en-IN")}
                                 </div>
                                 <div className="text-[10px] text-slate-400">
                                     {maxPlayers - team.slots_remaining} / {maxPlayers} Slots
@@ -4813,7 +4914,7 @@ export function LiveSidebar({ teams, players, onTeamClick, onExpandPlayers, maxP
                 <div className="flex items-center justify-between">
                     <div className="flex items-center gap-2 text-amber-500 font-bold text-xs uppercase tracking-widest">
                         <Users size={14} />
-                        Upcoming Players
+                        Player Repository
                     </div>
                     {onExpandPlayers && (
                         <button
@@ -4821,15 +4922,41 @@ export function LiveSidebar({ teams, players, onTeamClick, onExpandPlayers, maxP
                             className="text-[10px] text-emerald-500 hover:text-emerald-400 font-black uppercase tracking-widest transition-colors flex items-center gap-1"
                         >
                             <TrendingUp size={12} />
-                            View All
+                            Expand
                         </button>
                     )}
                 </div>
 
-                <div className="flex-1 overflow-y-auto pr-2 custom-scrollbar space-y-2 mt-2">
-                    {upcomingPlayers
-                        .slice(0, SIDEBAR_PLAYER_LIMIT)
+                <div className="relative">
+                    <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-500" size={14} />
+                    <Input
+                        placeholder="Search players..."
+                        value={search}
+                        onChange={(e) => setSearch(e.target.value)}
+                        className="pl-9 bg-slate-950/50 border-slate-800 text-sm h-9 ring-offset-slate-950 focus-visible:ring-emerald-500"
+                    />
+                </div>
+
+                <div className="flex gap-2 overflow-x-auto pb-2 custom-scrollbar">
+                    {(["all", "upcoming", "live", "sold"] as const).map((f) => (
+                        <button
+                            key={f}
+                            onClick={() => setFilter(f)}
+                            className={`px-3 py-1 rounded-full text-[10px] font-bold uppercase tracking-wider transition-all whitespace-nowrap border ${filter === f
+                                ? "bg-emerald-500/20 border-emerald-500 text-emerald-400"
+                                : "bg-slate-950/40 border-slate-800 text-slate-500 hover:border-slate-700"
+                                }`}
+                        >
+                            {f}
+                        </button>
+                    ))}
+                </div>
+
+                <div className="flex-1 overflow-y-auto pr-2 custom-scrollbar space-y-2">
+                    {filteredPlayers
+                        .slice(0, expandSidebarPlayers ? filteredPlayers.length : SIDEBAR_PLAYER_LIMIT)
                         .map((player) => {
+                            const team = teams.find(t => t.id === player.sold_team_id);
                             return (
                                 <div
                                     key={player.id}
@@ -4844,16 +4971,39 @@ export function LiveSidebar({ teams, players, onTeamClick, onExpandPlayers, maxP
                                         </div>
                                     </div>
                                     <div className="text-right">
-                                        <div className={`text-[10px] font-bold uppercase ${player.status === 'live' ? "text-amber-500 animate-pulse" :
-                                            player.status === 'upcoming' ? "text-rose-500" : "text-slate-600"
-                                            }`}>
-                                            {player.status.replace("_", " ")}
-                                        </div>
+                                        {player.status === 'sold' && team ? (
+                                            <>
+                                                <div className="text-[10px] font-black text-emerald-500 uppercase">
+                                                    {team.name}
+                                                </div>
+                                                <div className="text-[10px] font-mono text-slate-400">
+                                                    ₹{player.sold_price?.toLocaleString("en-IN")}
+                                                </div>
+                                            </>
+                                        ) : (
+                                            <div className={`text-[10px] font-bold uppercase ${player.status === 'live' ? "text-amber-500 animate-pulse" :
+                                                player.status === 'upcoming' ? "text-rose-500" : "text-slate-600"
+                                                }`}>
+                                                {player.status}
+                                            </div>
+                                        )}
                                     </div>
                                 </div>
                             );
                         })}
                 </div>
+                {/* {filteredPlayers.length > SIDEBAR_PLAYER_LIMIT && (
+                    // <button
+                    //     onClick={() => setExpandSidebarPlayers(!expandSidebarPlayers)}
+                    //     className="w-full py-2 px-3 text-[10px] font-bold text-slate-400 hover:text-slate-200 bg-slate-950/40 hover:bg-slate-800/50 border border-slate-800 hover:border-slate-700 rounded-lg transition-all uppercase tracking-widest"
+                    // >
+                    //     {expandSidebarPlayers ? (
+                    //         <>↑ Show Less ({SIDEBAR_PLAYER_LIMIT})</>
+                    //     ) : (
+                    //         <>↓ Show More ({filteredPlayers.length - SIDEBAR_PLAYER_LIMIT})</>
+                    //     )}
+                    // </button>
+                )} */}
             </Card>
 
             <style jsx global>{`
@@ -4944,7 +5094,7 @@ export function RecapStats({ teams, players, sportType }: RecapStatsProps) {
             variants={container}
             initial="hidden"
             animate="show"
-            className="space-y-12 pb-20"
+            className="space-y-8 pb-8"
         >
             {/* Top MVP Highlight */}
             <section className="relative flex flex-col items-center">
@@ -4955,7 +5105,7 @@ export function RecapStats({ teams, players, sportType }: RecapStatsProps) {
                         <Trophy size={18} strokeWidth={3} />
                         Auction MVP
                     </div>
-                    <h2 className="text-6xl font-black text-white italic tracking-tighter uppercase italic">The Golden Signing</h2>
+                    <h2 className="text-3xl sm:text-4xl md:text-5xl font-black text-white italic tracking-tighter uppercase mb-4">The Golden Signing</h2>
                 </motion.div>
 
                 {mvp && (
@@ -4964,35 +5114,35 @@ export function RecapStats({ teams, players, sportType }: RecapStatsProps) {
                         className="relative group cursor-pointer"
                     >
                         <div className="absolute inset-0 bg-amber-500/20 blur-3xl rounded-full group-hover:bg-amber-500/40 transition-all duration-500" />
-                        <Card className="relative bg-slate-900/40 backdrop-blur-xl border-2 border-amber-500/50 p-10 rounded-[40px] shadow-2xl flex flex-col items-center">
+                        <Card className="relative bg-slate-900/40 backdrop-blur-xl border-2 border-amber-500/50 p-6 sm:p-8 rounded-[30px] shadow-2xl flex flex-col items-center">
                             <PlayerAvatar
                                 id={mvp.id}
                                 name={mvp.name}
                                 role={mvp.role}
                                 photoUrl={mvp.photo_url}
-                                size="xl"
+                                size="lg"
                             />
-                            <div className="mt-8 text-center">
-                                <h3 className="text-4xl font-black text-white italic uppercase tracking-tighter">{mvp.name}</h3>
-                                <div className="text-amber-500 font-bold uppercase tracking-widest text-sm mt-1">{mvp.role}</div>
+                            <div className="mt-4 sm:mt-6 text-center">
+                                <h3 className="text-2xl sm:text-3xl md:text-4xl font-black text-white italic uppercase tracking-tighter">{mvp.name}</h3>
+                                <div className="text-amber-500 font-bold uppercase tracking-widest text-xs sm:text-sm mt-1">{mvp.role}</div>
 
-                                <div className="mt-6 flex items-center gap-4">
-                                    <div className="h-0.5 w-12 bg-slate-800" />
-                                    <div className="text-3xl font-mono font-black text-white">
+                                <div className="mt-4 sm:mt-6 flex items-center justify-center gap-2 sm:gap-4">
+                                    <div className="h-0.5 w-8 sm:w-12 bg-slate-800" />
+                                    <div className="text-xl sm:text-2xl md:text-3xl font-mono font-black text-white">
                                         {formatPrice(mvp.sold_price)}
                                     </div>
-                                    <div className="h-0.5 w-12 bg-slate-800" />
+                                    <div className="h-0.5 w-8 sm:w-12 bg-slate-800" />
                                 </div>
 
                                 {mvp.sold_team_id && (
-                                    <div className="mt-6 flex items-center gap-2 justify-center bg-slate-950/60 px-4 py-2 rounded-full border border-slate-800">
-                                        <span className="text-[10px] font-black text-slate-500 uppercase tracking-widest">Signed By</span>
+                                    <div className="mt-4 sm:mt-6 flex items-center gap-2 justify-center bg-slate-950/60 px-3 py-1.5 sm:px-4 sm:py-2 rounded-full border border-slate-800 w-fit mx-auto">
+                                        <span className="text-[8px] sm:text-[10px] font-black text-slate-500 uppercase tracking-widest hidden sm:inline">Signed By</span>
                                         <TeamLogo
                                             name={teams.find(t => t.id === mvp.sold_team_id)?.name || ""}
                                             logoUrl={teams.find(t => t.id === mvp.sold_team_id)?.logo_url}
                                             size="sm"
                                         />
-                                        <span className="text-sm font-bold text-slate-200">
+                                        <span className="text-xs sm:text-sm font-bold text-slate-200">
                                             {teams.find(t => t.id === mvp.sold_team_id)?.name}
                                         </span>
                                     </div>
@@ -5004,11 +5154,11 @@ export function RecapStats({ teams, players, sportType }: RecapStatsProps) {
             </section>
 
             {/* Role MVPs Grid */}
-            <section className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
+            <section className="grid grid-cols-2 md:grid-cols-4 gap-3 sm:gap-4 md:gap-6">
                 {roleMvps.map(({ role, player }) => (
                     <motion.div key={role} variants={item}>
-                        <Card className="bg-slate-900/40 border-slate-800 p-6 rounded-3xl flex flex-col items-center text-center hover:border-emerald-500/50 transition-colors group">
-                            <div className="text-[10px] font-black text-slate-500 uppercase tracking-widest mb-6 group-hover:text-emerald-500 transition-colors">
+                        <Card className="bg-slate-900/40 border-slate-800 p-4 sm:p-6 rounded-[20px] sm:rounded-3xl flex flex-col items-center text-center hover:border-emerald-500/50 transition-colors group h-full">
+                            <div className="text-[8px] sm:text-[10px] font-black text-slate-500 uppercase tracking-widest mb-4 sm:mb-6 group-hover:text-emerald-500 transition-colors">
                                 Best {role}
                             </div>
                             <PlayerAvatar
@@ -5016,10 +5166,10 @@ export function RecapStats({ teams, players, sportType }: RecapStatsProps) {
                                 name={player.name}
                                 role={player.role}
                                 photoUrl={player.photo_url}
-                                size="lg"
+                                size="md"
                             />
-                            <h4 className="mt-4 text-lg font-bold text-white uppercase italic">{player.name}</h4>
-                            <div className="mt-2 font-mono text-emerald-500 font-bold">
+                            <h4 className="mt-3 sm:mt-4 text-sm sm:text-base md:text-lg font-bold text-white uppercase italic truncate w-full px-2">{player.name}</h4>
+                            <div className="mt-1 sm:mt-2 text-xs sm:text-sm font-mono text-emerald-500 font-bold">
                                 {formatPrice(player.sold_price)}
                             </div>
                         </Card>
@@ -5029,46 +5179,46 @@ export function RecapStats({ teams, players, sportType }: RecapStatsProps) {
 
             {/* Key Stats Bar */}
             <section className="grid grid-cols-1 md:grid-cols-3 gap-6">
-                <motion.div variants={item}>
-                    <Card className="bg-emerald-500 text-slate-950 p-8 rounded-[32px] flex flex-col items-center text-center shadow-lg shadow-emerald-900/20">
-                        <Users size={32} strokeWidth={2.5} className="mb-4" />
-                        <div className="text-[10px] font-black uppercase tracking-widest opacity-70">Total Players Sold</div>
-                        <div className="text-5xl font-black mt-1">{soldPlayers.length}</div>
+                <motion.div variants={item} className="h-full">
+                    <Card className="h-full bg-emerald-500 text-slate-950 p-4 sm:p-6 rounded-[24px] sm:rounded-[32px] flex flex-col justify-center items-center text-center shadow-lg shadow-emerald-900/20">
+                        <Users size={24} strokeWidth={2.5} className="mb-2 sm:mb-4" />
+                        <div className="text-[8px] sm:text-[10px] font-black uppercase tracking-widest opacity-80">Total Players Sold</div>
+                        <div className="text-4xl sm:text-5xl font-black mt-1 leading-none">{soldPlayers.length}</div>
                     </Card>
                 </motion.div>
 
-                <motion.div variants={item}>
-                    <Card className="bg-slate-900 border-slate-800 p-8 rounded-[32px] flex flex-col items-center text-center border-2">
-                        <Target size={32} strokeWidth={2.5} className="mb-4 text-emerald-500" />
-                        <div className="text-[10px] font-black uppercase tracking-widest text-slate-500">Gross Expenditure</div>
-                        <div className="text-4xl font-black mt-1 text-white font-mono">
+                <motion.div variants={item} className="h-full">
+                    <Card className="h-full bg-slate-900 border-slate-800 p-4 sm:p-6 rounded-[24px] sm:rounded-[32px] flex flex-col justify-center items-center text-center border-2">
+                        <Target size={24} strokeWidth={2.5} className="mb-2 sm:mb-4 text-emerald-500" />
+                        <div className="text-[8px] sm:text-[10px] font-black uppercase tracking-widest text-slate-500">Gross Expenditure</div>
+                        <div className="text-3xl sm:text-4xl font-black mt-1 text-white font-mono leading-none">
                             {formatPriceCompact(soldPlayers.reduce((s, p) => s + (p.sold_price || 0), 0))}
                         </div>
                     </Card>
                 </motion.div>
 
-                <motion.div variants={item}>
-                    <Card className="bg-blue-600 text-white p-8 rounded-[32px] flex flex-col items-center text-center shadow-lg shadow-blue-900/20">
-                        <Star size={32} strokeWidth={2.5} className="mb-4" />
-                        <div className="text-[10px] font-black uppercase tracking-widest opacity-70">Top Captain Pick</div>
+                <motion.div variants={item} className="h-full">
+                    <Card className="h-full bg-blue-600 text-white p-4 sm:p-6 rounded-[24px] sm:rounded-[32px] flex flex-col justify-center items-center text-center shadow-lg shadow-blue-900/20">
+                        <Star size={24} strokeWidth={2.5} className="mb-2 sm:mb-4" />
+                        <div className="text-[8px] sm:text-[10px] font-black uppercase tracking-widest opacity-80">Top Captain Pick</div>
                         {mostValuableCaptain ? (
                             <>
-                                <div className="mt-4 mb-2">
+                                <div className="mt-2 sm:mt-4 mb-2">
                                     <PlayerAvatar
                                         id={mostValuableCaptain.id}
                                         name={mostValuableCaptain.name}
                                         role={mostValuableCaptain.role}
                                         photoUrl={mostValuableCaptain.photo_url}
-                                        size="lg"
+                                        size="md"
                                     />
                                 </div>
-                                <div className="text-2xl font-black mt-1 uppercase italic tracking-tighter truncate w-full">
+                                <div className="text-xl sm:text-2xl font-black mt-1 uppercase italic tracking-tighter truncate w-full px-2">
                                     {mostValuableCaptain.name}
                                 </div>
-                                <div className="text-sm font-bold opacity-80 mt-1">{formatPrice(mostValuableCaptain.sold_price)}</div>
+                                <div className="text-xs sm:text-sm font-bold opacity-90 mt-1">{formatPrice(mostValuableCaptain.sold_price)}</div>
                             </>
                         ) : (
-                            <div className="text-2xl font-black mt-1 uppercase italic tracking-tighter">N/A</div>
+                            <div className="text-xl sm:text-2xl font-black mt-1 uppercase italic tracking-tighter">N/A</div>
                         )}
                     </Card>
                 </motion.div>
@@ -5082,22 +5232,33 @@ export function RecapStats({ teams, players, sportType }: RecapStatsProps) {
 ````typescript
 "use client";
 
+import { useEffect, useState } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { Player, Team } from "@/lib/hooks/useAuctionState";
-import { PlayerAvatar } from "@/components/PlayerAvatar";
-import { TeamLogo } from "@/components/TeamLogo";
 import { formatPrice } from "@/lib/utils";
-import { Trophy } from "lucide-react";
+import { Gavel } from "lucide-react";
 
 interface SaleFeedbackProps {
     player: Player | null;
     team: Team | null;
     price: number | null;
     isVisible: boolean;
+    currentView?: "auction" | "roster" | "repository";
 }
 
-export function SaleFeedback({ player, team, price, isVisible }: SaleFeedbackProps) {
+export function SaleFeedback({ player, team, price, isVisible, currentView = "auction" }: SaleFeedbackProps) {
+    const [isDismissed, setIsDismissed] = useState(false);
+
+    // Reset dismissal when a new player is sold
+    useEffect(() => {
+        setIsDismissed(false);
+    }, [player?.id]);
+
+    if (currentView !== "auction" || isDismissed) return null;
     if (!player || !team || !price) return null;
+
+    // Generate 16 particles
+    const particles = Array.from({ length: 16 });
 
     return (
         <AnimatePresence>
@@ -5106,66 +5267,158 @@ export function SaleFeedback({ player, team, price, isVisible }: SaleFeedbackPro
                     initial={{ opacity: 0 }}
                     animate={{ opacity: 1 }}
                     exit={{ opacity: 0 }}
-                    className="fixed inset-0 z-[200] flex items-center justify-center p-6"
+                    transition={{ duration: 0.4 }}
+                    onClick={() => setIsDismissed(true)}
+                    className="fixed inset-0 z-[200] flex flex-col items-center justify-center px-4 py-6 md:px-12 md:py-10 sm:px-8 sm:py-8 cursor-pointer overflow-hidden"
                 >
-                    {/* Backdrop with aggressive blur */}
-                    <div className="absolute inset-0 bg-slate-950/90 backdrop-blur-2xl" />
+                    {/* Dark Navy Overlay with Blur */}
+                    <div className="absolute inset-0 bg-slate-950/90 backdrop-blur-xl" />
 
-                    {/* Particle fragments logic omitted for brevity, but could be added here */}
-                    <div className="absolute inset-0">
-                        <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[150vw] h-[150vw] md:w-[600px] md:h-[600px] max-w-[800px] max-h-[800px] bg-emerald-500/10 blur-[80px] md:blur-[120px] rounded-full animate-pulse" />
+                    {/* Radial Green Glow */}
+                    <motion.div
+                        initial={{ scale: 0.5, opacity: 0 }}
+                        animate={{ scale: 1, opacity: 1 }}
+                        transition={{ duration: 1, ease: "easeOut" }}
+                        className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[150vw] h-[150vw] md:w-[800px] md:h-[800px] bg-emerald-500/20 blur-[100px] rounded-full pointer-events-none"
+                    />
+
+                    {/* Particle Burst effect */}
+                    <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 pointer-events-none">
+                        {particles.map((_, i) => {
+                            const angle = (i / particles.length) * Math.PI * 2;
+                            const distance = 300 + Math.random() * 200;
+                            const x = Math.cos(angle) * distance;
+                            const y = Math.sin(angle) * distance;
+                            return (
+                                <motion.div
+                                    key={i}
+                                    initial={{ x: 0, y: 0, scale: 0, opacity: 1 }}
+                                    animate={{ x, y, scale: Math.random() * 1.5 + 0.5, opacity: 0 }}
+                                    transition={{ duration: 1 + Math.random(), ease: "easeOut" }}
+                                    className="absolute w-2 h-2 bg-emerald-400 rounded-full shadow-[0_0_10px_#34d399]"
+                                />
+                            );
+                        })}
                     </div>
 
-                    <div className="relative z-10 flex flex-col items-center text-center max-w-2xl w-full">
+                    {/* Content Container */}
+                    <div className="relative z-10 flex flex-col items-center text-center max-w-4xl w-full">
+
+                        {/* 1. Photo Card Drop */}
                         <motion.div
-                            initial={{ scale: 0, rotate: -45 }}
-                            animate={{ scale: 1, rotate: 0 }}
-                            transition={{ type: "spring", bounce: 0.5, duration: 0.8 }}
-                            className="mb-8"
+                            initial={{ scale: 0.3, rotateX: 45, opacity: 0, y: -50 }}
+                            animate={{ scale: 1, rotateX: 0, opacity: 1, y: 0 }}
+                            transition={{ type: "spring", stiffness: 200, damping: 20, delay: 0.1 }}
+                            className="relative w-[200px] h-[250px] sm:w-[256px] sm:h-[320px] rounded-2xl overflow-hidden border-2 border-emerald-500/60 shadow-[0_0_30px_rgba(16,185,129,0.4)] bg-slate-900 flex-shrink-0"
                         >
-                            <div className="relative">
-                                <div className="absolute inset-0 bg-white/20 blur-2xl rounded-full" />
-                                <PlayerAvatar
-                                    id={player.id}
-                                    name={player.name}
-                                    role={player.role}
-                                    photoUrl={player.photo_url}
-                                    size="xl"
-                                />
+                            {/* Pulsing Emerald Shadow Animation over the card */}
+                            <motion.div
+                                animate={{ boxShadow: ["0 0 20px rgba(16,185,129,0.3)", "0 0 50px rgba(16,185,129,0.7)", "0 0 20px rgba(16,185,129,0.3)"] }}
+                                transition={{ repeat: Infinity, duration: 2, ease: "easeInOut" }}
+                                className="absolute inset-0 rounded-2xl pointer-events-none z-20"
+                            />
+
+                            {/* Photo */}
+                            {player.photo_url ? (
+                                <img src={player.photo_url} alt={player.name} className="absolute inset-0 w-full h-full object-cover object-top" />
+                            ) : (
+                                <div className="absolute inset-0 flex items-center justify-center bg-gradient-to-br from-slate-800 to-slate-900">
+                                    <span className="text-6xl font-heading font-bold text-slate-700 uppercase">{player.name.charAt(0)}</span>
+                                </div>
+                            )}
+
+                            {/* Gradient Overlay */}
+                            <div className="absolute inset-0 bg-gradient-to-t from-black/90 via-black/20 to-transparent z-10" />
+
+                            {/* Shimmer Sweep */}
+                            <motion.div
+                                animate={{ x: ["-100%", "200%"] }}
+                                transition={{ repeat: Infinity, duration: 3, ease: "linear", delay: 0.5 }}
+                                className="absolute inset-0 z-20 bg-gradient-to-r from-transparent via-white/20 to-transparent skew-x-12 w-full"
+                            />
+
+                            {/* Badges */}
+                            <div className="absolute bottom-3 left-3 right-3 flex justify-between items-end z-30">
+                                <div className="bg-black/60 backdrop-blur-md px-2 py-1 rounded border border-white/10 text-[10px] font-bold text-slate-300 uppercase tracking-wider">
+                                    {player.role}
+                                </div>
                             </div>
                         </motion.div>
 
+                        {/* 2. Player Name */}
+                        <motion.h1
+                            initial={{ y: 30, opacity: 0, scale: 0.9 }}
+                            animate={{ y: 0, opacity: 1, scale: 1 }}
+                            transition={{ type: "spring", stiffness: 300, damping: 25, delay: 0.25 }}
+                            className="text-3xl sm:text-4xl md:text-5xl font-heading font-black text-white uppercase tracking-tighter mt-6 md:mt-8 drop-shadow-[0_0_15px_rgba(16,185,129,0.5)]"
+                        >
+                            {player.name}
+                        </motion.h1>
+
+                        {/* 3. Status Text */}
+                        <motion.div
+                            initial={{ scale: 0.5, opacity: 0 }}
+                            animate={{ scale: 1, opacity: 1 }}
+                            transition={{ type: "spring", stiffness: 400, damping: 15, delay: 0.35 }}
+                            className="mt-2"
+                        >
+                            <motion.div
+                                animate={{ textShadow: ["0 0 20px rgba(16,185,129,0.4)", "0 0 60px rgba(16,185,129,0.9)", "0 0 20px rgba(16,185,129,0.4)"] }}
+                                transition={{ repeat: Infinity, duration: 2, ease: "easeInOut" }}
+                                className="text-6xl sm:text-7xl md:text-9xl font-black italic tracking-tighter text-white uppercase leading-none"
+                            >
+                                SOLD!
+                            </motion.div>
+                        </motion.div>
+
+                        {/* 4. Team Section + Price Card Wrapper */}
                         <motion.div
                             initial={{ y: 50, opacity: 0 }}
                             animate={{ y: 0, opacity: 1 }}
-                            transition={{ delay: 0.4 }}
-                            className="space-y-4"
+                            transition={{ type: "spring", stiffness: 200, damping: 25, delay: 0.5 }}
+                            className="mt-6 md:mt-8 w-full max-w-md mx-auto space-y-4"
                         >
-                            <h2 className="text-6xl md:text-8xl lg:text-9xl font-black italic tracking-tighter text-white uppercase drop-shadow-[0_0_20px_rgba(255,255,255,0.3)]">
-                                Sold!
-                            </h2>
-
-                            <div className="flex flex-col items-center gap-2">
-                                <div className="text-amber-500 font-bold uppercase tracking-[0.4em] text-sm animate-pulse">
-                                    New Signing for
+                            {/* Team Name */}
+                            <div className="flex flex-col items-center">
+                                <div className="text-emerald-400 font-bold uppercase tracking-[0.3em] text-[10px] sm:text-xs">
+                                    New Signing For
                                 </div>
-                                <div className="text-3xl md:text-4xl lg:text-5xl font-black text-white italic tracking-tight uppercase break-words text-center px-4 w-full">
+                                <div className="text-2xl sm:text-3xl font-black text-white uppercase tracking-tight mt-1 px-4 text-center">
                                     {team.name}
                                 </div>
                             </div>
 
-                            <div className="mt-8 flex flex-col items-center">
-                                <div className="px-6 md:px-10 py-3 md:py-4 bg-emerald-500 text-slate-950 rounded-2xl shadow-[0_0_50px_rgba(16,185,129,0.5)] border-2 border-white/20">
-                                    <div className="text-[10px] font-black uppercase tracking-widest mb-1 opacity-70 flex items-center justify-center gap-2">
-                                        <Trophy size={12} strokeWidth={3} />
+                            {/* Price Card */}
+                            <div className="relative overflow-hidden bg-emerald-500/90 rounded-3xl p-4 sm:p-6 border-2 border-emerald-300/50 shadow-[0_0_40px_rgba(16,185,129,0.5)]">
+                                {/* Price Card Shimmer */}
+                                <motion.div
+                                    animate={{ x: ["-100%", "200%"] }}
+                                    transition={{ repeat: Infinity, duration: 2.5, ease: "linear", delay: 1 }}
+                                    className="absolute inset-0 bg-gradient-to-r from-transparent via-white/30 to-transparent skew-x-12 w-full z-0"
+                                />
+
+                                <div className="relative z-10 flex flex-col items-center">
+                                    <div className="flex items-center gap-1.5 text-slate-900 font-black uppercase tracking-widest text-[9px] sm:text-[10px] opacity-80 mb-1">
+                                        <Gavel size={14} />
                                         Final Hammer Price
                                     </div>
-                                    <div className="text-4xl md:text-5xl lg:text-6xl font-black font-mono">
+                                    <div className="text-4xl sm:text-5xl font-mono font-black text-slate-950 tracking-tight">
                                         {formatPrice(price)}
                                     </div>
                                 </div>
                             </div>
                         </motion.div>
+
+                        {/* 5. Dismiss Text */}
+                        <motion.div
+                            initial={{ opacity: 0 }}
+                            animate={{ opacity: 0.5 }}
+                            transition={{ delay: 1.5, duration: 1 }}
+                            className="absolute -bottom-12 sm:-bottom-16 text-white text-xs sm:text-sm font-medium tracking-widest uppercase italic"
+                        >
+                            Tap anywhere to dismiss
+                        </motion.div>
+
                     </div>
                 </motion.div>
             )}
@@ -5179,256 +5432,511 @@ export function SaleFeedback({ player, team, price, isVisible }: SaleFeedbackPro
 "use client";
 
 import { useMemo } from "react";
-import { motion, AnimatePresence } from "framer-motion";
-import { Team, Player } from "@/lib/hooks/useAuctionState";
-import { PlayerAvatar } from "@/components/PlayerAvatar";
-import { TeamLogo } from "@/components/TeamLogo";
-import { Star, TrendingUp, UserCheck, Wallet } from "lucide-react";
-import { formatPrice } from "@/lib/utils";
-import { Card } from "@/components/ui/card";
+import { motion, AnimatePresence, type Variants } from "framer-motion";
+import { Player } from "@/lib/hooks/useAuctionState";
+import { getRolesForSport, getRoleEmoji } from "@/lib/shared/playerUtils";
 
+// ─── Types ──────────────────────────────────────────────────────────
 interface TeamFormationProps {
-    team: Team;
-    players: Player[];
+    groupedPlayers: Record<string, Player[]>;
+    captain: Player | null;
     sportType: string;
 }
 
-export function TeamFormation({ team, players, sportType }: TeamFormationProps) {
-    const teamPlayers = useMemo(() =>
-        players.filter(p => p.sold_team_id === team.id),
-        [players, team.id]
-    );
+// ─── Animation Variants ─────────────────────────────────────────────
+const cardVariants: Variants = {
+    hidden: { opacity: 0, y: 24, scale: 0.9 },
+    visible: (i: number) => ({
+        opacity: 1,
+        y: 0,
+        scale: 1,
+        transition: { type: "spring" as const, stiffness: 260, damping: 22, delay: i * 0.06 },
+    }),
+    exit: { opacity: 0, scale: 0.85, transition: { duration: 0.2 } },
+};
 
-    const isFootball = sportType === "football";
+// ═══════════════════════════════════════════════════════════════════
+// PLAYER CARD — shared rectangular photo card
+// ═══════════════════════════════════════════════════════════════════
+function PlayerCard({
+    player,
+    isCaptain,
+    accentColor,
+    size = "normal",
+    sportType,
+}: {
+    player: Player;
+    isCaptain: boolean;
+    accentColor: "gold" | "emerald" | "rose";
+    size?: "normal" | "featured";
+    sportType: string;
+}) {
+    const borderColor =
+        isCaptain
+            ? "border-amber-400 shadow-[0_0_24px_rgba(251,191,36,0.25)]"
+            : accentColor === "rose"
+                ? "border-rose-500/40"
+                : "border-slate-700/60";
 
-    // Role configuration for positioning
-    const roles = isFootball
-        ? ["Forward", "Midfielder", "Defender", "Goalkeeper"]
-        : ["Batsman", "Wicketkeeper", "Allrounder", "Bowler"];
-
-    const groupedPlayers = useMemo(() => {
-        return roles.reduce((acc, role) => {
-            acc[role] = teamPlayers.filter(p => p.role === role);
-            return acc;
-        }, {} as Record<string, Player[]>);
-    }, [teamPlayers, roles]);
-
-    const teamStar = useMemo(() => {
-        if (teamPlayers.length === 0) return null;
-        return [...teamPlayers].sort((a, b) => (b.sold_price || 0) - (a.sold_price || 0))[0];
-    }, [teamPlayers]);
+    const sizeClasses =
+        size === "featured"
+            ? "w-32 sm:w-40 md:w-48 !h-auto aspect-square"
+            : "w-20 sm:w-24 md:w-32 !h-auto aspect-square";
 
     return (
-        <div className="flex flex-col h-full gap-fluid animate-in fade-in slide-in-from-bottom-4 duration-700">
-            {/* Team Header Info */}
-            <div className="flex flex-col sm:flex-row items-center justify-between bg-slate-900/40 backdrop-blur-md rounded-2xl p-fluid border border-slate-800 shadow-xl gap-fluid">
-                <div className="flex items-center gap-6">
-                    <motion.div
-                        initial={{ scale: 0.8, opacity: 0 }}
-                        animate={{ scale: 1, opacity: 1 }}
-                        transition={{ type: "spring", bounce: 0.5 }}
-                    >
-                        <TeamLogo name={team.name} logoUrl={team.logo_url} size="lg" />
-                    </motion.div>
-                    <div>
-                        <h2 className="tracking-tighter uppercase italic">
-                            {team.name}
-                        </h2>
-                        <div className="flex items-center gap-fluid-sm mt-fluid-sm">
-                            <span className="text-amber-400 font-bold text-sm tracking-widest uppercase">
-                                {team.manager}
-                            </span>
-                            <div className="h-1 w-1 rounded-full bg-slate-700" />
-                            <div className="flex items-center gap-1.5 text-slate-400 text-xs font-bold uppercase tracking-wider">
-                                <UserCheck size={14} className="text-emerald-500" />
-                                {teamPlayers.length} Signings
-                            </div>
-                        </div>
+        <div className="flex flex-col items-center group">
+            {/* Photo Card */}
+            <div
+                className={`relative ${sizeClasses} rounded-xl overflow-hidden border-2 ${borderColor} bg-slate-900 transition-all duration-300 group-hover:scale-105 group-hover:shadow-xl`}
+            >
+                {player.photo_url ? (
+                    <img
+                        src={player.photo_url}
+                        alt={player.name}
+                        className="absolute inset-0 w-full h-full object-cover object-top"
+                    />
+                ) : (
+                    <div className="absolute inset-0 flex items-center justify-center bg-gradient-to-br from-slate-800 to-slate-900">
+                        <span className="text-2xl font-heading font-bold text-slate-600 uppercase">
+                            {player.name.charAt(0)}
+                        </span>
                     </div>
-                </div>
+                )}
 
-                <div className="grid grid-cols-2 gap-fluid-sm">
-                    <div className="bg-slate-950/60 rounded-xl p-3 border border-slate-800/50 min-w-[140px]">
-                        <div className="flex items-center gap-1.5 text-[10px] font-black text-slate-500 uppercase tracking-widest mb-1">
-                            <Wallet size={12} className="text-emerald-500" />
-                            Remaining
-                        </div>
-                        <div className="text-xl font-mono font-bold text-emerald-400">
-                            {formatPrice(team.purse_remaining)}
-                        </div>
-                    </div>
-                    <div className="bg-slate-950/60 rounded-xl p-3 border border-slate-800/50 min-w-[140px]">
-                        <div className="flex items-center gap-1.5 text-[10px] font-black text-slate-500 uppercase tracking-widest mb-1">
-                            <TrendingUp size={12} className="text-amber-500" />
-                            Avg / Player
-                        </div>
-                        <div className="text-xl font-mono font-bold text-amber-400">
-                            ₹{teamPlayers.length > 0
-                                ? formatPrice(Math.round(teamPlayers.reduce((s, p) => s + (p.sold_price || 0), 0) / teamPlayers.length))
-                                : "0"}
-                        </div>
-                    </div>
-                </div>
-            </div>
+                {/* Gradient overlay at bottom */}
+                <div className="absolute inset-x-0 bottom-0 h-1/2 bg-gradient-to-t from-black via-black/50 to-transparent" />
 
-            <div className="grid grid-cols-1 lg:grid-cols-12 gap-fluid flex-1 min-h-0">
-                {/* Pitch / Field Layout */}
-                <div className="lg:col-span-8 relative rounded-3xl overflow-hidden border border-slate-800 shadow-2xl bg-slate-950">
-                    {/* Pitch Markings */}
+                {/* Single Line Name overlay */}
+                <div className="absolute inset-x-0 bottom-0 p-1.5 sm:p-2 flex flex-col items-center justify-end">
                     <div
-                        className="absolute inset-0 opacity-20"
+                        className={`font-heading font-bold uppercase tracking-tight truncate w-full text-center ${size === "featured"
+                            ? "text-sm sm:text-base md:text-lg"
+                            : "text-[10px] sm:text-xs md:text-sm"
+                            } ${accentColor === "rose"
+                                ? "text-rose-400"
+                                : isCaptain
+                                    ? "text-amber-400"
+                                    : "text-white"
+                            }`}
+                    >
+                        {player.name}
+                    </div>
+                </div>
+
+                {/* Captain badge */}
+                {isCaptain && (
+                    <div className="absolute top-1.5 right-1.5 bg-amber-500 text-black text-[9px] font-black w-5 h-5 rounded-full flex items-center justify-center shadow-lg border border-amber-200 z-10">
+                        C
+                    </div>
+                )}
+
+                {/* Role emoji badge (cricket mode) */}
+                {sportType === "cricket" && (
+                    <div className="absolute top-1.5 left-1.5 bg-black/60 backdrop-blur-sm text-sm w-7 h-7 rounded-lg flex items-center justify-center z-10">
+                        {getRoleEmoji(player.role)}
+                    </div>
+                )}
+            </div>
+        </div>
+    );
+}
+
+// ═══════════════════════════════════════════════════════════════════
+// FOOTBALL MODE — FIFA FIFPro World XI style
+// ═══════════════════════════════════════════════════════════════════
+function FootballFormation({
+    groupedPlayers,
+    captain,
+}: {
+    groupedPlayers: Record<string, Player[]>;
+    captain: Player | null;
+}) {
+    const roles = ["Forward", "Midfielder", "Defender", "Goalkeeper"];
+    let playerIndex = 0;
+
+    return (
+        <div className="relative w-full h-full min-h-[500px] rounded-2xl overflow-hidden">
+            {/* Background — dark pitch */}
+            <div
+                className="absolute inset-0"
+                style={{
+                    background: "linear-gradient(160deg, #0a1a0f 0%, #071210 40%, #030a08 100%)",
+                }}
+            />
+
+            {/* Field markings — faint gold */}
+            <svg className="absolute inset-0 w-full h-full opacity-[0.2] stroke-amber-500/40 text-amber-500/40" preserveAspectRatio="none" viewBox="0 0 100 100">
+                {/* Center line */}
+                <line x1="0" y1="50" x2="100" y2="50" strokeWidth="0.3" />
+                {/* Center circle */}
+                <circle cx="50" cy="50" r="12" fill="none" strokeWidth="0.3" />
+                <circle cx="50" cy="50" r="0.8" fill="currentColor" stroke="none" />
+                {/* Penalty arcs top */}
+                <rect x="25" y="0" width="50" height="16" fill="none" strokeWidth="0.3" />
+                <rect x="35" y="0" width="30" height="6" fill="none" strokeWidth="0.3" />
+                {/* Penalty arcs bottom */}
+                <rect x="25" y="84" width="50" height="16" fill="none" strokeWidth="0.3" />
+                <rect x="35" y="94" width="30" height="6" fill="none" strokeWidth="0.3" />
+            </svg>
+
+            {/* Floating particles */}
+            <div className="absolute inset-0 overflow-hidden pointer-events-none">
+                {[...Array(6)].map((_, i) => (
+                    <div
+                        key={i}
+                        className="absolute w-1 h-1 bg-amber-500/20 rounded-full animate-pulse"
                         style={{
-                            backgroundImage: isFootball
-                                ? "linear-gradient(to bottom, transparent 49%, rgba(16, 185, 129, 0.4) 50%, transparent 51%), radial-gradient(circle at center, rgba(16, 185, 129, 0.4) 10%, transparent 11%)"
-                                : "radial-gradient(ellipse at center, rgba(34, 197, 94, 0.3) 0%, transparent 70%)",
-                            backgroundColor: isFootball ? "#064e3b" : "#14532d",
+                            top: `${15 + i * 15}%`,
+                            left: `${10 + i * 14}%`,
+                            animationDelay: `${i * 0.7}s`,
+                            animationDuration: `${2 + i * 0.5}s`,
                         }}
                     />
-                    <div className="absolute inset-0 bg-gradient-to-t from-slate-950 via-transparent to-transparent opacity-60" />
+                ))}
+            </div>
 
-                    {/* Player Formation Grid */}
-                    <div className="relative z-10 h-full flex flex-col justify-around py-12 px-8">
-                        {roles.map((role) => (
-                            <div key={role} className="flex flex-col items-center gap-4">
-                                <div className="text-[10px] font-black text-white/30 uppercase tracking-[0.4em] border-b border-white/5 w-full text-center pb-2">
-                                    {role}
-                                </div>
-                                <div className="flex flex-wrap justify-center gap-6">
-                                    <AnimatePresence mode="popLayout">
-                                        {groupedPlayers[role].map((player) => (
+            {/* Gradient overlays */}
+            <div className="absolute inset-0 bg-gradient-to-t from-black/50 via-transparent to-black/30" />
+
+            {/* Formation grid */}
+            <div className="relative z-10 h-full flex flex-col justify-around py-6 sm:py-8 md:py-10 px-4 sm:px-6 md:px-8">
+                {roles.map((role) => {
+                    const playersInRole = groupedPlayers[role] || [];
+                    return (
+                        <div key={role} className="flex flex-col items-center gap-2 sm:gap-3">
+                            {/* Role label */}
+                            <div className="text-[8px] sm:text-[9px] font-heading font-bold text-amber-500/30 uppercase tracking-[0.5em]">
+                                {role}
+                            </div>
+                            {/* Player cards row */}
+                            <div className="flex flex-wrap justify-center gap-3 sm:gap-4 md:gap-6">
+                                <AnimatePresence mode="popLayout">
+                                    {playersInRole.map((player) => {
+                                        const idx = playerIndex++;
+                                        return (
                                             <motion.div
                                                 key={player.id}
+                                                custom={idx}
+                                                variants={cardVariants}
+                                                initial="hidden"
+                                                animate="visible"
+                                                exit="exit"
                                                 layout
-                                                initial={{ scale: 0, opacity: 0, y: 20 }}
-                                                animate={{ scale: 1, opacity: 1, y: 0 }}
-                                                exit={{ scale: 0, opacity: 0 }}
-                                                transition={{
-                                                    type: "spring",
-                                                    stiffness: 260,
-                                                    damping: 20,
-                                                    layout: { duration: 0.3 }
-                                                }}
-                                                className="flex flex-col items-center group"
                                             >
-                                                <div className="relative">
-                                                    <PlayerAvatar
-                                                        id={player.id}
-                                                        name={player.name}
-                                                        role={player.role}
-                                                        photoUrl={player.photo_url}
-                                                        size="lg"
-                                                        showBadge={false}
-                                                    />
-                                                    {player.is_captain && (
-                                                        <div className="absolute -top-1 -right-1 bg-amber-500 text-black text-[10px] font-black w-5 h-5 rounded-full flex items-center justify-center shadow-lg border border-amber-200">
-                                                            C
-                                                        </div>
-                                                    )}
-                                                </div>
-                                                <div className="mt-2 text-center">
-                                                    <div className="text-xs font-bold text-white group-hover:text-emerald-400 transition-colors truncate max-w-[80px]">
-                                                        {player.name}
-                                                    </div>
-                                                    <div className="text-[10px] font-mono text-emerald-500/80">
-                                                        {formatPrice(player.sold_price)}
-                                                    </div>
-                                                </div>
+                                                <PlayerCard
+                                                    player={player}
+                                                    isCaptain={captain?.id === player.id}
+                                                    accentColor="gold"
+                                                    sportType="football"
+                                                />
                                             </motion.div>
-                                        ))}
-                                        {groupedPlayers[role].length === 0 && (
-                                            <div className="h-20 w-20 rounded-full border border-dashed border-white/10 flex items-center justify-center text-white/5 text-[10px] font-black uppercase tracking-tighter italic">
-                                                Empty Slot
-                                            </div>
-                                        )}
-                                    </AnimatePresence>
-                                </div>
+                                        );
+                                    })}
+                                    {playersInRole.length === 0 && (
+                                        <div className="h-28 sm:h-32 w-20 sm:w-24 rounded-xl border border-dashed border-amber-500/10 flex items-center justify-center">
+                                            <span className="text-[8px] text-amber-500/15 font-heading uppercase tracking-wider">
+                                                Empty
+                                            </span>
+                                        </div>
+                                    )}
+                                </AnimatePresence>
                             </div>
-                        ))}
+                        </div>
+                    );
+                })}
+            </div>
+
+            {/* Bottom label */}
+            <div className="absolute bottom-3 left-1/2 -translate-x-1/2 text-[9px] sm:text-[10px] font-heading font-bold text-amber-500/25 uppercase tracking-[0.4em] z-10">
+                ⚽ Formation XI
+            </div>
+        </div>
+    );
+}
+
+// ═══════════════════════════════════════════════════════════════════
+// CRICKET MODE — ICC Team of Tournament style
+// ═══════════════════════════════════════════════════════════════════
+function CricketFormation({
+    groupedPlayers,
+    captain,
+}: {
+    groupedPlayers: Record<string, Player[]>;
+    captain: Player | null;
+}) {
+    // Flatten all players for the grid, star goes to the featured slot
+    const allPlayers = useMemo(() => {
+        const roles = ["Batsman", "Wicketkeeper", "Allrounder", "Bowler"];
+        return roles.flatMap((role) => groupedPlayers[role] || []);
+    }, [groupedPlayers]);
+
+    // Featured player = captain, or highest-priced
+    const featured = useMemo(() => {
+        if (captain) return captain;
+        if (allPlayers.length === 0) return null;
+        return [...allPlayers].sort((a, b) => (b.sold_price || 0) - (a.sold_price || 0))[0];
+    }, [captain, allPlayers]);
+
+    const gridPlayers = allPlayers.filter((p) => p.id !== featured?.id);
+    let playerIndex = 0;
+
+    return (
+        <div className="relative w-full h-full min-h-[500px] rounded-2xl overflow-hidden">
+            {/* Background — dark pitch */}
+            <div
+                className="absolute inset-0"
+                style={{
+                    background: "linear-gradient(160deg, #0a1a0f 0%, #071210 40%, #030a08 100%)",
+                }}
+            />
+
+            {/* Field markings — faint gold (unifying cricket and football look for auction phase) */}
+            <svg className="absolute inset-0 w-full h-full opacity-[0.2] stroke-amber-500/40 text-amber-500/40" preserveAspectRatio="none" viewBox="0 0 100 100">
+                {/* Center line */}
+                <line x1="0" y1="50" x2="100" y2="50" strokeWidth="0.3" />
+                {/* Center circle */}
+                <circle cx="50" cy="50" r="12" fill="none" strokeWidth="0.3" />
+                <circle cx="50" cy="50" r="0.8" fill="currentColor" stroke="none" />
+            </svg>
+
+            {/* Floating particles */}
+            <div className="absolute inset-0 overflow-hidden pointer-events-none">
+                {[...Array(6)].map((_, i) => (
+                    <div
+                        key={i}
+                        className="absolute w-1 h-1 bg-amber-500/20 rounded-full animate-pulse"
+                        style={{
+                            top: `${15 + i * 15}%`,
+                            left: `${10 + i * 14}%`,
+                            animationDelay: `${i * 0.7}s`,
+                            animationDuration: `${2 + i * 0.5}s`,
+                        }}
+                    />
+                ))}
+            </div>
+
+            {/* Gradient overlays */}
+            <div className="absolute inset-0 bg-gradient-to-t from-black/50 via-transparent to-black/30" />
+
+            {/* Header label */}
+            <div className="absolute top-4 left-1/2 -translate-x-1/2 text-[10px] sm:text-xs font-heading font-bold text-amber-500/40 uppercase tracking-[0.5em] z-10">
+                🏏 Squad XI
+            </div>
+
+            {/* Content layout — featured left, grid right */}
+            <div className="relative z-10 h-full flex flex-col md:flex-row items-center md:items-stretch gap-4 sm:gap-6 p-6 sm:p-8 md:p-10 pt-10 sm:pt-12">
+                {/* Featured Star Card */}
+                {featured && (
+                    <motion.div
+                        initial={{ opacity: 0, x: -30 }}
+                        animate={{ opacity: 1, x: 0 }}
+                        transition={{ type: "spring", stiffness: 200, damping: 20 }}
+                        className="flex-shrink-0 flex items-center justify-center"
+                    >
+                        <PlayerCard
+                            player={featured}
+                            isCaptain={captain?.id === featured.id}
+                            accentColor="rose"
+                            size="featured"
+                            sportType="cricket"
+                        />
+                    </motion.div>
+                )}
+
+                {/* Grid of remaining players */}
+                <div className="flex-1 flex items-center justify-center">
+                    <div className="grid grid-cols-3 gap-3 sm:gap-4 md:gap-5">
+                        <AnimatePresence mode="popLayout">
+                            {gridPlayers.map((player) => {
+                                const idx = playerIndex++;
+                                return (
+                                    <motion.div
+                                        key={player.id}
+                                        custom={idx}
+                                        variants={cardVariants}
+                                        initial="hidden"
+                                        animate="visible"
+                                        exit="exit"
+                                        layout
+                                    >
+                                        <PlayerCard
+                                            player={player}
+                                            isCaptain={captain?.id === player.id}
+                                            accentColor="rose"
+                                            sportType="cricket"
+                                        />
+                                    </motion.div>
+                                );
+                            })}
+                        </AnimatePresence>
                     </div>
                 </div>
+            </div>
+        </div>
+    );
+}
 
-                {/* Team Highlights / Sidebar */}
-                <div className="lg:col-span-4 flex flex-col gap-fluid">
-                    <Card className="border-slate-800 bg-slate-900/50 backdrop-blur-md p-5 flex flex-col items-center text-center">
-                        <div className="flex items-center gap-2 text-amber-500 font-black text-xs uppercase tracking-widest mb-6">
-                            <Star size={14} fill="currentColor" />
-                            Franchise Star
-                        </div>
+// ═══════════════════════════════════════════════════════════════════
+// MAIN EXPORT — delegates to football or cricket mode
+// ═══════════════════════════════════════════════════════════════════
+export function TeamFormation({ groupedPlayers, captain, sportType }: TeamFormationProps) {
+    return sportType === "football" ? (
+        <FootballFormation groupedPlayers={groupedPlayers} captain={captain} />
+    ) : (
+        <CricketFormation groupedPlayers={groupedPlayers} captain={captain} />
+    );
+}
+````
 
-                        <AnimatePresence mode="wait">
-                            {teamStar ? (
-                                <motion.div
-                                    key={teamStar.id}
-                                    initial={{ opacity: 0, scale: 0.9 }}
-                                    animate={{ opacity: 1, scale: 1 }}
-                                    className="w-full flex flex-col items-center"
-                                >
-                                    <div className="relative mb-4">
-                                        <div className="absolute inset-0 bg-amber-500/20 blur-3xl rounded-full" />
-                                        <PlayerAvatar
-                                            id={teamStar.id}
-                                            name={teamStar.name}
-                                            role={teamStar.role}
-                                            photoUrl={teamStar.photo_url}
-                                            size="xl"
-                                            showBadge={true}
-                                        />
-                                    </div>
-                                    <h3 className="text-xl font-black text-white italic uppercase tracking-tighter">
-                                        {teamStar.name}
-                                    </h3>
-                                    <div className="text-[11px] text-amber-500 font-bold uppercase tracking-[0.2em] mt-1">
-                                        {teamStar.role}
-                                    </div>
-                                    <div className="mt-4 px-6 py-2 rounded-full bg-slate-950 border border-amber-500/50 text-amber-400 font-mono font-bold text-lg shadow-lg shadow-amber-900/20">
-                                        {formatPrice(teamStar.sold_price)}
-                                    </div>
-                                </motion.div>
-                            ) : (
-                                <div className="flex-1 flex flex-col items-center justify-center py-12 text-slate-600">
-                                    <Star size={48} className="opacity-10 mb-2" />
-                                    <p className="text-sm italic font-medium">Awaiting first signing...</p>
-                                </div>
-                            )}
-                        </AnimatePresence>
-                    </Card>
+## File: components/live/TeamRosterPanel.tsx
+````typescript
+"use client";
 
-                    <Card className="flex-1 border-slate-800 bg-slate-900/50 backdrop-blur-md p-5 overflow-hidden flex flex-col">
-                        <div className="text-[10px] font-black text-slate-500 uppercase tracking-widest mb-4">
-                            Roster Feed
-                        </div>
-                        <div className="flex-1 overflow-y-auto pr-2 custom-scrollbar space-y-3">
-                            {[...teamPlayers].reverse().map((p) => (
-                                <div key={p.id} className="flex items-center justify-between border-l-2 border-emerald-500 bg-slate-950/40 p-3 rounded-r-xl">
-                                    <div>
-                                        <div className="text-sm font-bold text-slate-200">{p.name}</div>
-                                        <div className="text-[10px] text-slate-500 uppercase font-black">{p.role}</div>
-                                    </div>
-                                    <div className="text-right font-mono text-emerald-500 font-bold">
-                                        {formatPrice(p.sold_price)}
-                                    </div>
+import { AnimatePresence, motion } from "framer-motion";
+import { Player } from "@/lib/hooks/useAuctionState";
+import { PlayerAvatar } from "@/components/PlayerAvatar";
+import { Card } from "@/components/ui/card";
+import { Crown, Sparkles, Star } from "lucide-react";
+import { formatPrice } from "@/lib/utils";
+
+interface TeamRosterPanelProps {
+    captain: Player | null;
+    mvp: Player | null;
+    teamPlayers: Player[];
+}
+
+export function TeamRosterPanel({ captain, mvp, teamPlayers }: TeamRosterPanelProps) {
+    return (
+        <div className="flex flex-col gap-3 sm:gap-4 h-full">
+            {/* Captain & MVP Cards */}
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                {/* Captain Card */}
+                <div className="relative rounded-2xl border-2 border-amber-500/30 bg-gradient-to-br from-amber-950/20 to-slate-900/40 p-6 flex flex-col items-center justify-center text-center overflow-hidden">
+                    <div className="absolute top-0 right-0 w-28 h-28 bg-amber-500/5 blur-[60px] rounded-full" />
+
+                    {/* Top Label */}
+                    <div className="flex items-center gap-2 text-amber-500 font-black text-[9px] uppercase tracking-[0.3em] mb-4">
+                        <Crown size={11} fill="currentColor" />
+                        Captain
+                    </div>
+
+                    {captain ? (
+                        <>
+                            {/* Player Avatar */}
+                            <div className="relative flex-shrink-0 mb-3">
+                                <div className="absolute inset-0 bg-amber-500/20 blur-2xl rounded-full" />
+                                <PlayerAvatar
+                                    id={captain.id}
+                                    name={captain.name}
+                                    role={captain.role}
+                                    photoUrl={captain.photo_url}
+                                    size="lg"
+                                    isCaptain={true}
+                                />
+                            </div>
+
+                            {/* Player Details */}
+                            <div className="w-full min-w-0">
+                                <h4 className="text-base sm:text-lg font-heading font-bold text-white uppercase tracking-tighter truncate w-full">
+                                    {captain.name}
+                                </h4>
+                                <div className="text-[10px] text-amber-500 font-bold uppercase tracking-[0.2em] mt-1 mb-3 truncate w-full">
+                                    {captain.role}
                                 </div>
-                            ))}
-                            {teamPlayers.length === 0 && (
-                                <div className="h-full flex items-center justify-center text-slate-600 text-[11px] uppercase font-bold tracking-widest italic">
-                                    Feed Empty
+                                <div className="px-3 py-1 rounded-full bg-slate-950/80 border border-amber-500/40 text-amber-400 font-mono font-bold text-sm inline-block max-w-full">
+                                    <span className="truncate block">{formatPrice(captain.sold_price)}</span>
                                 </div>
-                            )}
+                            </div>
+                        </>
+                    ) : (
+                        <div className="flex-1 flex flex-col items-center justify-center py-6 text-slate-600 text-sm italic">
+                            No captain assigned
                         </div>
-                    </Card>
+                    )}
+                </div>
+
+                {/* MVP Card */}
+                <div className="relative rounded-2xl border-2 border-emerald-500/30 bg-gradient-to-br from-emerald-950/20 to-slate-900/40 p-6 flex flex-col items-center justify-center text-center overflow-hidden">
+                    <div className="absolute top-0 right-0 w-28 h-28 bg-emerald-500/5 blur-[60px] rounded-full" />
+
+                    {/* Top Label */}
+                    <div className="flex items-center gap-2 text-emerald-500 font-black text-[9px] uppercase tracking-[0.3em] mb-4">
+                        <Sparkles size={11} fill="currentColor" />
+                        Most Valuable
+                    </div>
+
+                    {mvp ? (
+                        <>
+                            {/* Player Avatar */}
+                            <div className="relative flex-shrink-0 mb-3">
+                                <div className="absolute inset-0 bg-emerald-500/20 blur-2xl rounded-full" />
+                                <PlayerAvatar
+                                    id={mvp.id}
+                                    name={mvp.name}
+                                    role={mvp.role}
+                                    photoUrl={mvp.photo_url}
+                                    size="lg"
+                                />
+                            </div>
+
+                            {/* Player Details */}
+                            <div className="w-full min-w-0">
+                                <h4 className="text-base sm:text-lg font-heading font-bold text-white uppercase tracking-tighter truncate w-full">
+                                    {mvp.name}
+                                </h4>
+                                <div className="text-[10px] text-emerald-500 font-bold uppercase tracking-[0.2em] mt-1 mb-3 truncate w-full">
+                                    {mvp.role}
+                                </div>
+                                <div className="px-3 py-1 rounded-full bg-slate-950/80 border border-emerald-500/40 text-emerald-400 font-mono font-bold text-sm inline-block max-w-full">
+                                    <span className="truncate block">{formatPrice(mvp.sold_price)}</span>
+                                </div>
+                            </div>
+                        </>
+                    ) : (
+                        <div className="flex-1 flex flex-col items-center justify-center py-6 text-slate-600 text-sm italic">
+                            No non-captain signings
+                        </div>
+                    )}
                 </div>
             </div>
+
+            {/* Roster Feed */}
+            <Card className="flex-1 border-slate-800 bg-slate-900/50 backdrop-blur-md p-4 sm:p-5 overflow-hidden flex flex-col">
+                <div className="text-[9px] sm:text-[10px] font-black text-slate-500 uppercase tracking-widest mb-3">
+                    Roster Feed
+                </div>
+                <div className="flex-1 overflow-y-auto pr-2 custom-scrollbar space-y-2">
+                    {[...teamPlayers].reverse().map((p) => (
+                        <div
+                            key={p.id}
+                            className="flex items-center justify-between border-l-2 border-emerald-500 bg-slate-950/40 p-2.5 sm:p-3 rounded-r-xl"
+                        >
+                            <div>
+                                <div className="text-xs sm:text-sm font-bold text-slate-200">{p.name}</div>
+                                <div className="text-[9px] sm:text-[10px] text-slate-500 uppercase font-black">
+                                    {p.role}
+                                    {p.is_captain && " • Captain"}
+                                </div>
+                            </div>
+                            <div className="text-right font-mono text-emerald-500 font-bold text-xs sm:text-sm">
+                                {formatPrice(p.sold_price)}
+                            </div>
+                        </div>
+                    ))}
+                    {teamPlayers.length === 0 && (
+                        <div className="h-full flex items-center justify-center text-slate-600 text-[10px] uppercase font-bold tracking-widest italic">
+                            Feed Empty
+                        </div>
+                    )}
+                </div>
+            </Card>
 
             <style dangerouslySetInnerHTML={{
                 __html: `
-        .custom-scrollbar::-webkit-scrollbar {
-          width: 4px;
-        }
-        .custom-scrollbar::-webkit-scrollbar-thumb {
-          background: #334155;
-          border-radius: 10px;
-        }
-      `}} />
+          .custom-scrollbar::-webkit-scrollbar { width: 4px; }
+          .custom-scrollbar::-webkit-scrollbar-thumb { background: #334155; border-radius: 10px; }
+        `,
+            }} />
         </div>
     );
 }
@@ -5438,17 +5946,26 @@ export function TeamFormation({ team, players, sportType }: TeamFormationProps) 
 ````typescript
 "use client";
 
+import { useEffect, useState } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { Player } from "@/lib/hooks/useAuctionState";
-import { PlayerAvatar } from "@/components/PlayerAvatar";
 import { XCircle } from "lucide-react";
 
 interface UnsoldFeedbackProps {
     player: Player | null;
     isVisible: boolean;
+    currentView?: "auction" | "roster" | "repository";
 }
 
-export function UnsoldFeedback({ player, isVisible }: UnsoldFeedbackProps) {
+export function UnsoldFeedback({ player, isVisible, currentView = "auction" }: UnsoldFeedbackProps) {
+    const [isDismissed, setIsDismissed] = useState(false);
+
+    // Reset dismissal when a new player is unsold
+    useEffect(() => {
+        setIsDismissed(false);
+    }, [player?.id]);
+
+    if (currentView !== "auction" || isDismissed) return null;
     if (!player) return null;
 
     return (
@@ -5458,54 +5975,115 @@ export function UnsoldFeedback({ player, isVisible }: UnsoldFeedbackProps) {
                     initial={{ opacity: 0 }}
                     animate={{ opacity: 1 }}
                     exit={{ opacity: 0 }}
-                    className="fixed inset-0 z-[200] flex items-center justify-center p-6"
+                    transition={{ duration: 0.4 }}
+                    onClick={() => setIsDismissed(true)}
+                    className="fixed inset-0 z-[200] flex flex-col items-center justify-center px-4 py-6 md:px-12 md:py-10 sm:px-8 sm:py-8 cursor-pointer overflow-hidden"
                 >
-                    {/* Backdrop with aggressive blur */}
-                    <div className="absolute inset-0 bg-slate-950/90 backdrop-blur-2xl" />
+                    {/* Dark Navy Overlay with Blur */}
+                    <div className="absolute inset-0 bg-slate-950/90 backdrop-blur-xl" />
 
-                    <div className="absolute inset-0">
-                        <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[150vw] h-[150vw] md:w-[600px] md:h-[600px] max-w-[800px] max-h-[800px] bg-rose-500/10 blur-[80px] md:blur-[120px] rounded-full animate-pulse" />
-                    </div>
+                    {/* Radial Red Glow */}
+                    <motion.div
+                        initial={{ scale: 0.5, opacity: 0 }}
+                        animate={{ scale: 1, opacity: 1 }}
+                        transition={{ duration: 1, ease: "easeOut" }}
+                        className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[150vw] h-[150vw] md:w-[800px] md:h-[800px] bg-rose-500/20 blur-[100px] rounded-full pointer-events-none"
+                    />
 
-                    <div className="relative z-10 flex flex-col items-center text-center max-w-2xl w-full">
+                    {/* Content Container */}
+                    <div className="relative z-10 flex flex-col items-center text-center max-w-4xl w-full">
+
+                        {/* 1. Photo Card Drop */}
                         <motion.div
-                            initial={{ scale: 0, opacity: 0 }}
-                            animate={{ scale: 1, opacity: 1 }}
-                            transition={{ type: "spring", bounce: 0.5, duration: 0.8 }}
-                            className="mb-8"
+                            initial={{ scale: 0.3, rotateX: 45, opacity: 0, y: -50 }}
+                            animate={{ scale: 1, rotateX: 0, opacity: 1, y: 0 }}
+                            transition={{ type: "spring", stiffness: 200, damping: 20, delay: 0.1 }}
+                            className="relative w-[200px] h-[250px] sm:w-[256px] sm:h-[320px] rounded-2xl overflow-hidden border-2 border-rose-500/60 shadow-[0_0_30px_rgba(244,63,94,0.4)] bg-slate-900 flex-shrink-0"
                         >
-                            <div className="relative">
-                                <div className="absolute inset-0 bg-rose-500/20 blur-2xl rounded-full" />
-                                <PlayerAvatar
-                                    id={player.id}
-                                    name={player.name}
-                                    role={player.role}
-                                    photoUrl={player.photo_url}
-                                    size="xl"
-                                />
+                            {/* Pulsing Rose Shadow Animation over the card */}
+                            <motion.div
+                                animate={{ boxShadow: ["0 0 20px rgba(244,63,94,0.3)", "0 0 50px rgba(244,63,94,0.7)", "0 0 20px rgba(244,63,94,0.3)"] }}
+                                transition={{ repeat: Infinity, duration: 2, ease: "easeInOut" }}
+                                className="absolute inset-0 rounded-2xl pointer-events-none z-20"
+                            />
+
+                            {/* Photo */}
+                            {player.photo_url ? (
+                                <img src={player.photo_url} alt={player.name} className="absolute inset-0 w-full h-full object-cover object-top" />
+                            ) : (
+                                <div className="absolute inset-0 flex items-center justify-center bg-gradient-to-br from-slate-800 to-slate-900">
+                                    <span className="text-6xl font-heading font-bold text-slate-700 uppercase">{player.name.charAt(0)}</span>
+                                </div>
+                            )}
+
+                            {/* Gradient Overlay */}
+                            <div className="absolute inset-0 bg-gradient-to-t from-black/90 via-black/20 to-transparent z-10" />
+
+                            {/* Shimmer Sweep */}
+                            <motion.div
+                                animate={{ x: ["-100%", "200%"] }}
+                                transition={{ repeat: Infinity, duration: 3, ease: "linear", delay: 0.5 }}
+                                className="absolute inset-0 z-20 bg-gradient-to-r from-transparent via-white/20 to-transparent skew-x-12 w-full"
+                            />
+
+                            {/* Badges */}
+                            <div className="absolute bottom-3 left-3 right-3 flex justify-between items-end z-30">
+                                <div className="bg-black/60 backdrop-blur-md px-2 py-1 rounded border border-white/10 text-[10px] font-bold text-slate-300 uppercase tracking-wider">
+                                    {player.role}
+                                </div>
                             </div>
                         </motion.div>
 
+                        {/* 2. Player Name */}
+                        <motion.h1
+                            initial={{ y: 30, opacity: 0, scale: 0.9 }}
+                            animate={{ y: 0, opacity: 1, scale: 1 }}
+                            transition={{ type: "spring", stiffness: 300, damping: 25, delay: 0.25 }}
+                            className="text-3xl sm:text-4xl md:text-5xl font-heading font-black text-rose-50 uppercase tracking-tighter mt-6 md:mt-8 drop-shadow-[0_0_15px_rgba(244,63,94,0.3)]"
+                        >
+                            {player.name}
+                        </motion.h1>
+
+                        {/* 3. Status Text */}
+                        <motion.div
+                            initial={{ scale: 0.5, opacity: 0 }}
+                            animate={{ scale: 1, opacity: 1 }}
+                            transition={{ type: "spring", stiffness: 400, damping: 15, delay: 0.35 }}
+                            className="mt-2"
+                        >
+                            <div className="text-6xl sm:text-7xl md:text-9xl font-black italic tracking-tighter text-rose-500 uppercase leading-none drop-shadow-[0_0_20px_rgba(244,63,94,0.6)]">
+                                UNSOLD
+                            </div>
+                        </motion.div>
+
+                        {/* 4. Result Message Card */}
                         <motion.div
                             initial={{ y: 50, opacity: 0 }}
                             animate={{ y: 0, opacity: 1 }}
-                            transition={{ delay: 0.4 }}
-                            className="space-y-4"
+                            transition={{ type: "spring", stiffness: 200, damping: 25, delay: 0.5 }}
+                            className="mt-6 md:mt-8 w-full max-w-sm mx-auto"
                         >
-                            <h2 className="text-6xl md:text-8xl lg:text-9xl font-black italic tracking-tighter text-rose-500 uppercase drop-shadow-[0_0_30px_rgba(244,63,94,0.4)]">
-                                UNSOLD
-                            </h2>
-
-                            <div className="flex flex-col items-center gap-2 mt-4 text-rose-400">
-                                <XCircle strokeWidth={2.5} size={32} className="opacity-80 mb-2" />
-                                <div className="font-bold uppercase tracking-[0.4em] text-sm md:text-base">
+                            <div className="flex flex-col items-center justify-center bg-rose-500/15 rounded-full px-6 py-4 sm:px-8 sm:py-5 border border-rose-500/30 backdrop-blur-sm shadow-[0_0_30px_rgba(244,63,94,0.15)]">
+                                <div className="flex items-center gap-2 text-rose-400 font-bold uppercase tracking-widest text-xs sm:text-sm">
+                                    <XCircle size={16} strokeWidth={2.5} />
                                     No Bids Received
                                 </div>
-                                <div className="text-rose-300/60 font-medium italic mt-2 text-sm max-w-sm">
-                                    Player has been returned to the repository and may be drawn again in later phases.
+                                <div className="text-rose-200/60 font-medium italic mt-1.5 text-[10px] sm:text-xs">
+                                    Returns to auction pool
                                 </div>
                             </div>
                         </motion.div>
+
+                        {/* 5. Dismiss Text */}
+                        <motion.div
+                            initial={{ opacity: 0 }}
+                            animate={{ opacity: 0.5 }}
+                            transition={{ delay: 1.5, duration: 1 }}
+                            className="absolute -bottom-12 sm:-bottom-16 text-white text-xs sm:text-sm font-medium tracking-widest uppercase italic"
+                        >
+                            Tap anywhere to dismiss
+                        </motion.div>
+
                     </div>
                 </motion.div>
             )}
@@ -6452,6 +7030,34 @@ export function useAuctionState(auctionId: string) {
         [teams, state?.leading_team_id],
     );
 
+    const lastSale = useMemo(() => {
+        if (!state) return null;
+        if (state.phase === "completed_sale") {
+            const player = players.find(p => p.id === state.current_player_id);
+            const team = teams.find(t => t.id === state.leading_team_id);
+            if (player) {
+                return {
+                    player,
+                    team: team ?? null,
+                    price: state.current_bid,
+                    result: "sold" as const
+                };
+            }
+        }
+        if (state.phase === "completed_unsold") {
+            const player = players.find(p => p.id === state.current_player_id);
+            if (player) {
+                return {
+                    player,
+                    team: null,
+                    price: null,
+                    result: "unsold" as const
+                };
+            }
+        }
+        return null;
+    }, [state?.phase, state?.current_player_id, state?.leading_team_id, state?.current_bid, players, teams]);
+
     return {
         auction,
         teams,
@@ -6459,6 +7065,7 @@ export function useAuctionState(auctionId: string) {
         state,
         currentPlayer,
         leadingTeam,
+        lastSale,
         loading,
         error,
         setPlayers, // For local optimism if needed
@@ -6554,6 +7161,104 @@ export function createPreviewUrl(blob: Blob): string {
  */
 export function revokePreviewUrl(url: string): void {
   URL.revokeObjectURL(url);
+}
+````
+
+## File: lib/shared/playerUtils.ts
+````typescript
+import { Player, Team } from "@/lib/hooks/useAuctionState";
+
+// ─── Role Configuration ─────────────────────────────────────────────
+export const FOOTBALL_ROLES = ["Forward", "Midfielder", "Defender", "Goalkeeper"] as const;
+export const CRICKET_ROLES = ["Batsman", "Wicketkeeper", "Allrounder", "Bowler"] as const;
+
+export function getRolesForSport(sportType: string): string[] {
+    return sportType === "football" ? [...FOOTBALL_ROLES] : [...CRICKET_ROLES];
+}
+
+const ROLE_EMOJI: Record<string, string> = {
+    // Football
+    Forward: "⚽",
+    Midfielder: "⚽",
+    Defender: "🛡️",
+    Goalkeeper: "🥅",
+    // Cricket
+    Batsman: "🏏",
+    Bowler: "⚡",
+    Allrounder: "🎯",
+    Wicketkeeper: "🧤",
+};
+
+export function getRoleEmoji(role: string): string {
+    return ROLE_EMOJI[role] || "⚽";
+}
+
+// ─── Player Grouping ────────────────────────────────────────────────
+export function getTeamPlayers(players: Player[], teamId: string): Player[] {
+    return players.filter((p) => p.sold_team_id === teamId);
+}
+
+export function groupPlayersByRole(
+    players: Player[],
+    sportType: string,
+): Record<string, Player[]> {
+    const roles = getRolesForSport(sportType);
+    return roles.reduce(
+        (acc, role) => {
+            acc[role] = players.filter((p) => p.role === role);
+            return acc;
+        },
+        {} as Record<string, Player[]>,
+    );
+}
+
+// ─── Key Player Detection ───────────────────────────────────────────
+export function getCaptain(players: Player[]): Player | null {
+    return players.find((p) => p.is_captain) || null;
+}
+
+/** Highest-priced non-captain player */
+export function getMVP(players: Player[]): Player | null {
+    const nonCaptains = players.filter((p) => !p.is_captain);
+    if (nonCaptains.length === 0) return null;
+    return [...nonCaptains].sort(
+        (a, b) => (b.sold_price || 0) - (a.sold_price || 0),
+    )[0];
+}
+
+/** Highest-priced player overall (captain or not) */
+export function getTeamStar(players: Player[]): Player | null {
+    if (players.length === 0) return null;
+    return [...players].sort(
+        (a, b) => (b.sold_price || 0) - (a.sold_price || 0),
+    )[0];
+}
+
+// ─── Team Stats ─────────────────────────────────────────────────────
+export function computeTeamStats(
+    team: Team,
+    teamPlayers: Player[],
+): { totalSpend: number; avgPerPlayer: number; signings: number } {
+    const totalSpend = teamPlayers.reduce(
+        (sum, p) => sum + (p.sold_price || 0),
+        0,
+    );
+    return {
+        totalSpend,
+        avgPerPlayer:
+            teamPlayers.length > 0 ? Math.round(totalSpend / teamPlayers.length) : 0,
+        signings: teamPlayers.length,
+    };
+}
+
+/** Split a name into first name and last name parts */
+export function splitName(name: string): { firstName: string; lastName: string } {
+    const parts = name.trim().split(/\s+/);
+    if (parts.length <= 1) return { firstName: "", lastName: parts[0] || "" };
+    return {
+        firstName: parts.slice(0, -1).join(" "),
+        lastName: parts[parts.length - 1],
+    };
 }
 ````
 
@@ -6680,6 +7385,11 @@ export default config;
 ## File: public/next.svg
 ````xml
 <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 394 80"><path fill="#000" d="M262 0h68.5v12.7h-27.2v66.6h-13.6V12.7H262V0ZM149 0v12.7H94v20.4h44.3v12.6H94v21h55v12.6H80.5V0h68.7zm34.3 0h-17.8l63.8 79.4h17.9l-32-39.7 32-39.6h-17.9l-23 28.6-23-28.6zm18.3 56.7-9-11-27.1 33.7h17.8l18.3-22.7z"/><path fill="#000" d="M81 79.3 17 0H0v79.3h13.6V17l50.2 62.3H81Zm252.6-.4c-1 0-1.8-.4-2.5-1s-1.1-1.6-1.1-2.6.3-1.8 1-2.5 1.6-1 2.6-1 1.8.3 2.5 1a3.4 3.4 0 0 1 .6 4.3 3.7 3.7 0 0 1-3 1.8zm23.2-33.5h6v23.3c0 2.1-.4 4-1.3 5.5a9.1 9.1 0 0 1-3.8 3.5c-1.6.8-3.5 1.3-5.7 1.3-2 0-3.7-.4-5.3-1s-2.8-1.8-3.7-3.2c-.9-1.3-1.4-3-1.4-5h6c.1.8.3 1.6.7 2.2s1 1.2 1.6 1.5c.7.4 1.5.5 2.4.5 1 0 1.8-.2 2.4-.6a4 4 0 0 0 1.6-1.8c.3-.8.5-1.8.5-3V45.5zm30.9 9.1a4.4 4.4 0 0 0-2-3.3 7.5 7.5 0 0 0-4.3-1.1c-1.3 0-2.4.2-3.3.5-.9.4-1.6 1-2 1.6a3.5 3.5 0 0 0-.3 4c.3.5.7.9 1.3 1.2l1.8 1 2 .5 3.2.8c1.3.3 2.5.7 3.7 1.2a13 13 0 0 1 3.2 1.8 8.1 8.1 0 0 1 3 6.5c0 2-.5 3.7-1.5 5.1a10 10 0 0 1-4.4 3.5c-1.8.8-4.1 1.2-6.8 1.2-2.6 0-4.9-.4-6.8-1.2-2-.8-3.4-2-4.5-3.5a10 10 0 0 1-1.7-5.6h6a5 5 0 0 0 3.5 4.6c1 .4 2.2.6 3.4.6 1.3 0 2.5-.2 3.5-.6 1-.4 1.8-1 2.4-1.7a4 4 0 0 0 .8-2.4c0-.9-.2-1.6-.7-2.2a11 11 0 0 0-2.1-1.4l-3.2-1-3.8-1c-2.8-.7-5-1.7-6.6-3.2a7.2 7.2 0 0 1-2.4-5.7 8 8 0 0 1 1.7-5 10 10 0 0 1 4.3-3.5c2-.8 4-1.2 6.4-1.2 2.3 0 4.4.4 6.2 1.2 1.8.8 3.2 2 4.3 3.4 1 1.4 1.5 3 1.5 5h-5.8z"/></svg>
+````
+
+## File: public/site.webmanifest
+````
+{"name":"","short_name":"","icons":[{"src":"/android-chrome-192x192.png","sizes":"192x192","type":"image/png"},{"src":"/android-chrome-512x512.png","sizes":"512x512","type":"image/png"}],"theme_color":"#ffffff","background_color":"#ffffff","display":"standalone"}
 ````
 
 ## File: public/vercel.svg
@@ -11284,6 +11994,329 @@ $$;
 -- Add the missing 'unsold_final' value to the player_status enum
 
 ALTER TYPE public.player_status ADD VALUE IF NOT EXISTS 'unsold_final';
+````
+
+## File: supabase/migrations/0032_admin_authorization_checks.sql
+````sql
+-- 0032_admin_authorization_checks.sql
+-- Add authorization checks to all admin-only RPC functions
+
+-- 1. Fix next_player - add admin check
+create or replace function public.next_player(p_auction_id uuid)
+returns public.auction_state
+language plpgsql
+security definer
+as $$
+declare
+  v_state public.auction_state;
+  v_player_id uuid;
+begin
+  -- Authorization check: only admins can call this function
+  if not exists (select 1 from public.profiles where id = auth.uid() and role = 'admin') then
+    raise exception 'Unauthorized: Only admins can draw next player';
+  end if;
+
+  select *
+    into v_state
+  from public.auction_state
+  where auction_id = p_auction_id
+  for update;
+
+  if not found then
+    insert into public.auction_state (auction_id, phase)
+    values (p_auction_id, 'phase1'::public.auction_phase)
+    returning * into v_state;
+  end if;
+
+  if v_state.phase = 'captain_round' or v_state.phase = 'phase1' or v_state.phase = 'idle' or (v_state.phase::text like 'completed%' and not exists (select 1 from public.players where status = 'upcoming_phase2' and auction_id = p_auction_id)) then
+    select id
+      into v_player_id
+    from public.players
+    where auction_id = p_auction_id
+      and status = 'upcoming'
+    order by random()
+    limit 1;
+
+    if not found then
+      update public.auction_state
+         set phase = 'phase_1_complete'::public.auction_phase,
+             current_player_id = null,
+             current_bid = null,
+             leading_team_id = null,
+             previous_bid = null,
+             previous_leading_team_id = null,
+             show_undo_notice = false
+       where id = v_state.id
+       returning * into v_state;
+      return v_state;
+    end if;
+
+    update public.auction_state
+       set phase = 'phase1'::public.auction_phase
+     where id = v_state.id;
+
+  elsif v_state.phase = 'phase_2_hype' or v_state.phase = 'phase2' or (v_state.phase::text like 'completed%' and exists (select 1 from public.players where status = 'upcoming_phase2' and auction_id = p_auction_id)) then
+    select id
+      into v_player_id
+    from public.players
+    where auction_id = p_auction_id
+      and status = 'upcoming_phase2'
+    order by random()
+    limit 1;
+
+    if not found then
+      update public.auction_state
+         set phase = 'phase_2_complete'::public.auction_phase,
+             current_player_id = null,
+             current_bid = null,
+             leading_team_id = null,
+             previous_bid = null,
+             previous_leading_team_id = null,
+             show_undo_notice = false
+       where id = v_state.id
+       returning * into v_state;
+      return v_state;
+    end if;
+
+    update public.auction_state
+       set phase = 'phase2'::public.auction_phase
+     where id = v_state.id;
+  end if;
+
+  update public.players
+    set status = 'live'::public.player_status
+  where id = v_player_id;
+
+  update public.auction_state
+     set 
+         previous_player_id = v_state.current_player_id, 
+         current_player_id = v_player_id,
+         current_bid = null,
+         leading_team_id = null,
+         previous_bid = null,
+         previous_leading_team_id = null,
+         show_undo_notice = false
+   where id = v_state.id
+   returning * into v_state;
+
+  return v_state;
+end;
+$$;
+
+-- 2. Fix start_bid - add admin check
+create or replace function public.start_bid(p_auction_id uuid)
+returns public.auction_state
+language plpgsql
+security definer
+as $$
+declare
+  v_state public.auction_state;
+  v_auction public.auctions;
+  v_base_price numeric(12,2);
+begin
+  -- Authorization check: only admins can call this function
+  if not exists (select 1 from public.profiles where id = auth.uid() and role = 'admin') then
+    raise exception 'Unauthorized: Only admins can start bidding';
+  end if;
+
+  select *
+    into v_state
+  from public.auction_state
+  where auction_id = p_auction_id
+  for update;
+
+  if not found or v_state.current_player_id is null then
+    raise exception 'No current player selected for auction %', p_auction_id;
+  end if;
+
+  select *
+    into v_auction
+  from public.auctions
+  where id = p_auction_id
+  for update;
+
+  v_base_price := (v_auction.settings ->> 'base_price')::numeric;
+  if v_base_price is null then
+    raise exception 'Base price not configured for auction %', p_auction_id;
+  end if;
+
+  update public.auction_state
+     set current_bid = v_base_price,
+         leading_team_id = null,
+         previous_bid = null,
+         previous_leading_team_id = null,
+         phase = (case when v_state.phase::text in ('phase1', 'idle', 'captain_round') then 'phase1' else 'phase2' end)::public.auction_phase,
+         show_undo_notice = false
+   where id = v_state.id
+   returning * into v_state;
+
+  return v_state;
+end;
+$$;
+
+-- 3. Fix end_bid - add admin check
+create or replace function public.end_bid(p_auction_id uuid)
+returns public.auction_state
+language plpgsql
+security definer
+as $$
+declare
+  v_state public.auction_state;
+  v_player public.players;
+begin
+  -- Authorization check: only admins can call this function
+  if not exists (select 1 from public.profiles where id = auth.uid() and role = 'admin') then
+    raise exception 'Unauthorized: Only admins can end bidding';
+  end if;
+
+  select *
+    into v_state
+  from public.auction_state
+  where auction_id = p_auction_id
+  for update;
+
+  if not found or v_state.current_player_id is null then
+    raise exception 'No active player for auction %', p_auction_id;
+  end if;
+
+  select * into v_player from public.players where id = v_state.current_player_id for update;
+
+  if v_state.leading_team_id is not null then
+    -- SOLD
+    update public.players
+       set status = 'sold'::public.player_status,
+           sold_price = v_state.current_bid,
+           sold_team_id = v_state.leading_team_id
+     where id = v_state.current_player_id;
+
+    update public.teams
+       set purse_remaining = purse_remaining - v_state.current_bid,
+           slots_remaining = slots_remaining - 1
+     where id = v_state.leading_team_id;
+
+    update public.auction_state
+       set phase = 'completed_sale'::public.auction_phase,
+           show_undo_notice = false
+     where id = v_state.id
+     returning * into v_state;
+  else
+    -- UNSOLD
+    update public.players
+       set status = (case when v_state.phase::text = 'phase2' then 'unsold_final' else 'unsold' end)::public.player_status
+     where id = v_state.current_player_id;
+
+    update public.auction_state
+       set phase = 'completed_unsold'::public.auction_phase,
+           show_undo_notice = false
+     where id = v_state.id
+     returning * into v_state;
+  end if;
+
+  return v_state;
+end;
+$$;
+
+-- 4. Fix undo_sale - add admin check
+create or replace function public.undo_sale(p_auction_id uuid)
+returns public.auction_state
+language plpgsql
+security definer
+as $$
+declare
+  v_state public.auction_state;
+  v_player public.players;
+  v_target_player_id uuid;
+begin
+  -- Authorization check: only admins can call this function
+  if not exists (select 1 from public.profiles where id = auth.uid() and role = 'admin') then
+    raise exception 'Unauthorized: Only admins can undo sales';
+  end if;
+
+  select *
+    into v_state
+  from public.auction_state
+  where auction_id = p_auction_id
+  for update;
+
+  if not found then
+    raise exception 'No auction context available.';
+  end if;
+
+  if v_state.phase::text not in ('phase1', 'phase2', 'completed_sale', 'completed_unsold') then
+    raise exception 'Undo Sale is not permitted in the current phase.';
+  end if;
+
+  if (v_state.phase::text = 'phase1' or v_state.phase::text = 'phase2') and v_state.current_bid is not null then
+    raise exception 'Undo Sale is not permitted after a new bid has started.';
+  end if;
+
+  if v_state.phase::text like 'completed%' then
+    v_target_player_id := v_state.current_player_id;
+  else
+    v_target_player_id := v_state.previous_player_id;
+  end if;
+
+  if v_target_player_id is null then
+    raise exception 'No sold player context available for undo.';
+  end if;
+
+  select * into v_player from public.players where id = v_target_player_id for update;
+
+  -- Restore Purse/Slots if it was sold
+  if v_player.status = 'sold' then
+    update public.teams
+       set purse_remaining = purse_remaining + v_player.sold_price,
+           slots_remaining = slots_remaining + 1
+     where id = v_player.sold_team_id;
+  end if;
+
+  -- Restore player to LIVE
+  update public.players
+     set status = 'live'::public.player_status,
+         sold_price = null,
+         sold_team_id = null
+   where id = v_target_player_id;
+
+  if v_state.phase::text like 'completed%' then
+    -- SCENARIO A: Undoing during the 3.5s window
+    update public.auction_state
+       set phase = (case when v_state.phase::text in ('completed_unsold', 'completed_sale') then 
+                      (case when exists(select 1 from public.players where status = 'upcoming_phase2' and auction_id=p_auction_id) then 'phase2' else 'phase1' end)
+                    else 'phase1' end)::public.auction_phase,
+           current_bid = null,
+           leading_team_id = null,
+           previous_bid = null,
+           previous_leading_team_id = null,
+           current_player_id = v_target_player_id, 
+           previous_player_id = null,
+           show_undo_notice = true
+     where id = v_state.id
+     returning * into v_state;
+
+  else
+    -- SCENARIO B: Undoing AFTER next_player has been drawn
+    -- If a new player was drawn, move them back to upcoming
+    if v_state.current_player_id is not null then
+      update public.players
+         set status = (case when v_state.phase::text = 'phase2' then 'upcoming_phase2' else 'upcoming' end)::public.player_status
+       where id = v_state.current_player_id;
+    end if;
+
+    update public.auction_state
+       set current_player_id = v_target_player_id,
+           previous_player_id = null,
+           current_bid = null,
+           leading_team_id = null,
+           previous_bid = null,
+           previous_leading_team_id = null,
+           show_undo_notice = true
+     where id = v_state.id
+     returning * into v_state;
+  end if;
+
+  return v_state;
+end;
+$$;
 ````
 
 ## File: tsconfig.json

@@ -213,17 +213,18 @@ export default function AuctionDetailPage({ params }: { params: Promise<{ id: st
   const upcomingPlayers = players.filter((p) => p.status === "upcoming");
 
   return (
-    <div className="min-h-screen bg-[url('/CourtSide_landing.png')] bg-cover bg-center bg-fixed px-6 py-10 text-slate-50 relative">
+    <div className="min-h-screen bg-[url('/CourtSide_landing.png')] bg-cover bg-center bg-fixed px-6 py-10 relative" style={{ backgroundColor: '#C0D5CC' }}>
 
-      <div className="absolute inset-0 bg-black/50"></div>
+      <div className="absolute inset-0 bg-black/20 pointer-events-none"></div>
 
       <div className="relative z-10 mx-auto flex max-w-6xl flex-col gap-6">
         <div className="mb-2">
           <Button
             variant="ghost"
             size="sm"
-            className="text-slate-400 hover:text-slate-100 hover:bg-slate-800/50 -ml-2"
+            className="transition-all duration-300 -ml-2"
             onClick={() => router.push("/")}
+            style={{ color: '#252D33' }}
           >
             ← Back to Home
           </Button>
@@ -231,45 +232,46 @@ export default function AuctionDetailPage({ params }: { params: Promise<{ id: st
         <header className="flex flex-col justify-between gap-2 md:flex-row md:items-end">
           <div>
             <div className="flex items-center gap-3">
-              <h1 className="text-2xl font-semibold tracking-tight md:text-3xl">
+              <h1 className="text-3xl font-bold tracking-wide md:text-4xl" style={{ color: '#252D33', fontFamily: '"Bebas Neue", sans-serif', letterSpacing: '0.05em' }}>
                 {auction.name}
               </h1>
               {auction.status === "live" && (
-                <span className="flex items-center gap-1.5 rounded-full bg-rose-500/20 px-3 py-1 text-xs font-bold uppercase tracking-wider text-rose-400 ring-1 ring-rose-500/30">
+                <span className="flex items-center gap-1.5 rounded-full px-3 py-1 text-xs font-bold uppercase tracking-wider animate-pulse" style={{ backgroundColor: '#E6A850', color: '#252D33' }}>
                   <span className="relative flex h-2 w-2">
-                    <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-rose-400 opacity-75"></span>
-                    <span className="relative inline-flex h-2 w-2 rounded-full bg-rose-500"></span>
+                    <span className="absolute inline-flex h-full w-full animate-ping rounded-full" style={{ backgroundColor: '#252D33', opacity: 0.75 }}></span>
+                    <span className="relative inline-flex h-2 w-2 rounded-full" style={{ backgroundColor: '#252D33' }}></span>
                   </span>
                   Live
                 </span>
               )}
               {auction.status === "completed" && (
-                <span className="bg-emerald-500/10 text-emerald-500 text-[10px] uppercase font-bold tracking-widest px-2 py-0.5 rounded border border-emerald-500/20">
+                <span className="text-xs uppercase font-bold tracking-widest px-3 py-1 rounded border-2" style={{ backgroundColor: 'rgba(90, 107, 127, 0.2)', color: '#5A6B7F', borderColor: '#5A6B7F' }}>
                   Concluded
                 </span>
               )}
             </div>
-            <p className="text-sm text-slate-300">
+            <p className="text-sm mt-2" style={{ color: '#252D33' }}>
               Auction for {auction.sport_type === "football" ? "Football" : "Cricket"} players.
             </p>
           </div>
           {auction.status === "live" && (
             <Button
               onClick={() => router.push(`/live/${auctionId}`)}
-              className="bg-emerald-600 hover:bg-emerald-500 text-white shadow-lg shadow-emerald-900/20 animate-bounce"
+              className="animate-bounce transition-all duration-300 hover:shadow-lg hover:scale-105 font-bold uppercase tracking-wide"
+              style={{ backgroundColor: '#E6A850', color: '#252D33' }}
             >
-              JOIN LIVE AUCTION
+              Join Live Auction
             </Button>
           )}
         </header>
 
         <div className="grid gap-6 md:grid-cols-[3fr,2fr]">
-          <Card className="border-slate-800 bg-slate-900/70 p-5 shadow-xl shadow-black/60">
-            <h2 className="mb-3 text-sm font-semibold uppercase tracking-[0.18em] text-slate-400">
+          <Card className="border-2 p-5 shadow-2xl backdrop-blur-xl" style={{ backgroundColor: 'rgba(61, 74, 87, 0.8)', borderColor: '#7A8B9F' }}>
+            <h2 className="mb-3 text-sm font-bold uppercase tracking-[0.25em]" style={{ color: '#5A6B7F' }}>
               Registered Players
             </h2>
             {players.length === 0 ? (
-              <p className="text-sm text-slate-400">
+              <p className="text-sm" style={{ color: '#EAEBEC' }}>
                 No players have registered for this auction yet.
               </p>
             ) : (
@@ -277,15 +279,16 @@ export default function AuctionDetailPage({ params }: { params: Promise<{ id: st
                 {players.map((player) => (
                   <div
                     key={player.id}
-                    className="flex items-center justify-between gap-2 rounded-md border border-slate-800/70 bg-slate-950/60 px-3 py-2"
+                    className="flex items-center justify-between gap-2 rounded-md border-2 px-3 py-2 backdrop-blur-md transition-all duration-300"
+                    style={{ borderColor: '#7A8B9F', backgroundColor: 'rgba(61, 74, 87, 0.6)' }}
                   >
                     <div>
-                      <div className="font-medium">{player.name}</div>
-                      <div className="text-[11px] uppercase tracking-wide text-slate-400">
+                      <div className="font-medium" style={{ color: '#EAEBEC' }}>{player.name}</div>
+                      <div className="text-xs uppercase tracking-wide" style={{ color: '#5A6B7F' }}>
                         {player.role}
                       </div>
                     </div>
-                    <div className="text-[11px] uppercase tracking-wide text-slate-400">
+                    <div className="text-xs uppercase tracking-wide px-2 py-1 rounded" style={{ color: '#EAEBEC', backgroundColor: 'rgba(230, 168, 80, 0.2)' }}>
                       {player.status}
                     </div>
                   </div>
@@ -294,64 +297,68 @@ export default function AuctionDetailPage({ params }: { params: Promise<{ id: st
             )}
           </Card>
 
-          <Card className="border-slate-800 bg-slate-900/70 p-5 shadow-xl shadow-black/60">
-            <h2 className="mb-3 text-sm font-semibold uppercase tracking-[0.18em] text-slate-400">
+          <Card className="border-2 p-5 shadow-2xl backdrop-blur-xl" style={{ backgroundColor: 'rgba(61, 74, 87, 0.8)', borderColor: '#7A8B9F' }}>
+            <h2 className="mb-3 text-sm font-bold uppercase tracking-[0.25em]" style={{ color: '#5A6B7F' }}>
               Register for this Auction
             </h2>
             {auction.status === "completed" ? (
-              <div className="flex flex-col h-40 items-center justify-center rounded-lg border border-emerald-900/50 bg-emerald-900/10 px-4 text-center space-y-3">
-                <div className="text-sm font-medium text-emerald-400">This auction has concluded.</div>
+              <div className="flex flex-col h-40 items-center justify-center rounded-lg border-2 px-4 text-center space-y-3" style={{ borderColor: '#5A6B7F', backgroundColor: 'rgba(90, 107, 127, 0.2)' }}>
+                <div className="text-sm font-medium" style={{ color: '#5A6B7F' }}>This auction has concluded.</div>
                 <Button
                   size="sm"
                   variant="outline"
-                  className="border-emerald-500/30 hover:bg-emerald-950/50 text-emerald-300"
+                  className="border-2 transition-all duration-300"
                   onClick={() => router.push(`/live/${auctionId}`)}
+                  style={{ borderColor: '#5A6B7F', color: '#5A6B7F' }}
                 >
                   View Final Rosters
                 </Button>
               </div>
             ) : hasRegistered ? (
-              <div className="flex h-32 items-center justify-center rounded-lg border border-emerald-900/50 bg-emerald-900/20 px-4 text-center text-sm font-medium text-emerald-400">
+              <div className="flex h-32 items-center justify-center rounded-lg border-2 px-4 text-center text-sm font-medium" style={{ borderColor: '#E6A850', backgroundColor: 'rgba(230, 168, 80, 0.15)', color: '#E6A850' }}>
                 You have already submitted a registration for this auction.
               </div>
             ) : !auction.is_registration_open ? (
-              <div className="flex h-32 items-center justify-center rounded-lg border border-amber-900/50 bg-amber-900/20 px-4 text-center text-sm font-medium text-amber-400">
+              <div className="flex h-32 items-center justify-center rounded-lg border-2 px-4 text-center text-sm font-medium" style={{ borderColor: '#E6A850', backgroundColor: 'rgba(230, 168, 80, 0.15)', color: '#252D33' }}>
                 Registration is currently closed.
               </div>
             ) : (
               <form className="space-y-4" onSubmit={handleRegister}>
                 <div className="space-y-1">
-                  <Label htmlFor="name">Name</Label>
+                  <Label htmlFor="name" style={{ color: '#252D33', fontWeight: 'bold' }}>Name</Label>
                   <Input
                     id="name"
                     value={name}
                     onChange={(e) => setName(e.target.value)}
                     placeholder="Enter your name"
-                    className="bg-slate-950/80"
+                    className="border-2 transition-all duration-300 focus:shadow-lg"
+                    style={{ backgroundColor: 'rgba(61, 74, 87, 0.6)', borderColor: '#7A8B9F', color: '#EAEBEC' }}
                   />
                 </div>
                 <div className="space-y-1">
-                  <Label htmlFor="phoneNumber">Phone Number</Label>
+                  <Label htmlFor="phoneNumber" style={{ color: '#252D33', fontWeight: 'bold' }}>Phone Number</Label>
                   <Input
                     id="phoneNumber"
                     type="tel"
                     value={phoneNumber}
                     onChange={(e) => setPhoneNumber(e.target.value)}
                     placeholder="Enter your phone number"
-                    className="bg-slate-950/80"
+                    className="border-2 transition-all duration-300 focus:shadow-lg"
+                    style={{ backgroundColor: 'rgba(61, 74, 87, 0.6)', borderColor: '#7A8B9F', color: '#EAEBEC' }}
                   />
                 </div>
                 <div className="space-y-1">
-                  <Label htmlFor="role">Role</Label>
+                  <Label htmlFor="role" style={{ color: '#252D33', fontWeight: 'bold' }}>Role</Label>
                   <select
                     id="role"
                     value={role}
                     onChange={(e) => setRole(e.target.value)}
-                    className="w-full rounded-md border border-slate-700 bg-slate-950/80 px-3 py-2 text-sm outline-none focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500"
+                    className="w-full rounded-md border-2 px-3 py-2 text-sm outline-none focus:ring-2 transition-all duration-300"
+                    style={{ backgroundColor: 'rgba(61, 74, 87, 0.6)', borderColor: '#7A8B9F', color: '#EAEBEC', focusRingColor: '#E6A850' }}
                   >
-                    <option value="">Select role</option>
+                    <option value="" style={{ backgroundColor: '#3D4A57', color: '#EAEBEC' }}>Select role</option>
                     {roleOptions.map((r) => (
-                      <option key={r} value={r}>
+                      <option key={r} value={r} style={{ backgroundColor: '#3D4A57', color: '#EAEBEC' }}>
                         {r}
                       </option>
                     ))}
@@ -366,22 +373,22 @@ export default function AuctionDetailPage({ params }: { params: Promise<{ id: st
                   error={photoError}
                   required
                 />
-                <div className="text-xs text-slate-400">
+                <div className="text-xs" style={{ color: '#5A6B7F' }}>
                   Upcoming players registered here will enter the{" "}
-                  <span className="font-medium text-slate-200">upcoming pool</span> for the auction.
+                  <span className="font-medium" style={{ color: '#252D33' }}>upcoming pool</span> for the auction.
                 </div>
-                {error && <p className="text-xs text-rose-400">{error}</p>}
-                {success && <p className="text-xs text-emerald-400">{success}</p>}
-                <Button type="submit" disabled={submitting}>
+                {error && <p className="text-xs" style={{ color: '#E6A850' }}>{error}</p>}
+                {success && <p className="text-xs" style={{ color: '#E6A850' }}>{success}</p>}
+                <Button type="submit" disabled={submitting} className="w-full font-bold uppercase tracking-wide transition-all duration-300 hover:shadow-lg hover:scale-105" style={{ backgroundColor: '#E6A850', color: '#252D33' }}>
                   {submitting ? "Submitting..." : "Register"}
                 </Button>
               </form>
             )}
 
             {upcomingPlayers.length > 0 && (
-              <p className="mt-4 text-xs text-slate-400">
+              <p className="mt-4 text-xs" style={{ color: '#5A6B7F' }}>
                 Currently{" "}
-                <span className="font-semibold text-slate-200">
+                <span className="font-semibold" style={{ color: '#252D33' }}>
                   {upcomingPlayers.length} upcoming player
                   {upcomingPlayers.length === 1 ? "" : "s"}
                 </span>{" "}

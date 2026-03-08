@@ -1,16 +1,23 @@
 ﻿"use client";
 
 import { useRouter } from "next/navigation";
-import { use, useEffect, useMemo, useState } from "react";
+import { use, useEffect, useMemo, useState, useRef } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { Team, Player, useAuctionState } from "@/lib/hooks/useAuctionState";
 import { PlayerAvatar } from "@/components/PlayerAvatar";
 import { TeamLogo } from "@/components/TeamLogo";
-import { LiveSidebar } from "@/components/live/LiveSidebar";
-import { TeamFormation } from "@/components/live/TeamFormation";
+import ConsolidatedTeamRoster from "@/components/ConsolidatedTeamRoster";
 import { BiddingPIP } from "@/components/live/BiddingPIP";
 import { SaleFeedback } from "@/components/live/SaleFeedback";
-import { Gavel, LayoutDashboard, Menu, X } from "lucide-react";
+import { UnsoldFeedback } from "@/components/live/UnsoldFeedback";
+import { Gavel, LayoutDashboard, PanelRightClose, PanelRightOpen, PanelRight, Users } from "lucide-react";
+import AuctionHero from "@/components/live/AuctionHero";
+import {
+  getTeamPlayers,
+  groupPlayersByRole,
+  getCaptain,
+  getMVP,
+} from "@/lib/shared/playerUtils";
 
 export default function LiveAuctionPage({
   params,
@@ -26,6 +33,7 @@ export default function LiveAuctionPage({
     state,
     currentPlayer,
     leadingTeam,
+    lastSale,
     loading,
   } = useAuctionState(auctionId);
   const [selectedTeam, setSelectedTeam] = useState<Team | null>(null);
@@ -33,8 +41,39 @@ export default function LiveAuctionPage({
   const [lastSoldPlayer, setLastSoldPlayer] = useState<any>(null);
   const [lastSoldTeam, setLastSoldTeam] = useState<any>(null);
   const [lastSoldPrice, setLastSoldPrice] = useState<number | null>(null);
-  const [isSidebarOpen, setIsSidebarOpen] = useState(false);
+  const [showUnsoldAnimation, setShowUnsoldAnimation] = useState(false);
+  const [lastUnsoldPlayer, setLastUnsoldPlayer] = useState<any>(null);
   const [showPlayerRepository, setShowPlayerRepository] = useState(false);
+  const [isSquadPanelOpen, setIsSquadPanelOpen] = useState(false);
+
+  useEffect(() => {
+    // default to open on desktop
+    setIsSquadPanelOpen(window.innerWidth >= 1024);
+  }, []);
+  const soldFeedbackStartTimeRef = useRef<number | null>(null);
+  const unsoldFeedbackStartTimeRef = useRef<number | null>(null);
+
+  const currentView = selectedTeam ? "roster" : showPlayerRepository ? "repository" : "auction";
+
+  const pipPhase =
+    state?.phase === "completed_sale" || (showSoldAnimation) ? "sold" :
+      state?.phase === "completed_unsold" || (showUnsoldAnimation) ? "unsold" :
+        "bidding";
+
+  // Use the explicitly captured sold/unsold items if the animation is actively running
+  const pipPlayer =
+    showSoldAnimation ? lastSoldPlayer :
+      showUnsoldAnimation ? lastUnsoldPlayer :
+        lastSale?.player ?? currentPlayer;
+
+  const pipTeam =
+    showSoldAnimation ? lastSoldTeam :
+      lastSale?.team ?? leadingTeam;
+
+  const pipPrice =
+    showSoldAnimation ? lastSoldPrice :
+      lastSale?.price ?? state?.current_bid ?? null;
+
   const getPlayerRepositoryCount = useMemo(() => {
     if (typeof window === "undefined") return players.length;
     const width = window.innerWidth;
@@ -43,6 +82,7 @@ export default function LiveAuctionPage({
     if (width < 1280) return Math.min(12, players.length);
     return Math.min(20, players.length);
   }, [players.length]);
+  // Handle sold feedback animation - show when phase is completed_sale
   useEffect(() => {
     if (state?.phase === "completed_sale") {
       const soldPlayer = players.find((p) => p.id === state.current_player_id);
@@ -52,20 +92,30 @@ export default function LiveAuctionPage({
         setLastSoldTeam(soldTeam);
         setLastSoldPrice(state.current_bid || 0);
         setShowSoldAnimation(true);
-        const timer = setTimeout(() => {
-          setShowSoldAnimation(false);
-        }, 3500);
-        return () => clearTimeout(timer);
+        soldFeedbackStartTimeRef.current = Date.now();
       }
+    } else if (showSoldAnimation) {
+      // Phase changed away from completed_sale - close animation
+      setShowSoldAnimation(false);
+      soldFeedbackStartTimeRef.current = null;
     }
-  }, [
-    state?.phase,
-    state?.current_player_id,
-    state?.leading_team_id,
-    state?.current_bid,
-    players,
-    teams,
-  ]);
+  }, [state?.phase, state?.current_player_id, state?.leading_team_id, state?.current_bid, players, teams]);
+
+  // Handle unsold feedback animation - show when phase is completed_unsold
+  useEffect(() => {
+    if (state?.phase === "completed_unsold") {
+      const unsoldPlayer = players.find((p) => p.id === state.current_player_id);
+      if (unsoldPlayer) {
+        setLastUnsoldPlayer(unsoldPlayer);
+        setShowUnsoldAnimation(true);
+        unsoldFeedbackStartTimeRef.current = Date.now();
+      }
+    } else if (showUnsoldAnimation) {
+      // Phase changed away from completed_unsold - close animation
+      setShowUnsoldAnimation(false);
+      unsoldFeedbackStartTimeRef.current = null;
+    }
+  }, [state?.phase, state?.current_player_id, players]);
   useEffect(() => {
     if (!loading && auction?.status === "completed") {
       router.replace(`/live/${auctionId}/recap`);
@@ -82,7 +132,7 @@ export default function LiveAuctionPage({
     );
   }
   return (
-    <div className="min-h-screen bg-slate-950 text-slate-50 flex flex-col font-sans selection:bg-emerald-500 selection:text-slate-950 overflow-hidden">
+    <div className="h-screen bg-slate-950 text-slate-50 flex flex-col font-sans selection:bg-emerald-500 selection:text-slate-950 overflow-hidden">
       <div className="fixed inset-0 z-0 overflow-hidden pointer-events-none">
         <div className="absolute top-[-10%] left-[-10%] w-[40%] h-[40%] bg-emerald-500/10 blur-[120px] rounded-full animate-pulse" />
         <div className="absolute bottom-[-10%] right-[-10%] w-[40%] h-[40%] bg-blue-500/10 blur-[120px] rounded-full animate-pulse [animation-delay:2s]" />
@@ -107,35 +157,31 @@ export default function LiveAuctionPage({
               </div>
             </div>
           </div>
-          <button
-            onClick={() => setIsSidebarOpen(!isSidebarOpen)}
-            className="lg:hidden h-8 sm:h-10 w-8 sm:w-10 bg-slate-900 border border-slate-700 rounded-lg sm:rounded-xl flex items-center justify-center text-slate-400 hover:text-white flex-shrink-0"
-          >
-            {isSidebarOpen ? <X size={18} /> : <Menu size={18} />}
-          </button>
         </div>
       </nav>
-      <main className="relative z-10 flex-1 flex overflow-hidden w-full gap-fluid-md container-fluid py-fluid-md">
-        <div className="flex-1 flex flex-col gap-fluid-md overflow-hidden min-w-0">
+      <main className="relative z-10 flex-1 flex flex-col xl:flex-row overflow-y-auto xl:overflow-hidden w-full gap-[--spacing-auction-gap] p-[--spacing-auction-pad]">
+        <div className={`flex flex-col gap-[--spacing-auction-gap] overflow-hidden min-w-0 min-h-[60vh] xl:min-h-0 ${selectedTeam ? 'w-full' : 'flex-1'}`}>
           {selectedTeam ? (
-            <div className="flex-1 flex flex-col h-full bg-slate-900/20 rounded-2xl border border-slate-800/50 p-fluid-md overflow-hidden">
-              <button
-                onClick={() => setSelectedTeam(null)}
-                className="self-start mb-fluid-md flex items-center gap-1.5 text-slate-500 hover:text-emerald-400 font-bold text-xs uppercase tracking-widest transition-colors flex-shrink-0"
-              >
-                <LayoutDashboard size={10} />
-                Back
-              </button>
-              <div className="flex-1 overflow-auto">
-                <TeamFormation
-                  team={selectedTeam}
+            <div className="flex-1 flex flex-col h-full bg-[var(--color-bg-panel)] rounded-2xl border border-slate-800 overflow-hidden relative" data-density="compact">
+              <div className="absolute top-4 left-4 z-50">
+                <button
+                  onClick={() => setSelectedTeam(null)}
+                  className="flex items-center gap-1.5 bg-slate-900/80 backdrop-blur px-3 py-1.5 rounded-full text-slate-400 hover:text-emerald-400 font-bold text-xs uppercase tracking-widest transition-colors border border-slate-700"
+                >
+                  <LayoutDashboard size={12} />
+                  Back to Auction
+                </button>
+              </div>
+              <div className="flex-1 flex flex-col h-full min-h-0 pt-14 p-2 sm:p-4">
+                <ConsolidatedTeamRoster
+                  auction={auction as any}
+                  teams={teams}
                   players={players}
-                  sportType={auction.sport_type}
                 />
               </div>
             </div>
           ) : showPlayerRepository ? (
-            <div className="flex-1 flex flex-col h-full bg-slate-900/20 rounded-2xl border border-slate-800/50 p-fluid-md overflow-hidden" data-density="compact">
+            <div className="flex-1 flex flex-col h-full bg-[var(--color-bg-panel)] rounded-2xl border border-slate-800 p-fluid-md overflow-hidden" data-density="compact">
               <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-fluid-sm mb-fluid-md flex-shrink-0">
                 <button
                   onClick={() => setShowPlayerRepository(false)}
@@ -150,22 +196,6 @@ export default function LiveAuctionPage({
               </div>
               <div className="flex-1 overflow-hidden flex flex-col">
                 <div className="flex-1 overflow-y-auto pr-2 custom-scrollbar">
-                  <style>{`
-                    .custom-scrollbar::-webkit-scrollbar {
-                      width: 6px;
-                    }
-                    .custom-scrollbar::-webkit-scrollbar-track {
-                      background: rgba(15, 23, 42, 0.4);
-                      border-radius: 10px;
-                    }
-                    .custom-scrollbar::-webkit-scrollbar-thumb {
-                      background: rgba(16, 185, 129, 0.4);
-                      border-radius: 10px;
-                    }
-                    .custom-scrollbar::-webkit-scrollbar-thumb:hover {
-                      background: rgba(16, 185, 129, 0.6);
-                    }
-                  `}</style>
                   <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-2 lg:grid-cols-3 gap-2 sm:gap-3 md:gap-4">
                     {players
                       .slice()
@@ -177,7 +207,7 @@ export default function LiveAuctionPage({
                         return (
                           <div
                             key={player.id}
-                            className="p-2 sm:p-3 rounded-lg sm:rounded-xl border border-slate-800 bg-slate-900/40 flex items-center gap-2 sm:gap-3 group hover:border-emerald-500/30 transition-all shadow-lg"
+                            className="p-2 sm:p-3 rounded-lg sm:rounded-xl border border-slate-800 bg-[var(--color-bg-card)] flex items-center gap-2 sm:gap-3 group hover:border-emerald-500/30 transition-all shadow-lg"
                           >
                             <div className="flex-shrink-0">
                               <PlayerAvatar
@@ -232,7 +262,7 @@ export default function LiveAuctionPage({
               </div>
             </div>
           ) : (
-            <div className="flex-1 relative rounded-2xl bg-slate-900/40 border border-slate-800 overflow-hidden flex flex-col">
+            <div className="flex-1 relative rounded-2xl bg-[var(--color-bg-panel)] border border-slate-800 overflow-hidden flex flex-col">
               <div className="absolute inset-0 bg-[radial-gradient(circle_at_top,_#10b98111,_transparent_60%)] pointer-events-none" />
               <div className="flex-1 flex flex-col items-center justify-center p-fluid-lg relative z-10 text-center overflow-y-auto">
                 <AnimatePresence mode="wait">
@@ -331,87 +361,36 @@ export default function LiveAuctionPage({
                           })}{" "}
                       </div>
                     </motion.div>
-                  ) : currentPlayer ? (
-                    <motion.div
-                      key={currentPlayer.id}
-                      initial={{ opacity: 0, scale: 0.9, y: 20 }}
-                      animate={{ opacity: 1, scale: 1, y: 0 }}
-                      exit={{ opacity: 0, scale: 1.1, y: -20 }}
-                      className="flex flex-col items-center w-full max-w-4xl"
-                    >
-                      <div className="relative mb-2 sm:mb-4 md:mb-6 lg:mb-8">
-                        <div className="absolute inset-0 bg-emerald-500/20 blur-[80px] rounded-full scale-150 animate-pulse" />
-                        <PlayerAvatar
-                          id={currentPlayer.id}
-                          name={currentPlayer.name}
-                          role={currentPlayer.role}
-                          photoUrl={currentPlayer.photo_url}
-                          size="xl"
+                  ) : currentPlayer && state?.current_bid !== null ? (
+                    <div className="h-full flex flex-col">
+
+                      <div className="flex-1 p-6">
+
+                        <AuctionHero
+                          player={currentPlayer}
+                          bid={state?.current_bid || auction.settings.base_price}
+                          basePrice={auction.settings.base_price}
+                          team={leadingTeam}
                         />
+
                       </div>
-                      <div className="text-[10px] font-black text-emerald-500 uppercase tracking-[0.4em] mb-fluid-sm">
-                        Live Representation
+
+                    </div>
+                  ) : currentPlayer && state?.current_bid === null ? (
+                    <motion.div
+                      initial={{ opacity: 0 }}
+                      animate={{ opacity: 1 }}
+                      className="text-slate-600 text-center"
+                    >
+                      <div className="h-12 sm:h-16 md:h-20 lg:h-24 w-12 sm:w-16 md:w-20 lg:w-24 bg-[var(--color-bg-card)] rounded-full flex items-center justify-center mb-3 md:mb-4 lg:mb-6 mx-auto border border-slate-800 animate-pulse">
+                        <Gavel size={24} className="text-amber-500" />
                       </div>
-                      <h2 className="italic tracking-tighter text-white uppercase truncate max-w-full px-2 drop-shadow-2xl">
-                        {currentPlayer.name}
-                      </h2>
-                      <div className="flex flex-col sm:flex-row items-center gap-1 sm:gap-2 md:gap-3 lg:gap-6 mt-2 sm:mt-3 md:mt-4 flex-wrap justify-center px-2">
-                        <span className="text-sm sm:text-base md:text-xl lg:text-2xl font-black text-emerald-200/50 italic uppercase tracking-tight md:tracking-widest">
-                          {currentPlayer.role}
-                        </span>
-                        <div className="h-0.5 w-0.5 md:h-1 md:w-1 rounded-full bg-slate-700 hidden sm:block" />
-                        <div className="flex items-center gap-1 md:gap-2 bg-slate-950/80 px-2 md:px-4 py-1 md:py-2 rounded-md md:rounded-xl border border-slate-800">
-                          <div className="text-[7px] md:text-[9px] lg:text-[10px] font-black text-slate-500 uppercase tracking-tighter md:tracking-widest">
-                            Base
-                          </div>
-                          <div className="text-sm md:text-lg lg:text-xl font-mono font-black text-white">
-                            ₹
-                            {auction.settings.base_price.toLocaleString(
-                              "en-IN",
-                            )}
-                          </div>
-                        </div>
-                      </div>
-                      <div className="mt-4 md:mt-8 lg:mt-12 flex flex-col items-center w-full px-2">
-                        <div className="text-[7px] md:text-[9px] lg:text-[11px] font-black text-slate-400 uppercase tracking-[0.15em] md:tracking-[0.25em] lg:tracking-[0.3em] mb-2 md:mb-3 lg:mb-4">
-                          Current Bid
-                        </div>
-                        <div className="relative w-full max-w-sm">
-                          <div className="absolute inset-0 bg-emerald-500/20 blur-[40px] rounded-full animate-bounce" />
-                          <div className="relative bg-emerald-500 text-slate-950 px-4 sm:px-6 md:px-8 lg:px-12 py-2 sm:py-3 md:py-4 lg:py-6 rounded-lg sm:rounded-2xl md:rounded-3xl shadow-[0_0_80px_rgba(16,185,129,0.4)] border-2 md:border-4 border-white/20">
-                            <div className="text-2xl sm:text-3xl md:text-5xl lg:text-8xl font-black font-mono tracking-tighter italic">
-                              ₹
-                              {(
-                                state?.current_bid ||
-                                auction.settings.base_price
-                              ).toLocaleString("en-IN")}
-                            </div>
-                          </div>
-                        </div>
-                        <div className="mt-3 md:mt-6 lg:mt-8 flex flex-col items-center gap-0.5 md:gap-1 lg:gap-2">
-                          {leadingTeam ? (
-                            <>
-                              <div className="text-[7px] md:text-[9px] lg:text-[10px] font-black text-emerald-500 uppercase tracking-tighter md:tracking-widest">
-                                Held By
-                              </div>
-                              <div className="text-sm sm:text-base md:text-lg lg:text-2xl font-black text-white italic uppercase flex items-center gap-1 md:gap-2 lg:gap-3">
-                                <TeamLogo
-                                  name={leadingTeam.name}
-                                  logoUrl={leadingTeam.logo_url}
-                                  size="sm"
-                                />
-                                <span className="truncate max-w-xs">
-                                  {leadingTeam.name}
-                                </span>
-                              </div>
-                            </>
-                          ) : (
-                            <div className="text-xs sm:text-sm md:text-base lg:text-xl font-black text-slate-600 uppercase italic animate-pulse">
-                              Awaiting bids...
-                            </div>
-                          )}
-                        </div>
-                      </div>
+                      <h3 className="text-base sm:text-lg md:text-xl lg:text-2xl font-black italic uppercase tracking-tighter text-amber-400">
+                        Ready for Bidding
+                      </h3>
+                      <p className="text-[8px] sm:text-xs md:text-sm font-medium mt-1 text-amber-300">
+                        Awaiting admin to start bidding...
+                      </p>
                     </motion.div>
                   ) : (
                     <motion.div
@@ -468,34 +447,30 @@ export default function LiveAuctionPage({
             </div>
           )}
         </div>
-        <div
-          className={`fixed inset-y-0 right-0 z-[60] w-full max-w-[85vw] sm:max-w-xs md:max-w-sm lg:relative lg:block lg:w-auto transform transition-transform duration-500 ease-in-out bg-slate-950 border-l border-slate-800 ${isSidebarOpen ? "translate-x-0" : "translate-x-full lg:translate-x-0"} overflow-hidden flex flex-col`}
-        >
-          <div className="flex-1 overflow-y-auto">
-            <LiveSidebar
-              teams={teams}
-              players={players}
-              onTeamClick={(team) => {
-                setSelectedTeam(team);
-                setShowPlayerRepository(false);
-                setIsSidebarOpen(false);
-              }}
-              onExpandPlayers={() => {
-                setShowPlayerRepository(true);
-                setSelectedTeam(null);
-                setIsSidebarOpen(false);
-              }}
-              maxPlayers={auction.settings.max_players}
-            />
+
+        {/* Action Panel for opening Roster selection from Auction View */}
+        {!selectedTeam && (
+          <div className={`w-full xl:w-[30%] flex-shrink-0 flex-col h-auto xl:h-full min-h-[120px]`}>
+            <div className="h-full flex flex-col gap-4">
+              <button onClick={() => setSelectedTeam(teams[0] || null)} className="w-full flex-1 rounded-2xl border-2 border-dashed border-emerald-500/20 hover:border-emerald-500/50 hover:bg-emerald-500/5 transition-all flex flex-col items-center justify-center text-emerald-500/50 hover:text-emerald-500 group">
+                <LayoutDashboard className="mb-2 group-hover:scale-110 transition-transform" />
+                <span className="text-sm font-black uppercase tracking-widest leading-none">View Squads</span>
+              </button>
+              <button onClick={() => { setShowPlayerRepository(true); setSelectedTeam(null); }} className="w-full flex-1 rounded-2xl border-2 border-dashed border-sky-500/20 hover:border-sky-500/50 hover:bg-sky-500/5 transition-all flex flex-col items-center justify-center text-sky-500/50 hover:text-sky-500 group">
+                <Users className="mb-2 group-hover:scale-110 transition-transform" />
+                <span className="text-sm font-black uppercase tracking-widest leading-none">Repository</span>
+              </button>
+            </div>
           </div>
-        </div>
+        )}
       </main>
       <AnimatePresence>
         {(selectedTeam || showPlayerRepository) && (
           <BiddingPIP
-            player={currentPlayer}
-            leadingTeam={leadingTeam}
-            currentBid={state?.current_bid ?? null}
+            player={pipPlayer}
+            leadingTeam={pipTeam}
+            currentBid={pipPrice}
+            phase={pipPhase}
           />
         )}
       </AnimatePresence>
@@ -504,6 +479,12 @@ export default function LiveAuctionPage({
         team={lastSoldTeam}
         price={lastSoldPrice}
         isVisible={showSoldAnimation}
+        currentView={currentView}
+      />
+      <UnsoldFeedback
+        player={lastUnsoldPlayer}
+        isVisible={showUnsoldAnimation}
+        currentView={currentView}
       />
     </div>
   );
