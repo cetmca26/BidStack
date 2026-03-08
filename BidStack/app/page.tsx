@@ -96,8 +96,8 @@ export default function Home() {
 
   return (
     <div className="min-h-screen bg-[url('/CourtSide_landing.png')] bg-cover bg-center bg-fixed px-6 py-10 text-slate-50 relative">
-      <div className="absolute inset-0 bg-black/10"></div>
-      <div className="container-fluid flex flex-col gap-fluid-lg">
+      <div className="absolute inset-0 bg-black/10 pointer-events-none"></div>
+      <div className="container-fluid flex flex-col gap-fluid-lg relative z-10">
         <header className="flex flex-col items-start justify-between gap-fluid-md md:flex-row md:items-center">
           <div className="max-w-(--breakpoint-md)">
             <h1 className="tracking-tight text-indigo-800">

@@ -66,6 +66,11 @@ export default function LiveAuctionPage({
     players,
     teams,
   ]);
+  useEffect(() => {
+    if (!loading && auction?.status === "completed") {
+      router.replace(`/live/${auctionId}/recap`);
+    }
+  }, [auction?.status, auctionId, loading, router]);
   if (loading || !auction) {
     return (
       <div className="min-h-screen bg-slate-950 flex flex-col items-center justify-center">
@@ -75,10 +80,6 @@ export default function LiveAuctionPage({
         </div>
       </div>
     );
-  }
-  if (auction.status === "completed") {
-    router.replace(`/live/${auctionId}/recap`);
-    return null;
   }
   return (
     <div className="min-h-screen bg-slate-950 text-slate-50 flex flex-col font-sans selection:bg-emerald-500 selection:text-slate-950 overflow-hidden">
