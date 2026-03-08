@@ -150,6 +150,34 @@ export function useAuctionState(auctionId: string) {
         [teams, state?.leading_team_id],
     );
 
+    const lastSale = useMemo(() => {
+        if (!state) return null;
+        if (state.phase === "completed_sale") {
+            const player = players.find(p => p.id === state.current_player_id);
+            const team = teams.find(t => t.id === state.leading_team_id);
+            if (player) {
+                return {
+                    player,
+                    team: team ?? null,
+                    price: state.current_bid,
+                    result: "sold" as const
+                };
+            }
+        }
+        if (state.phase === "completed_unsold") {
+            const player = players.find(p => p.id === state.current_player_id);
+            if (player) {
+                return {
+                    player,
+                    team: null,
+                    price: null,
+                    result: "unsold" as const
+                };
+            }
+        }
+        return null;
+    }, [state?.phase, state?.current_player_id, state?.leading_team_id, state?.current_bid, players, teams]);
+
     return {
         auction,
         teams,
@@ -157,6 +185,7 @@ export function useAuctionState(auctionId: string) {
         state,
         currentPlayer,
         leadingTeam,
+        lastSale,
         loading,
         error,
         setPlayers, // For local optimism if needed

@@ -580,7 +580,7 @@ export default function AdminAuctionPage({ params }: { params: Promise<{ id: str
               variant="destructive"
               size="sm"
               onClick={handleEndBid}
-              disabled={loadingAction === "end_bid" || !state?.current_player_id || state?.phase?.startsWith("completed")}
+              disabled={loadingAction === "end_bid" || !state?.current_player_id || state?.phase?.startsWith("completed") || state?.current_bid === null}
             >
               End Bid
             </Button>

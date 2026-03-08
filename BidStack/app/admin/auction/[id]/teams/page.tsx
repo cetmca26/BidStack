@@ -69,6 +69,8 @@ export default function ManageTeamsPage({ params }: { params: Promise<{ id: stri
   const [logoError, setLogoError] = useState<string | null>(null);
   const [creatingTeam, setCreatingTeam] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [checkingAuth, setCheckingAuth] = useState(true);
+  const [isAuthed, setIsAuthed] = useState(false);
 
   const [togglingRegistration, setTogglingRegistration] = useState(false);
   const [lockingAuction, setLockingAuction] = useState(false);
@@ -78,8 +80,37 @@ export default function ManageTeamsPage({ params }: { params: Promise<{ id: stri
   const [selectedImageUrl, setSelectedImageUrl] = useState<string | null>(null);
   const [selectedImageTitle, setSelectedImageTitle] = useState("");
 
+  // Auth check
   useEffect(() => {
-    if (!auctionId) return;
+    const checkAdmin = async () => {
+      const { data: { session } } = await supabase.auth.getSession();
+      if (!session) {
+        router.replace("/admin/login");
+        return;
+      }
+
+      const { data: profile } = await supabase
+        .from("profiles")
+        .select("role")
+        .eq("id", session.user.id)
+        .maybeSingle();
+
+      if (profile?.role !== "admin") {
+        await supabase.auth.signOut();
+        router.replace("/admin/login");
+        return;
+      }
+
+      setIsAuthed(true);
+      setCheckingAuth(false);
+    };
+
+    checkAdmin();
+  }, [router]);
+
+  // Data loading (only after auth is verified)
+  useEffect(() => {
+    if (!isAuthed || !auctionId) return;
     const load = async () => {
       const [{ data: auctionData, error: auctionError }, { data: teamData }, { data: playerData }] =
         await Promise.all([
@@ -99,7 +130,7 @@ export default function ManageTeamsPage({ params }: { params: Promise<{ id: stri
     };
 
     load();
-  }, [auctionId, router]);
+  }, [auctionId, router, isAuthed]);
 
   const upcomingPlayers = useMemo(
     () => players.filter((p) => p.status === "upcoming"),
@@ -237,6 +268,21 @@ export default function ManageTeamsPage({ params }: { params: Promise<{ id: stri
     }, {} as Record<string, number>);
     return new Set(Object.entries(counts).filter(([_, count]) => count > 1).map(([ip]) => ip));
   }, [players]);
+
+  if (checkingAuth) {
+    return (
+      <div className="min-h-screen bg-slate-950 flex flex-col items-center justify-center">
+        <div className="h-12 w-12 border-4 border-emerald-500 border-t-transparent rounded-full animate-spin" />
+        <div className="mt-4 text-emerald-500 font-black uppercase tracking-widest text-xs">
+          Verifying Access...
+        </div>
+      </div>
+    );
+  }
+
+  if (!isAuthed) {
+    return null;
+  }
 
   if (!auction) {
     return <div className="p-6 text-slate-50">Loading Verification Hub...</div>;
