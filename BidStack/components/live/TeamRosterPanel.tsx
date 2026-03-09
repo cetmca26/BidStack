@@ -109,7 +109,7 @@ export function TeamRosterPanel({ captain, mvp, teamPlayers }: TeamRosterPanelPr
             </div>
 
             {/* Roster Feed */}
-            <Card className="flex-1 border-slate-800 bg-slate-900/50 backdrop-blur-md p-4 sm:p-5 overflow-hidden flex flex-col">
+            {/* <Card className="flex-1 border-slate-800 bg-slate-900/50 backdrop-blur-md p-4 sm:p-5 overflow-hidden flex flex-col">
                 <div className="text-[9px] sm:text-[10px] font-black text-slate-500 uppercase tracking-widest mb-3">
                     Roster Feed
                 </div>
@@ -137,7 +137,7 @@ export function TeamRosterPanel({ captain, mvp, teamPlayers }: TeamRosterPanelPr
                         </div>
                     )}
                 </div>
-            </Card>
+            </Card> */}
 
             <style dangerouslySetInnerHTML={{
                 __html: `

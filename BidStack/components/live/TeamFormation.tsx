@@ -129,12 +129,12 @@ function FootballFormation({
             <div
                 className="absolute inset-0"
                 style={{
-                    background: "linear-gradient(160deg, #0a1a0f 0%, #071210 40%, #030a08 100%)",
+                    background: "linear-gradient(160deg, #164726ff 0%, #277039ff 40%, #164726ff 100%)",
                 }}
             />
 
             {/* Field markings — faint gold */}
-            <svg className="absolute inset-0 w-full h-full opacity-[0.2] stroke-amber-500/40 text-amber-500/40" preserveAspectRatio="none" viewBox="0 0 100 100">
+            <svg className="absolute inset-0 w-full h-full opacity-[1] stroke-amber-500/50 text-amber-200/50" preserveAspectRatio="none" viewBox="0 0 100 100">
                 {/* Center line */}
                 <line x1="0" y1="50" x2="100" y2="50" strokeWidth="0.3" />
                 {/* Center circle */}
@@ -233,118 +233,168 @@ function CricketFormation({
     groupedPlayers: Record<string, Player[]>;
     captain: Player | null;
 }) {
-    // Flatten all players for the grid, star goes to the featured slot
-    const allPlayers = useMemo(() => {
-        const roles = ["Batsman", "Wicketkeeper", "Allrounder", "Bowler"];
-        return roles.flatMap((role) => groupedPlayers[role] || []);
-    }, [groupedPlayers]);
-
-    // Featured player = captain, or highest-priced
-    const featured = useMemo(() => {
-        if (captain) return captain;
-        if (allPlayers.length === 0) return null;
-        return [...allPlayers].sort((a, b) => (b.sold_price || 0) - (a.sold_price || 0))[0];
-    }, [captain, allPlayers]);
-
-    const gridPlayers = allPlayers.filter((p) => p.id !== featured?.id);
-    let playerIndex = 0;
+    const roleOrder = [
+        { key: "Wicketkeeper", label: "WICKET-KEEPERS" },
+        { key: "Batsman", label: "BATTERS" },
+        { key: "Allrounder", label: "ALL-ROUNDERS" },
+        { key: "Bowler", label: "BOWLERS" },
+    ];
 
     return (
         <div className="relative w-full h-full min-h-[500px] rounded-2xl overflow-hidden">
-            {/* Background — dark pitch */}
+
+            {/* Background */}
             <div
                 className="absolute inset-0"
                 style={{
-                    background: "linear-gradient(160deg, #0a1a0f 0%, #071210 40%, #030a08 100%)",
+                    background: "linear-gradient(180deg, #6bc96b 0%, #329143ff 40%, #1b5e20ff 100%)",
                 }}
             />
 
-            {/* Field markings — faint gold (unifying cricket and football look for auction phase) */}
-            <svg className="absolute inset-0 w-full h-full opacity-[0.2] stroke-amber-500/40 text-amber-500/40" preserveAspectRatio="none" viewBox="0 0 100 100">
-                {/* Center line */}
-                <line x1="0" y1="50" x2="100" y2="50" strokeWidth="0.3" />
-                {/* Center circle */}
-                <circle cx="50" cy="50" r="12" fill="none" strokeWidth="0.3" />
-                <circle cx="50" cy="50" r="0.8" fill="currentColor" stroke="none" />
+            <svg
+                className="absolute inset-0 w-full h-full"
+                viewBox="0 0 100 100"
+                preserveAspectRatio="none"
+            >
+
+                <defs>
+
+                    {/* Linear grass gradient */}
+                    <linearGradient id="grassGradient" x1="0%" y1="0%" x2="0%" y2="100%">
+                        <stop offset="0%" stopColor="#599c51ff" />
+                        <stop offset="40%" stopColor="#4eac50ff" />
+                        <stop offset="100%" stopColor="#3ea64f" />
+                    </linearGradient>
+
+                    {/* Grass mowing stripes */}
+                    <pattern
+                        id="grassStripes"
+                        patternUnits="userSpaceOnUse"
+                        width="20"
+                        height="100"
+                    >
+                        <rect width="20" height="100" fill="transparent" />
+                        <rect width="10" height="100" fill="white" opacity="0.08" />
+                    </pattern>
+
+                </defs>
+
+                {/* Ground */}
+                <rect x="0" y="0" width="200" height="100" fill="url(#grassGradient)" />
+
+                {/* Grass stripes overlay */}
+                <rect x="0" y="0" width="200" height="100" fill="url(#grassStripes)" />
+
+                Outer Boundary
+                <circle
+                    cx="50"
+                    cy="50"
+                    r="45"
+                    fill="none"
+                    stroke="yellow"
+                    strokeOpacity="0.35"
+                    strokeWidth="0.4"
+                />
+
+                {/* Inner Circle (30 yard) */}
+                <circle
+                    cx="50"
+                    cy="50"
+                    r="25"
+                    fill="none"
+                    stroke="yellow"
+                    strokeOpacity="0.35"
+                    strokeWidth="0.35"
+                />
+
+                {/* Center Pitch */}
+                <rect
+                    x="47"
+                    y="30"
+                    width="6"
+                    height="40"
+                    rx="1"
+                    fill="#c9a66b"
+                    opacity="0.95"
+                />
+
+                {/* Creases */}
+                <line
+                    x1="45"
+                    y1="35"
+                    x2="55"
+                    y2="35"
+                    stroke="white"
+                    strokeOpacity="0.5"
+                    strokeWidth="0.35"
+                />
+
+                <line
+                    x1="45"
+                    y1="65"
+                    x2="55"
+                    y2="65"
+                    stroke="white"
+                    strokeOpacity="0.5"
+                    strokeWidth="0.35"
+                />
+
             </svg>
 
-            {/* Floating particles */}
-            <div className="absolute inset-0 overflow-hidden pointer-events-none">
-                {[...Array(6)].map((_, i) => (
-                    <div
-                        key={i}
-                        className="absolute w-1 h-1 bg-amber-500/20 rounded-full animate-pulse"
-                        style={{
-                            top: `${15 + i * 15}%`,
-                            left: `${10 + i * 14}%`,
-                            animationDelay: `${i * 0.7}s`,
-                            animationDuration: `${2 + i * 0.5}s`,
-                        }}
-                    />
-                ))}
-            </div>
-
-            {/* Gradient overlays */}
+            {/* Overlay */}
             <div className="absolute inset-0 bg-gradient-to-t from-black/50 via-transparent to-black/30" />
 
-            {/* Header label */}
+            {/* Header */}
             <div className="absolute top-4 left-1/2 -translate-x-1/2 text-[10px] sm:text-xs font-heading font-bold text-amber-500/40 uppercase tracking-[0.5em] z-10">
                 🏏 Squad XI
             </div>
 
-            {/* Content layout — featured left, grid right */}
-            <div className="relative z-10 h-full flex flex-col md:flex-row items-center md:items-stretch gap-4 sm:gap-6 p-6 sm:p-8 md:p-10 pt-10 sm:pt-12">
-                {/* Featured Star Card */}
-                {featured && (
-                    <motion.div
-                        initial={{ opacity: 0, x: -30 }}
-                        animate={{ opacity: 1, x: 0 }}
-                        transition={{ type: "spring", stiffness: 200, damping: 20 }}
-                        className="flex-shrink-0 flex items-center justify-center"
-                    >
-                        <PlayerCard
-                            player={featured}
-                            isCaptain={captain?.id === featured.id}
-                            accentColor="rose"
-                            size="featured"
-                            sportType="cricket"
-                        />
-                    </motion.div>
-                )}
+            {/* Formation */}
+            <div className="relative z-10 h-full flex flex-col justify-center gap-6 sm:gap-8 md:gap-10 px-4 sm:px-6 md:px-10 py-10">
 
-                {/* Grid of remaining players */}
-                <div className="flex-1 flex items-center justify-center">
-                    <div className="grid grid-cols-3 gap-3 sm:gap-4 md:gap-5">
-                        <AnimatePresence mode="popLayout">
-                            {gridPlayers.map((player) => {
-                                const idx = playerIndex++;
-                                return (
-                                    <motion.div
-                                        key={player.id}
-                                        custom={idx}
-                                        variants={cardVariants}
-                                        initial="hidden"
-                                        animate="visible"
-                                        exit="exit"
-                                        layout
-                                    >
-                                        <PlayerCard
-                                            player={player}
-                                            isCaptain={captain?.id === player.id}
-                                            accentColor="rose"
-                                            sportType="cricket"
-                                        />
-                                    </motion.div>
-                                );
-                            })}
-                        </AnimatePresence>
-                    </div>
-                </div>
+                {roleOrder.map((role) => {
+                    const players = groupedPlayers[role.key] || [];
+
+                    if (players.length === 0) return null;
+
+                    return (
+                        <div key={role.key} className="flex flex-col items-center">
+
+                            {/* Role Title */}
+                            <div className="text-[10px] sm:text-xs text-white/50 uppercase tracking-widest mb-2">
+                                {role.label}
+                            </div>
+
+                            {/* Player Row */}
+                            <div className="flex items-center justify-center gap-3 sm:gap-4 md:gap-6 flex-wrap">
+                                <AnimatePresence mode="popLayout">
+                                    {players.map((player, idx) => (
+                                        <motion.div
+                                            key={player.id}
+                                            custom={idx}
+                                            variants={cardVariants}
+                                            initial="hidden"
+                                            animate="visible"
+                                            exit="exit"
+                                            layout
+                                        >
+                                            <PlayerCard
+                                                player={player}
+                                                isCaptain={captain?.id === player.id}
+                                                accentColor="rose"
+                                                sportType="cricket"
+                                            />
+                                        </motion.div>
+                                    ))}
+                                </AnimatePresence>
+                            </div>
+                        </div>
+                    );
+                })}
             </div>
         </div>
     );
 }
-
 // ═══════════════════════════════════════════════════════════════════
 // MAIN EXPORT — delegates to football or cricket mode
 // ═══════════════════════════════════════════════════════════════════
