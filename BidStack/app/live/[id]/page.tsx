@@ -161,10 +161,10 @@ export default function LiveAuctionPage({
           </div>
         </div>
       </nav>
-      <main className="relative z-10 flex-1 flex flex-col xl:flex-row overflow-y-auto xl:overflow-hidden w-full gap-[--spacing-auction-gap] p-[--spacing-auction-pad]">
-        <div className={`flex flex-col gap-[--spacing-auction-gap] overflow-hidden min-w-0 min-h-[60vh] xl:min-h-0 ${selectedTeam ? 'w-full' : 'flex-1'}`}>
+      <main className="relative z-10 flex-1 flex flex-col xl:flex-row overflow-y-auto w-full gap-[--spacing-auction-gap] p-[--spacing-auction-pad]">
+        <div className={`flex flex-col gap-[--spacing-auction-gap] min-w-0 min-h-[60vh] xl:min-h-0 ${selectedTeam ? 'w-full' : 'flex-1'}`}>
           {selectedTeam ? (
-            <div className="flex-1 flex flex-col h-full bg-[var(--color-bg-panel)] rounded-2xl border border-slate-800 overflow-hidden relative" data-density="compact">
+            <div className="flex-1 flex flex-col h-full bg-[var(--color-bg-panel)] rounded-2xl border border-slate-800 relative" data-density="compact">
               <div className="absolute top-4 left-4 z-50">
                 <button
                   onClick={() => setSelectedTeam(null)}
@@ -174,7 +174,7 @@ export default function LiveAuctionPage({
                   Back to Auction
                 </button>
               </div>
-              <div className="flex-1 flex flex-col h-full min-h-0 pt-14 p-2 sm:p-4">
+              <div className="flex-1 flex flex-col pt-14 p-2 sm:p-4 overflow-y-auto">
                 <ConsolidatedTeamRoster
                   auction={auction as any}
                   teams={teams}
@@ -266,7 +266,7 @@ export default function LiveAuctionPage({
           ) : (
             <div className="flex-1 relative rounded-2xl bg-[var(--color-bg-panel)] border border-slate-800 overflow-hidden flex flex-col">
               <div className="absolute inset-0 bg-[radial-gradient(circle_at_top,_#10b98111,_transparent_60%)] pointer-events-none" />
-              <div className={`flex-1 flex flex-col items-center justify-center relative z-10 text-center ${state?.phase === 'captain_round' ? 'overflow-hidden p-2 sm:p-4 md:p-6 lg:p-8' : 'overflow-y-auto p-fluid-lg'}`}>
+              <div className={`flex-1 flex flex-col items-center justify-center relative z-10 text-center ${state?.phase === 'captain_round' ? 'overflow-y-auto overflow-x-hidden p-2 sm:p-4 md:p-6 lg:p-8' : 'overflow-y-auto p-fluid-lg'}`}>
                 <AnimatePresence mode="wait">
                   {state?.phase === "captain_round" ? (
                     <motion.section
@@ -275,14 +275,14 @@ export default function LiveAuctionPage({
                       animate={{ opacity: 1 }}
                       exit={{ opacity: 0 }}
                       transition={{ duration: 0.4 }}
-                      className="w-full h-full flex flex-col items-center justify-center"
+                      className="w-full min-h-full flex flex-col items-center justify-center py-4"
                     >
                       {/* Header */}
                       <motion.div
                         initial={{ opacity: 0, y: -20 }}
                         animate={{ opacity: 1, y: 0 }}
                         transition={{ duration: 0.5, delay: 0.2 }}
-                        className="text-center mb-2 sm:mb-4 md:mb-6 flex-shrink-0"
+                        className="text-center mb-2 sm:mb-4 md:mb-6 flex-shrink-0 mt-auto"
                       >
                         <h2 className="italic tracking-tighter text-amber-500 uppercase mb-0.5 sm:mb-1 md:mb-2 animate-pulse text-lg sm:text-2xl md:text-3xl lg:text-4xl xl:text-5xl font-black drop-shadow-[0_0_30px_rgba(245,158,11,0.3)]">
                           Captain Reveal
@@ -292,15 +292,15 @@ export default function LiveAuctionPage({
                         </p>
                       </motion.div>
 
-                      {/* Captain Cards Grid — responsive, viewport-constrained */}
-                      <div className="w-full flex-1 min-h-0 flex items-center justify-center">
+                      {/* Captain Cards Grid — responsive, scrollable */}
+                      <div className="w-full flex-1 flex items-center justify-center mb-auto">
                         <div className="
                           grid
                           grid-cols-2
                           sm:grid-cols-3
                           md:grid-cols-4
                           gap-2 sm:gap-4 md:gap-6 lg:gap-8
-                          w-full h-full
+                          w-full min-h-full
                           auto-rows-fr
                           px-1 sm:px-2 md:px-6 lg:px-12
                         "
