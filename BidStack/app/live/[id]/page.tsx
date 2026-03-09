@@ -161,10 +161,10 @@ export default function LiveAuctionPage({
           </div>
         </div>
       </nav>
-      <main className="relative z-10 flex-1 flex flex-col xl:flex-row overflow-y-auto w-full gap-[--spacing-auction-gap] p-[--spacing-auction-pad]">
-        <div className={`flex flex-col gap-[--spacing-auction-gap] min-w-0 min-h-[60vh] xl:min-h-0 ${selectedTeam ? 'w-full' : 'flex-1'}`}>
+      <main className="relative z-10 flex-1 flex flex-col xl:flex-row overflow-y-auto xl:overflow-hidden w-full gap-[--spacing-auction-gap] p-[--spacing-auction-pad]">
+        <div className={`flex flex-col gap-[--spacing-auction-gap] overflow-hidden min-w-0 min-h-[60vh] xl:min-h-0 ${selectedTeam ? 'w-full' : 'flex-1'}`}>
           {selectedTeam ? (
-            <div className="flex-1 flex flex-col h-full bg-[var(--color-bg-panel)] rounded-2xl border border-slate-800 relative" data-density="compact">
+            <div className="flex-1 flex flex-col h-full bg-[var(--color-bg-panel)] rounded-2xl border border-slate-800 overflow-hidden relative" data-density="compact">
               <div className="absolute top-4 left-4 z-50">
                 <button
                   onClick={() => setSelectedTeam(null)}
@@ -174,7 +174,7 @@ export default function LiveAuctionPage({
                   Back to Auction
                 </button>
               </div>
-              <div className="flex-1 flex flex-col pt-14 p-2 sm:p-4 overflow-y-auto">
+              <div className="flex-1 flex flex-col h-full min-h-0 pt-14 p-2 sm:p-4">
                 <ConsolidatedTeamRoster
                   auction={auction as any}
                   teams={teams}
@@ -266,7 +266,7 @@ export default function LiveAuctionPage({
           ) : (
             <div className="flex-1 relative rounded-2xl bg-[var(--color-bg-panel)] border border-slate-800 overflow-hidden flex flex-col">
               <div className="absolute inset-0 bg-[radial-gradient(circle_at_top,_#10b98111,_transparent_60%)] pointer-events-none" />
-              <div className={`flex-1 flex flex-col items-center justify-center relative z-10 text-center ${state?.phase === 'captain_round' ? 'overflow-y-auto overflow-x-hidden p-2 sm:p-4 md:p-6 lg:p-8' : 'overflow-y-auto p-fluid-lg'}`}>
+              <div className="flex-1 flex flex-col items-center justify-center p-fluid-lg relative z-10 text-center overflow-y-auto">
                 <AnimatePresence mode="wait">
                   {state?.phase === "captain_round" ? (
                     <motion.section
@@ -275,38 +275,33 @@ export default function LiveAuctionPage({
                       animate={{ opacity: 1 }}
                       exit={{ opacity: 0 }}
                       transition={{ duration: 0.4 }}
-                      className="w-full min-h-full flex flex-col items-center justify-center py-4"
+                      className="min-h-screen w-full flex flex-col items-center justify-center py-8 sm:py-12 md:py-16 px-4 sm:px-6 md:px-8"
                     >
                       {/* Header */}
                       <motion.div
                         initial={{ opacity: 0, y: -20 }}
                         animate={{ opacity: 1, y: 0 }}
                         transition={{ duration: 0.5, delay: 0.2 }}
-                        className="text-center mb-2 sm:mb-4 md:mb-6 flex-shrink-0 mt-auto"
+                        className="text-center mb-8 sm:mb-12 md:mb-16"
                       >
-                        <h2 className="italic tracking-tighter text-amber-500 uppercase mb-0.5 sm:mb-1 md:mb-2 animate-pulse text-lg sm:text-2xl md:text-3xl lg:text-4xl xl:text-5xl font-black drop-shadow-[0_0_30px_rgba(245,158,11,0.3)]">
+                        <h2 className="italic tracking-tighter text-amber-500 uppercase mb-3 sm:mb-4 animate-pulse text-2xl sm:text-3xl md:text-4xl font-black">
                           Captain Reveal
                         </h2>
-                        <p className="max-w-md mx-auto text-[10px] sm:text-xs md:text-sm text-slate-400 font-medium">
+                        <p className="max-w-md mx-auto text-sm md:text-base text-slate-400 font-medium px-2">
                           Franchises selecting leadership via Blind Bidding...
                         </p>
                       </motion.div>
 
-                      {/* Captain Cards Grid — responsive, scrollable */}
-                      <div className="w-full flex-1 flex items-center justify-center mb-auto">
-                        <div className="
-                          grid
-                          grid-cols-2
-                          sm:grid-cols-3
-                          md:grid-cols-4
-                          gap-2 sm:gap-4 md:gap-6 lg:gap-8
-                          w-full min-h-full
-                          auto-rows-fr
-                          px-1 sm:px-2 md:px-6 lg:px-12
-                        "
-                          style={{
-                            maxWidth: '1400px',
-                          }}
+                      {/* Captain Grid Container */}
+                      <div className="w-full flex items-center justify-center flex-shrink-0">
+                        <div className="grid 
+                                  grid-cols-2 
+                                  sm:grid-cols-3 
+                                  md:grid-cols-4 
+                                  lg:grid-cols-5 
+                                  xl:grid-cols-6
+                                  gap-4 sm:gap-6 md:gap-8
+                                  w-full max-w-screen-2xl"
                         >
                           {players
                             .filter((p) => p.is_captain)
@@ -314,22 +309,34 @@ export default function LiveAuctionPage({
                               const matchedTeam = teams.find((t) => t.captain_id === captain.id);
 
                               return (
-                                <div key={captain.id} className="min-w-0 min-h-0">
-                                  <CaptainCard
-                                    index={index}
-                                    name={captain.name}
-                                    role={captain.role}
-                                    image={captain.photo_url || "/placeholder-player.png"}
-                                    teamColor="#22c55e"
-                                    teamName={matchedTeam?.name}
-                                    price={
-                                      matchedTeam && captain.sold_price
-                                        ? Math.round(captain.sold_price / 100000)
-                                        : undefined
-                                    }
-                                    isSold={!!matchedTeam}
-                                  />
-                                </div>
+                                <motion.div
+                                  key={captain.id}
+                                  initial={{ opacity: 0, y: 40, scale: 0.9 }}
+                                  animate={{ opacity: 1, y: 0, scale: 1 }}
+                                  transition={{
+                                    duration: 0.5,
+                                    delay: 0.3 + index * 0.08,
+                                    ease: "easeOut",
+                                  }}
+                                  className="w-full flex justify-center"
+                                >
+                                  <div className="w-full max-w-xs sm:max-w-sm md:max-w-md lg:max-w-lg">
+                                    <CaptainCard
+                                      index={index}
+                                      name={captain.name}
+                                      role={captain.role}
+                                      image={captain.photo_url || "/placeholder-player.png"}
+                                      teamColor="#22c55e"
+                                      teamName={matchedTeam?.name}
+                                      price={
+                                        matchedTeam && captain.sold_price
+                                          ? Math.round(captain.sold_price / 100000)
+                                          : undefined
+                                      }
+                                      isSold={!!matchedTeam}
+                                    />
+                                  </div>
+                                </motion.div>
                               );
                             })}
                         </div>
