@@ -26,10 +26,10 @@ const CaptainCard = ({ name, role, image, teamColor, index, teamName, price, isS
       }}
       whileHover={{
         scale: 1.05,
-        y: -10,
+        y: -8,
         transition: { duration: 0.25 },
       }}
-      className="relative group cursor-pointer w-full h-full flex"
+      className="relative group cursor-pointer w-full h-full"
     >
       {/* Glow behind card */}
       <motion.div
@@ -39,20 +39,20 @@ const CaptainCard = ({ name, role, image, teamColor, index, teamName, price, isS
         transition={{ duration: 3, repeat: Infinity }}
       />
 
-      <div className="relative bg-slate-900/90 border border-slate-700/60 rounded-xl overflow-hidden w-full flex flex-col group-hover:border-emerald-500/40 transition-all duration-500 shadow-lg shadow-black/40">
+      <div className="relative bg-slate-900/90 border border-slate-700/60 rounded-lg sm:rounded-xl overflow-hidden w-full h-full flex flex-col group-hover:border-emerald-500/40 transition-all duration-500 shadow-lg shadow-black/40">
         {/* Captain badge */}
         <motion.div
           initial={{ scale: 0, rotate: -180 }}
           animate={{ scale: 1, rotate: 0 }}
           transition={{ delay: 1.2 + index * 0.3, type: "spring", stiffness: 200 }}
-          className="absolute top-2 right-2 z-20"
+          className="absolute top-1.5 right-1.5 sm:top-2 sm:right-2 z-20"
         >
-          <div className="bg-amber-400 rounded-full p-1.5 shadow-lg shadow-amber-900/50">
-            <Crown className="w-3.5 h-3.5 text-amber-950 stroke-[2.5]" />
+          <div className="bg-amber-400 rounded-full p-1 sm:p-1.5 shadow-lg shadow-amber-900/50">
+            <Crown className="w-3 h-3 sm:w-3.5 sm:h-3.5 text-amber-950 stroke-[2.5]" />
           </div>
         </motion.div>
 
-        {/* Player image — fills available space */}
+        {/* Player image — fills available space dynamically */}
         <div className="relative flex-1 min-h-0 overflow-hidden">
           <motion.div
             className="absolute inset-0 z-10"
@@ -64,11 +64,12 @@ const CaptainCard = ({ name, role, image, teamColor, index, teamName, price, isS
             src={image}
             alt={name}
             className="w-full h-full object-cover object-top"
+            loading="eager"
           />
         </div>
 
-        {/* Info — fixed height section */}
-        <div className="p-3 sm:p-4 text-center relative flex-shrink-0 bg-slate-900">
+        {/* Info — compact, fixed-height */}
+        <div className="px-2 py-1.5 sm:px-3 sm:py-2 md:px-4 md:py-3 text-center relative flex-shrink-0 bg-slate-900">
           <div
             className="absolute inset-0 opacity-15"
             style={{
@@ -76,7 +77,7 @@ const CaptainCard = ({ name, role, image, teamColor, index, teamName, price, isS
             }}
           />
           <motion.h3
-            className="text-xs sm:text-sm md:text-base font-black tracking-wider text-white uppercase relative z-10 truncate"
+            className="text-[10px] sm:text-xs md:text-sm lg:text-base font-black tracking-wider text-white uppercase relative z-10 truncate leading-tight"
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
             transition={{ delay: 1.5 + index * 0.3 }}
@@ -84,7 +85,7 @@ const CaptainCard = ({ name, role, image, teamColor, index, teamName, price, isS
             {name}
           </motion.h3>
           <motion.p
-            className="text-[8px] sm:text-[9px] md:text-xs tracking-[0.25em] text-slate-400 mt-0.5 uppercase relative z-10"
+            className="text-[7px] sm:text-[8px] md:text-[10px] tracking-[0.2em] text-slate-400 uppercase relative z-10 leading-tight"
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
             transition={{ delay: 1.7 + index * 0.3 }}
@@ -97,14 +98,14 @@ const CaptainCard = ({ name, role, image, teamColor, index, teamName, price, isS
             <motion.div
               initial={{ opacity: 0, scale: 0.5 }}
               animate={{ opacity: 1, scale: 1 }}
-              className="mt-2 bg-slate-800/80 rounded-lg py-1 px-2.5 relative z-10 inline-flex items-center gap-2"
+              className="mt-1 sm:mt-1.5 bg-slate-800/80 rounded py-0.5 px-1.5 sm:py-1 sm:px-2 relative z-10 inline-flex items-center gap-1 sm:gap-2"
             >
-              <span className="text-[10px] sm:text-xs font-bold" style={{ color: teamColor }}>{teamName}</span>
-              <span className="text-[10px] sm:text-xs text-amber-400 font-bold">₹{price}L</span>
+              <span className="text-[8px] sm:text-[10px] md:text-xs font-bold truncate" style={{ color: teamColor }}>{teamName}</span>
+              <span className="text-[8px] sm:text-[10px] md:text-xs text-amber-400 font-bold whitespace-nowrap">₹{price}L</span>
             </motion.div>
           ) : (
             <motion.div
-              className="flex justify-center gap-1.5 mt-2"
+              className="flex justify-center gap-1 mt-1 sm:mt-1.5"
               initial={{ opacity: 0 }}
               animate={{ opacity: 1 }}
               transition={{ delay: 1.9 + index * 0.3 }}
@@ -112,7 +113,7 @@ const CaptainCard = ({ name, role, image, teamColor, index, teamName, price, isS
               {[0, 1, 2].map((i) => (
                 <motion.div
                   key={i}
-                  className="w-1.5 h-1.5 rounded-full bg-amber-500"
+                  className="w-1 h-1 sm:w-1.5 sm:h-1.5 rounded-full bg-amber-500"
                   animate={{ opacity: [0.3, 1, 0.3] }}
                   transition={{ duration: 1.5, repeat: Infinity, delay: i * 0.2 }}
                 />

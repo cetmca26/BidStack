@@ -266,7 +266,7 @@ export default function LiveAuctionPage({
           ) : (
             <div className="flex-1 relative rounded-2xl bg-[var(--color-bg-panel)] border border-slate-800 overflow-hidden flex flex-col">
               <div className="absolute inset-0 bg-[radial-gradient(circle_at_top,_#10b98111,_transparent_60%)] pointer-events-none" />
-              <div className={`flex-1 flex flex-col items-center justify-center relative z-10 text-center ${state?.phase === 'captain_round' ? 'overflow-hidden p-4 sm:p-6 md:p-8' : 'overflow-y-auto p-fluid-lg'}`}>
+              <div className={`flex-1 flex flex-col items-center justify-center relative z-10 text-center ${state?.phase === 'captain_round' ? 'overflow-hidden p-2 sm:p-4 md:p-6 lg:p-8' : 'overflow-y-auto p-fluid-lg'}`}>
                 <AnimatePresence mode="wait">
                   {state?.phase === "captain_round" ? (
                     <motion.section
@@ -282,26 +282,39 @@ export default function LiveAuctionPage({
                         initial={{ opacity: 0, y: -20 }}
                         animate={{ opacity: 1, y: 0 }}
                         transition={{ duration: 0.5, delay: 0.2 }}
-                        className="text-center mb-4 sm:mb-6 md:mb-8 flex-shrink-0"
+                        className="text-center mb-2 sm:mb-4 md:mb-6 flex-shrink-0"
                       >
-                        <h2 className="italic tracking-tighter text-amber-500 uppercase mb-1 sm:mb-2 animate-pulse text-2xl sm:text-3xl md:text-4xl lg:text-5xl font-black drop-shadow-[0_0_30px_rgba(245,158,11,0.3)]">
+                        <h2 className="italic tracking-tighter text-amber-500 uppercase mb-0.5 sm:mb-1 md:mb-2 animate-pulse text-lg sm:text-2xl md:text-3xl lg:text-4xl xl:text-5xl font-black drop-shadow-[0_0_30px_rgba(245,158,11,0.3)]">
                           Captain Reveal
                         </h2>
-                        <p className="max-w-md mx-auto text-xs sm:text-sm md:text-base text-slate-400 font-medium">
+                        <p className="max-w-md mx-auto text-[10px] sm:text-xs md:text-sm text-slate-400 font-medium">
                           Franchises selecting leadership via Blind Bidding...
                         </p>
                       </motion.div>
 
-                      {/* Captain Cards Row — fills remaining height */}
-                      <div className="w-full flex-1 min-h-0 flex items-center justify-center px-2 sm:px-4 md:px-8 lg:px-12">
-                        <div className="flex gap-4 sm:gap-6 md:gap-8 w-full h-full max-h-[70vh] justify-center items-stretch">
+                      {/* Captain Cards Grid — responsive, viewport-constrained */}
+                      <div className="w-full flex-1 min-h-0 flex items-center justify-center">
+                        <div className="
+                          grid
+                          grid-cols-2
+                          sm:grid-cols-3
+                          md:grid-cols-4
+                          gap-2 sm:gap-4 md:gap-6 lg:gap-8
+                          w-full h-full
+                          auto-rows-fr
+                          px-1 sm:px-2 md:px-6 lg:px-12
+                        "
+                          style={{
+                            maxWidth: '1400px',
+                          }}
+                        >
                           {players
                             .filter((p) => p.is_captain)
                             .map((captain, index) => {
                               const matchedTeam = teams.find((t) => t.captain_id === captain.id);
 
                               return (
-                                <div key={captain.id} className="flex-1 min-w-0 max-w-[280px]">
+                                <div key={captain.id} className="min-w-0 min-h-0">
                                   <CaptainCard
                                     index={index}
                                     name={captain.name}
