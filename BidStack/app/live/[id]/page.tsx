@@ -12,6 +12,8 @@ import { SaleFeedback } from "@/components/live/SaleFeedback";
 import { UnsoldFeedback } from "@/components/live/UnsoldFeedback";
 import { Gavel, LayoutDashboard, PanelRightClose, PanelRightOpen, PanelRight, Users } from "lucide-react";
 import AuctionHero from "@/components/live/AuctionHero";
+import CaptainCard from "@/components/live/TempCard";
+
 import {
   getTeamPlayers,
   groupPlayersByRole,
@@ -264,103 +266,62 @@ export default function LiveAuctionPage({
           ) : (
             <div className="flex-1 relative rounded-2xl bg-[var(--color-bg-panel)] border border-slate-800 overflow-hidden flex flex-col">
               <div className="absolute inset-0 bg-[radial-gradient(circle_at_top,_#10b98111,_transparent_60%)] pointer-events-none" />
-              <div className="flex-1 flex flex-col items-center justify-center p-fluid-lg relative z-10 text-center overflow-y-auto">
+              <div className={`flex-1 flex flex-col items-center justify-center relative z-10 text-center ${state?.phase === 'captain_round' ? 'overflow-hidden p-4 sm:p-6 md:p-8' : 'overflow-y-auto p-fluid-lg'}`}>
                 <AnimatePresence mode="wait">
                   {state?.phase === "captain_round" ? (
-                    <motion.div
+                    <motion.section
                       key="captain-phase"
-                      initial={{ opacity: 0, scale: 0.8 }}
-                      animate={{ opacity: 1, scale: 1 }}
+                      initial={{ opacity: 0 }}
+                      animate={{ opacity: 1 }}
                       exit={{ opacity: 0 }}
-                      className="flex flex-col items-center w-full"
+                      transition={{ duration: 0.4 }}
+                      className="w-full h-full flex flex-col items-center justify-center"
                     >
-                      <div className="text-center mb-fluid-md">
-                        <h2 className="italic tracking-tighter text-amber-500 uppercase mb-fluid-sm animate-pulse">
+                      {/* Header */}
+                      <motion.div
+                        initial={{ opacity: 0, y: -20 }}
+                        animate={{ opacity: 1, y: 0 }}
+                        transition={{ duration: 0.5, delay: 0.2 }}
+                        className="text-center mb-4 sm:mb-6 md:mb-8 flex-shrink-0"
+                      >
+                        <h2 className="italic tracking-tighter text-amber-500 uppercase mb-1 sm:mb-2 animate-pulse text-2xl sm:text-3xl md:text-4xl lg:text-5xl font-black drop-shadow-[0_0_30px_rgba(245,158,11,0.3)]">
                           Captain Reveal
                         </h2>
-                        <p className="max-w-md mx-auto text-sm text-slate-400 font-medium px-2">
+                        <p className="max-w-md mx-auto text-xs sm:text-sm md:text-base text-slate-400 font-medium">
                           Franchises selecting leadership via Blind Bidding...
                         </p>
-                      </div>
-                      <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-2 sm:gap-3 md:gap-4 lg:gap-6 w-full max-w-6xl overflow-y-auto custom-scrollbar pr-2">
-                        {players
-                          .filter((p) => p.is_captain)
-                          .map((captain) => {
-                            const matchedTeam = teams.find(
-                              (t) => t.captain_id === captain.id,
-                            );
-                            return (
-                              <motion.div
-                                key={captain.id}
-                                initial={{ opacity: 0, y: 20 }}
-                                animate={{ opacity: 1, y: 0 }}
-                                className={`relative p-2 sm:p-3 md:p-4 lg:p-6 rounded-lg sm:rounded-xl md:rounded-2xl lg:rounded-3xl border transition-all duration-500 flex flex-col items-center gap-1 md:gap-2 lg:gap-4 ${matchedTeam ? "bg-emerald-500/10 border-emerald-500 shadow-[0_0_40px_rgba(16,185,129,0.2)]" : "bg-slate-900/40 border-slate-800"}`}
-                              >
-                                <div className="absolute -top-1.5 -right-1.5 sm:-top-2 sm:-right-2 z-20">
-                                  {matchedTeam ? (
-                                    <div className="bg-emerald-500 text-slate-950 text-[7px] sm:text-[8px] font-black px-1.5 sm:px-2 py-px rounded-full shadow-lg animate-bounce">
-                                      ✓
-                                    </div>
-                                  ) : (
-                                    <div className="bg-amber-500/20 border border-amber-500/40 text-amber-500 text-[7px] sm:text-[8px] font-black px-1.5 sm:px-2 py-px rounded-full animate-pulse">
-                                      ?
-                                    </div>
-                                  )}
-                                </div>
-                                <div className="relative">
-                                  {matchedTeam && (
-                                    <div className="absolute inset-0 bg-emerald-500/20 blur-2xl rounded-full animate-pulse" />
-                                  )}
-                                  <PlayerAvatar
-                                    id={captain.id}
+                      </motion.div>
+
+                      {/* Captain Cards Row — fills remaining height */}
+                      <div className="w-full flex-1 min-h-0 flex items-center justify-center px-2 sm:px-4 md:px-8 lg:px-12">
+                        <div className="flex gap-4 sm:gap-6 md:gap-8 w-full h-full max-h-[70vh] justify-center items-stretch">
+                          {players
+                            .filter((p) => p.is_captain)
+                            .map((captain, index) => {
+                              const matchedTeam = teams.find((t) => t.captain_id === captain.id);
+
+                              return (
+                                <div key={captain.id} className="flex-1 min-w-0 max-w-[280px]">
+                                  <CaptainCard
+                                    index={index}
                                     name={captain.name}
                                     role={captain.role}
-                                    photoUrl={captain.photo_url}
-                                    size="md"
-                                    isCaptain={true}
+                                    image={captain.photo_url || "/placeholder-player.png"}
+                                    teamColor="#22c55e"
+                                    teamName={matchedTeam?.name}
+                                    price={
+                                      matchedTeam && captain.sold_price
+                                        ? Math.round(captain.sold_price / 100000)
+                                        : undefined
+                                    }
+                                    isSold={!!matchedTeam}
                                   />
                                 </div>
-                                <div className="text-center">
-                                  <h3 className="text-[8px] sm:text-xs md:text-sm lg:text-xl font-black italic text-white uppercase truncate px-1">
-                                    {captain.name}
-                                  </h3>
-                                  <div className="text-[6px] sm:text-[7px] md:text-[9px] lg:text-[10px] font-black text-slate-500 uppercase tracking-tighter mt-0.5">
-                                    {captain.role}
-                                  </div>
-                                </div>
-                                {matchedTeam ? (
-                                  <div className="mt-1 sm:mt-1.5 w-full pt-1 sm:pt-2 border-t border-slate-800/50 flex flex-col items-center gap-0.5 md:gap-1 lg:gap-3">
-                                    <div className="flex items-center gap-0.5 sm:gap-1">
-                                      <TeamLogo
-                                        name={matchedTeam.name}
-                                        logoUrl={matchedTeam.logo_url}
-                                        size="sm"
-                                      />
-                                      <div className="text-[7px] sm:text-[8px] md:text-xs lg:text-sm font-black text-white italic uppercase truncate">
-                                        {matchedTeam.name}
-                                      </div>
-                                    </div>
-                                    <div className="text-[6px] sm:text-[7px] md:text-[9px] font-mono font-black text-emerald-400">
-                                      ₹
-                                      {matchedTeam.captain_id
-                                        ? Math.round(
-                                          captain.sold_price! / 100000,
-                                        ) + "L"
-                                        : "0"}
-                                    </div>
-                                  </div>
-                                ) : (
-                                  <div className="mt-1 flex gap-0.5">
-                                    <div className="w-0.5 h-0.5 md:w-1 md:h-1 rounded-full bg-amber-500/40 animate-bounce [animation-delay:-0.3s]" />
-                                    <div className="w-0.5 h-0.5 md:w-1 md:h-1 rounded-full bg-amber-500/40 animate-bounce [animation-delay:-0.15s]" />
-                                    <div className="w-0.5 h-0.5 md:w-1 md:h-1 rounded-full bg-amber-500/40 animate-bounce" />
-                                  </div>
-                                )}
-                              </motion.div>
-                            );
-                          })}{" "}
+                              );
+                            })}
+                        </div>
                       </div>
-                    </motion.div>
+                    </motion.section>
                   ) : currentPlayer && state?.current_bid !== null ? (
                     <div className="h-full flex flex-col">
 
