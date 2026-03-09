@@ -213,13 +213,41 @@ export default function AdminAuctionPage({ params }: { params: Promise<{ id: str
     }
 
     setLoadingAction(`bid_${teamId}`);
-    try {
-      // Calculate next bid amount
-      const base_price = auction.settings.base_price;
-      const increment = auction.settings.increment;
-      const current_bid = state.current_bid ?? base_price;
-      const next_bid = state.leading_team_id === null ? current_bid : current_bid + increment;
 
+    // Calculate next bid amount
+    const base_price = auction.settings.base_price;
+    const increment = auction.settings.increment;
+    const current_bid = state.current_bid ?? base_price;
+    const next_bid = state.leading_team_id === null ? current_bid : current_bid + increment;
+
+    // --- Optimistic UI Update ---
+    // Backup the old state to revert if the RPC fails
+    const previousState = { ...state };
+    const oldTeamPurse = teams.find(t => t.id === teamId)?.purse_remaining;
+
+    // Immediately apply new state locally so the button feels instant
+    setState(prev => prev ? {
+      ...prev,
+      current_bid: next_bid,
+      leading_team_id: teamId,
+      previous_bid: prev.current_bid,
+      previous_leading_team_id: prev.leading_team_id
+    } : null);
+
+    // Optimistically deduct purse for the new leader
+    setTeams(prev => prev.map(t => {
+      // Restore old leader's purse
+      if (t.id === previousState.leading_team_id) {
+        return { ...t, purse_remaining: t.purse_remaining + (previousState.current_bid || 0) };
+      }
+      // Deduct new leader's purse
+      if (t.id === teamId) {
+        return { ...t, purse_remaining: t.purse_remaining - next_bid };
+      }
+      return t;
+    }));
+
+    try {
       const { data: result, error: invokeError } = await supabase.rpc('execute_bid', {
         p_auction_id: auctionId,
         p_team_id: teamId,
@@ -230,6 +258,11 @@ export default function AdminAuctionPage({ params }: { params: Promise<{ id: str
         // Handle race condition: bid was outpaced, retry with fresh state
         if (invokeError.message?.includes('must be higher than current bid')) {
           console.warn('Bid outpaced, retrying with fresh state...');
+
+          // Revert optimistic updates first
+          setState(previousState as AuctionState);
+          setTeams(prev => prev.map(t => t.id === teamId && oldTeamPurse !== undefined ? { ...t, purse_remaining: oldTeamPurse } : t));
+
           const { data: freshState } = await supabase
             .from('auction_state')
             .select('current_bid, leading_team_id')
@@ -241,6 +274,11 @@ export default function AdminAuctionPage({ params }: { params: Promise<{ id: str
               ? (freshState.current_bid ?? base_price)
               : (freshState.current_bid ?? base_price) + increment;
 
+            // Apply optimistic update for the retry
+            setState(prev => prev ? {
+              ...prev, current_bid: freshBid, leading_team_id: teamId
+            } : null);
+
             const { error: retryError } = await supabase.rpc('execute_bid', {
               p_auction_id: auctionId,
               p_team_id: teamId,
@@ -248,16 +286,23 @@ export default function AdminAuctionPage({ params }: { params: Promise<{ id: str
             });
 
             if (retryError) {
+              setState(previousState as AuctionState); // Rollback on final failure
               window.alert(`Bid failed: ${retryError.message}`);
             }
           }
         } else {
+          // Revert optimistic updates on normal error
+          setState(previousState as AuctionState);
+          setTeams(prev => prev.map(t => t.id === teamId && oldTeamPurse !== undefined ? { ...t, purse_remaining: oldTeamPurse } : t));
           window.alert(`Bid failed: ${invokeError.message}`);
         }
       }
 
     } catch (err: any) {
       console.error("Bid error:", err);
+      // Revert optimistic updates on exception
+      setState(previousState as AuctionState);
+      setTeams(prev => prev.map(t => t.id === teamId && oldTeamPurse !== undefined ? { ...t, purse_remaining: oldTeamPurse } : t));
       window.alert(`Bid Execution Failed:\n\n${err.message}`);
     } finally {
       setLoadingAction(null);
