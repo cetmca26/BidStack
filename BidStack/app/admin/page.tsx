@@ -8,6 +8,7 @@ import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { ThemeToggle } from "@/components/ThemeToggle";
 
 type Auction = {
   id: string;
@@ -194,20 +195,21 @@ export default function AdminDashboardPage() {
   );
 
   if (checkingAuth) {
-    return <div className="p-6 text-slate-50">Checking admin access...</div>;
+    return <div className="p-6 text-slate-700 dark:text-slate-50">Checking admin access...</div>;
   }
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-slate-950 via-slate-900 to-slate-950 px-6 py-10 text-slate-50">
+    <div className="min-h-screen bg-gradient-to-br from-slate-100 via-slate-50 to-slate-100 dark:from-slate-950 dark:via-slate-900 dark:to-slate-950 px-4 sm:px-6 py-8 sm:py-10 text-slate-800 dark:text-slate-50">
       <div className="mx-auto flex max-w-5xl flex-col gap-6">
         <header className="flex items-center justify-between gap-3">
           <div>
             <h1 className="text-2xl font-semibold tracking-tight">Admin · Auctions</h1>
-            <p className="text-sm text-slate-300">
+            <p className="text-sm text-slate-500 dark:text-slate-300">
               Select an auction to open the live controller.
             </p>
           </div>
-          <div className="flex gap-2">
+          <div className="flex gap-2 items-center">
+            <ThemeToggle />
             <Button
               variant="default"
               size="sm"
@@ -232,40 +234,40 @@ export default function AdminDashboardPage() {
           {showCreateForm && (
             <Card
               ref={createSectionRef}
-              className="border-slate-800 bg-slate-900/70 p-5 shadow-xl shadow-black/60"
+              className="border-slate-200 dark:border-slate-800 bg-white/70 dark:bg-slate-900/70 p-5 shadow-xl shadow-slate-300/40 dark:shadow-black/60"
             >
-              <h2 className="mb-3 text-sm font-semibold uppercase tracking-[0.18em] text-slate-400">
+              <h2 className="mb-3 text-sm font-semibold uppercase tracking-[0.18em] text-slate-500 dark:text-slate-400">
                 Create Auction
               </h2>
               <form className="grid gap-3 text-sm md:grid-cols-2" onSubmit={handleCreateAuction}>
                 <div className="space-y-1 md:col-span-2">
-                  <Label htmlFor="auction-name" className="text-slate-100">
+                  <Label htmlFor="auction-name" className="text-slate-700 dark:text-slate-100">
                     Name
                   </Label>
                   <Input
                     id="auction-name"
                     value={name}
                     onChange={(e) => setName(e.target.value)}
-                    className="bg-slate-950/80 text-slate-50"
+                    className="bg-slate-50 dark:bg-slate-950/80 text-slate-900 dark:text-slate-50"
                     placeholder="Summer League Auction"
                   />
                 </div>
                 <div className="space-y-1">
-                  <Label htmlFor="sport" className="text-slate-100">
+                  <Label htmlFor="sport" className="text-slate-700 dark:text-slate-100">
                     Sport
                   </Label>
                   <select
                     id="sport"
                     value={sportType}
                     onChange={(e) => setSportType(e.target.value as "football" | "cricket")}
-                    className="w-full rounded-md border border-slate-700 bg-slate-950/80 px-3 py-2 text-sm text-slate-50 outline-none focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500"
+                    className="w-full rounded-md border border-slate-300 dark:border-slate-700 bg-slate-50 dark:bg-slate-950/80 px-3 py-2 text-sm text-slate-800 dark:text-slate-50 outline-none focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500"
                   >
                     <option value="football">Football</option>
                     <option value="cricket">Cricket</option>
                   </select>
                 </div>
                 <div className="space-y-1">
-                  <Label htmlFor="purse" className="text-slate-100">
+                  <Label htmlFor="purse" className="text-slate-700 dark:text-slate-100">
                     Purse per Team
                   </Label>
                   <Input
@@ -273,7 +275,7 @@ export default function AdminDashboardPage() {
                     type="number"
                     value={purse}
                     onChange={(e) => setPurse(e.target.value)}
-                    className="bg-slate-950/80 text-slate-50"
+                    className="bg-slate-50 dark:bg-slate-950/80 text-slate-900 dark:text-slate-50"
                   />
                 </div>
                 <div className="space-y-1">
@@ -285,7 +287,7 @@ export default function AdminDashboardPage() {
                     type="number"
                     value={minPlayers}
                     onChange={(e) => setMinPlayers(e.target.value)}
-                    className="bg-slate-950/80 text-slate-50"
+                    className="bg-slate-50 dark:bg-slate-950/80 text-slate-900 dark:text-slate-50"
                   />
                 </div>
                 <div className="space-y-1">
@@ -297,7 +299,7 @@ export default function AdminDashboardPage() {
                     type="number"
                     value={maxPlayers}
                     onChange={(e) => setMaxPlayers(e.target.value)}
-                    className="bg-slate-950/80 text-slate-50"
+                    className="bg-slate-50 dark:bg-slate-950/80 text-slate-900 dark:text-slate-50"
                   />
                 </div>
                 <div className="space-y-1">
@@ -309,7 +311,7 @@ export default function AdminDashboardPage() {
                     type="number"
                     value={basePrice}
                     onChange={(e) => setBasePrice(e.target.value)}
-                    className="bg-slate-950/80 text-slate-50"
+                    className="bg-slate-50 dark:bg-slate-950/80 text-slate-900 dark:text-slate-50"
                   />
                 </div>
                 <div className="space-y-1">
@@ -321,7 +323,7 @@ export default function AdminDashboardPage() {
                     type="number"
                     value={captainBasePrice}
                     onChange={(e) => setCaptainBasePrice(e.target.value)}
-                    className="bg-slate-950/80 text-slate-50"
+                    className="bg-slate-50 dark:bg-slate-950/80 text-slate-900 dark:text-slate-50"
                   />
                 </div>
                 <div className="space-y-1">
@@ -333,7 +335,7 @@ export default function AdminDashboardPage() {
                     type="number"
                     value={increment}
                     onChange={(e) => setIncrement(e.target.value)}
-                    className="bg-slate-950/80 text-slate-50"
+                    className="bg-slate-50 dark:bg-slate-950/80 text-slate-900 dark:text-slate-50"
                   />
                 </div>
                 {error && (
@@ -350,12 +352,12 @@ export default function AdminDashboardPage() {
             </Card>
           )}
 
-          <Card className="border-slate-800 bg-slate-900/70 p-5 shadow-xl shadow-black/60">
-            <h2 className="mb-3 text-sm font-semibold uppercase tracking-[0.18em] text-slate-400">
+          <Card className="border-slate-200 dark:border-slate-800 bg-white/70 dark:bg-slate-900/70 p-5 shadow-xl shadow-slate-300/40 dark:shadow-black/60">
+            <h2 className="mb-3 text-sm font-semibold uppercase tracking-[0.18em] text-slate-500 dark:text-slate-400">
               Existing Auctions
             </h2>
             {formattedAuctions.length === 0 ? (
-              <p className="text-sm text-slate-400">
+              <p className="text-sm text-slate-500 dark:text-slate-400">
                 No auctions found. Create an auction to get started.
               </p>
             ) : (
@@ -366,11 +368,11 @@ export default function AdminDashboardPage() {
                   return (
                     <div
                       key={auction.id}
-                      className="flex items-center justify-between gap-3 rounded-lg border border-slate-800 bg-slate-950/60 px-3 py-2"
+                      className="flex items-center justify-between gap-3 rounded-lg border border-slate-200 dark:border-slate-800 bg-slate-50/60 dark:bg-slate-950/60 px-3 py-2"
                     >
                       <div>
                         <div className="font-semibold">{auction.name}</div>
-                        <div className="flex items-center gap-2 text-[11px] uppercase tracking-wide text-slate-400">
+                        <div className="flex items-center gap-2 text-[11px] uppercase tracking-wide text-slate-500 dark:text-slate-400">
                           <span>{auction.sportLabel}</span>
                           <span className="h-1 w-1 rounded-full bg-slate-500" />
                           <span

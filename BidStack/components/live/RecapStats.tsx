@@ -74,7 +74,7 @@ export function RecapStats({ teams, players, sportType }: RecapStatsProps) {
                         <Trophy size={18} strokeWidth={3} />
                         Auction MVP
                     </div>
-                    <h2 className="text-3xl sm:text-4xl md:text-5xl font-black text-white italic tracking-tighter uppercase mb-4">The Golden Signing</h2>
+                    <h2 className="text-3xl sm:text-4xl md:text-5xl font-black text-slate-800 dark:text-white italic tracking-tighter uppercase mb-4">The Golden Signing</h2>
                 </motion.div>
 
                 {mvp && (
@@ -83,7 +83,7 @@ export function RecapStats({ teams, players, sportType }: RecapStatsProps) {
                         className="relative group cursor-pointer"
                     >
                         <div className="absolute inset-0 bg-amber-500/20 blur-3xl rounded-full group-hover:bg-amber-500/40 transition-all duration-500" />
-                        <Card className="relative bg-slate-900/40 backdrop-blur-xl border-2 border-amber-500/50 p-6 sm:p-8 rounded-[30px] shadow-2xl flex flex-col items-center">
+                        <Card className="relative bg-white/60 dark:bg-slate-900/40 backdrop-blur-xl border-2 border-emerald-500/30 dark:border-amber-500/50 p-6 sm:p-8 rounded-[30px] shadow-2xl flex flex-col items-center">
                             <PlayerAvatar
                                 id={mvp.id}
                                 name={mvp.name}
@@ -92,26 +92,26 @@ export function RecapStats({ teams, players, sportType }: RecapStatsProps) {
                                 size="lg"
                             />
                             <div className="mt-4 sm:mt-6 text-center">
-                                <h3 className="text-2xl sm:text-3xl md:text-4xl font-black text-white italic uppercase tracking-tighter">{mvp.name}</h3>
+                                <h3 className="text-2xl sm:text-3xl md:text-4xl font-black text-slate-900 dark:text-white italic uppercase tracking-tighter">{mvp.name}</h3>
                                 <div className="text-amber-500 font-bold uppercase tracking-widest text-xs sm:text-sm mt-1">{mvp.role}</div>
 
                                 <div className="mt-4 sm:mt-6 flex items-center justify-center gap-2 sm:gap-4">
-                                    <div className="h-0.5 w-8 sm:w-12 bg-slate-800" />
-                                    <div className="text-xl sm:text-2xl md:text-3xl font-mono font-black text-white">
+                                    <div className="h-0.5 w-8 sm:w-12 bg-slate-300 dark:bg-slate-800" />
+                                    <div className="text-xl sm:text-2xl md:text-3xl font-mono font-black text-slate-900 dark:text-white">
                                         {formatPrice(mvp.sold_price)}
                                     </div>
-                                    <div className="h-0.5 w-8 sm:w-12 bg-slate-800" />
+                                    <div className="h-0.5 w-8 sm:w-12 bg-slate-300 dark:bg-slate-800" />
                                 </div>
 
                                 {mvp.sold_team_id && (
-                                    <div className="mt-4 sm:mt-6 flex items-center gap-2 justify-center bg-slate-950/60 px-3 py-1.5 sm:px-4 sm:py-2 rounded-full border border-slate-800 w-fit mx-auto">
+                                    <div className="mt-4 sm:mt-6 flex items-center gap-2 justify-center bg-slate-100/60 dark:bg-slate-950/60 px-3 py-1.5 sm:px-4 sm:py-2 rounded-full border border-slate-300 dark:border-slate-800 w-fit mx-auto">
                                         <span className="text-[8px] sm:text-[10px] font-black text-slate-500 uppercase tracking-widest hidden sm:inline">Signed By</span>
                                         <TeamLogo
                                             name={teams.find(t => t.id === mvp.sold_team_id)?.name || ""}
                                             logoUrl={teams.find(t => t.id === mvp.sold_team_id)?.logo_url}
                                             size="sm"
                                         />
-                                        <span className="text-xs sm:text-sm font-bold text-slate-200">
+                                        <span className="text-xs sm:text-sm font-bold text-slate-800 dark:text-slate-200">
                                             {teams.find(t => t.id === mvp.sold_team_id)?.name}
                                         </span>
                                     </div>
@@ -126,7 +126,7 @@ export function RecapStats({ teams, players, sportType }: RecapStatsProps) {
             <section className="grid grid-cols-2 md:grid-cols-4 gap-3 sm:gap-4 md:gap-6">
                 {roleMvps.map(({ role, player }) => (
                     <motion.div key={role} variants={item}>
-                        <Card className="bg-slate-900/40 border-slate-800 p-4 sm:p-6 rounded-[20px] sm:rounded-3xl flex flex-col items-center text-center hover:border-emerald-500/50 transition-colors group h-full">
+                        <Card className="bg-white/60 dark:bg-slate-900/40 border-slate-200 dark:border-slate-800 p-4 sm:p-6 rounded-[20px] sm:rounded-3xl flex flex-col items-center text-center hover:border-emerald-500/50 transition-colors group h-full">
                             <div className="text-[8px] sm:text-[10px] font-black text-slate-500 uppercase tracking-widest mb-4 sm:mb-6 group-hover:text-emerald-500 transition-colors">
                                 Best {role}
                             </div>
@@ -137,7 +137,7 @@ export function RecapStats({ teams, players, sportType }: RecapStatsProps) {
                                 photoUrl={player.photo_url}
                                 size="md"
                             />
-                            <h4 className="mt-3 sm:mt-4 text-sm sm:text-base md:text-lg font-bold text-white uppercase italic truncate w-full px-2">{player.name}</h4>
+                            <h4 className="mt-3 sm:mt-4 text-sm sm:text-base md:text-lg font-bold text-slate-900 dark:text-white uppercase italic truncate w-full px-2">{player.name}</h4>
                             <div className="mt-1 sm:mt-2 text-xs sm:text-sm font-mono text-emerald-500 font-bold">
                                 {formatPrice(player.sold_price)}
                             </div>
@@ -157,10 +157,10 @@ export function RecapStats({ teams, players, sportType }: RecapStatsProps) {
                 </motion.div>
 
                 <motion.div variants={item} className="h-full">
-                    <Card className="h-full bg-slate-900 border-slate-800 p-4 sm:p-6 rounded-[24px] sm:rounded-[32px] flex flex-col justify-center items-center text-center border-2">
+                    <Card className="h-full bg-white dark:bg-slate-900 border-slate-200 dark:border-slate-800 p-4 sm:p-6 rounded-[24px] sm:rounded-[32px] flex flex-col justify-center items-center text-center border-2">
                         <Target size={24} strokeWidth={2.5} className="mb-2 sm:mb-4 text-emerald-500" />
                         <div className="text-[8px] sm:text-[10px] font-black uppercase tracking-widest text-slate-500">Gross Expenditure</div>
-                        <div className="text-3xl sm:text-4xl font-black mt-1 text-white font-mono leading-none">
+                        <div className="text-3xl sm:text-4xl font-black mt-1 text-slate-900 dark:text-white font-mono leading-none">
                             {formatPriceCompact(soldPlayers.reduce((s, p) => s + (p.sold_price || 0), 0))}
                         </div>
                     </Card>

@@ -16,6 +16,7 @@ import { UnsoldFeedback } from "@/components/live/UnsoldFeedback";
 import { Gavel, LayoutDashboard, ArrowLeft, Users } from "lucide-react";
 import AuctionHero from "@/components/live/AuctionHero";
 import CaptainCard from "@/components/live/TempCard";
+import { ThemeToggle } from "@/components/ThemeToggle";
 
 import {
   getTeamPlayers,
@@ -118,9 +119,9 @@ export default function LiveAuctionPage({
 
   if (loading || !auction) {
     return (
-      <div className="min-h-screen bg-slate-950 flex flex-col items-center justify-center">
+      <div className="min-h-screen bg-slate-100 dark:bg-slate-950 flex flex-col items-center justify-center">
         <div className="h-12 w-12 border-4 border-emerald-500 border-t-transparent rounded-full animate-spin" />
-        <div className="mt-4 text-emerald-500 font-black uppercase tracking-widest text-xs">
+        <div className="mt-4 text-emerald-600 dark:text-emerald-500 font-black uppercase tracking-widest text-xs">
           Initialising Arena...
         </div>
       </div>
@@ -134,7 +135,7 @@ export default function LiveAuctionPage({
   };
 
   return (
-    <div className="h-screen bg-slate-950 text-slate-50 flex flex-col font-sans selection:bg-emerald-500 selection:text-slate-950 overflow-hidden">
+    <div className="h-screen bg-slate-100 dark:bg-slate-950 text-slate-900 dark:text-slate-50 flex flex-col font-sans selection:bg-emerald-500 selection:text-slate-950 overflow-hidden">
       {/* Background Glow */}
       <div className="fixed inset-0 z-0 overflow-hidden pointer-events-none">
         <div className="absolute top-[-10%] left-[-10%] w-[40%] h-[40%] bg-emerald-500/10 blur-[120px] rounded-full animate-pulse" />
@@ -142,14 +143,14 @@ export default function LiveAuctionPage({
       </div>
 
       {/* ═══ HEADER NAV ═══ */}
-      <nav className="relative z-50 border-b border-slate-800 bg-slate-900/40 backdrop-blur-xl py-fluid-sm flex-shrink-0">
+      <nav className="relative z-50 border-b border-slate-300 dark:border-slate-800 bg-white/40 dark:bg-slate-900/40 backdrop-blur-xl py-fluid-sm flex-shrink-0">
         <div className="container-fluid flex items-center justify-between gap-fluid-md min-h-[50px]">
           {/* Left: Back Button (when in squad/repo view) */}
           <div className="flex items-center gap-fluid-md min-w-0 flex-1">
             {(selectedTeam || viewMode !== "auction") && (
               <button
                 onClick={handleBackToAuction}
-                className="flex items-center gap-1.5 bg-slate-800/60 backdrop-blur px-3 py-1.5 rounded-full text-slate-400 hover:text-emerald-400 font-bold text-xs uppercase tracking-widest transition-colors border border-slate-700 flex-shrink-0"
+                className="flex items-center gap-1.5 bg-slate-200/60 dark:bg-slate-800/60 backdrop-blur px-3 py-1.5 rounded-full text-slate-600 dark:text-slate-400 hover:text-emerald-500 dark:hover:text-emerald-400 font-bold text-xs uppercase tracking-widest transition-colors border border-slate-300 dark:border-slate-700 flex-shrink-0"
               >
                 <ArrowLeft size={12} />
                 <span className="hidden sm:inline">Back</span>
@@ -165,13 +166,17 @@ export default function LiveAuctionPage({
                 <Gavel className="text-slate-950" size={16} strokeWidth={3} />
               </div>
               <div className="hidden md:block min-w-0">
-                <h1 className="text-base md:text-lg lg:text-xl font-black italic tracking-tighter uppercase text-white leading-none truncate">
+                <h1 className="text-base md:text-lg lg:text-xl font-black italic tracking-tighter uppercase text-slate-800 dark:text-white leading-none truncate">
                   {auction.name}
                 </h1>
                 <div className="text-[7px] md:text-[9px] font-black text-slate-500 uppercase tracking-[0.15em] md:tracking-[0.3em] mt-0.5">
                   Live Auction
                 </div>
               </div>
+            </div>
+
+            <div className="flex-shrink-0 ml-auto flex items-center gap-2">
+              <ThemeToggle />
             </div>
           </div>
         </div>
@@ -185,7 +190,7 @@ export default function LiveAuctionPage({
 
           {/* Squad View (TeamRoster) */}
           {selectedTeam ? (
-            <div className="flex-1 flex flex-col h-full rounded-2xl border border-slate-800 overflow-hidden relative bg-slate-900/40" data-density="compact">
+            <div className="flex-1 flex flex-col h-full rounded-2xl border border-slate-300 dark:border-slate-800 overflow-hidden relative bg-white/40 dark:bg-slate-900/40" data-density="compact">
               <div className="flex-1 flex flex-col h-full min-h-0 p-2 sm:p-4">
                 <TeamRoster
                   auction={auction as any}
@@ -206,7 +211,7 @@ export default function LiveAuctionPage({
 
           /* Default: Auction View */
           ) : (
-            <div className="flex-1 relative rounded-2xl bg-slate-900/40 border border-slate-800 overflow-hidden flex flex-col">
+            <div className="flex-1 relative rounded-2xl bg-white/40 dark:bg-slate-900/40 border border-slate-300 dark:border-slate-800 overflow-hidden flex flex-col">
               <div className="absolute inset-0 bg-[radial-gradient(circle_at_top,_#10b98111,_transparent_60%)] pointer-events-none" />
               <div className="flex-1 flex flex-col items-center justify-center p-fluid-lg relative z-10 text-center overflow-y-auto">
                 <AnimatePresence mode="wait">
@@ -228,7 +233,7 @@ export default function LiveAuctionPage({
                         <h2 className="italic tracking-tighter text-amber-500 uppercase mb-3 sm:mb-4 animate-pulse text-2xl sm:text-3xl md:text-4xl font-black">
                           Captain Reveal
                         </h2>
-                        <p className="max-w-md mx-auto text-sm md:text-base text-slate-400 font-medium px-2">
+                        <p className="max-w-md mx-auto text-sm md:text-base text-slate-600 dark:text-slate-400 font-medium px-2">
                           Franchises selecting leadership via Blind Bidding...
                         </p>
                       </motion.div>
@@ -277,21 +282,21 @@ export default function LiveAuctionPage({
                       </div>
                     </div>
                   ) : currentPlayer && state?.current_bid === null ? (
-                    <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="text-slate-600 text-center">
-                      <div className="h-12 sm:h-16 md:h-20 lg:h-24 w-12 sm:w-16 md:w-20 lg:w-24 bg-slate-900 rounded-full flex items-center justify-center mb-3 md:mb-4 lg:mb-6 mx-auto border border-slate-800 animate-pulse">
+                    <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="text-slate-400 dark:text-slate-600 text-center">
+                      <div className="h-12 sm:h-16 md:h-20 lg:h-24 w-12 sm:w-16 md:w-20 lg:w-24 bg-slate-200 dark:bg-slate-900 rounded-full flex items-center justify-center mb-3 md:mb-4 lg:mb-6 mx-auto border border-slate-300 dark:border-slate-800 animate-pulse">
                         <Gavel size={24} className="text-amber-500" />
                       </div>
-                      <h3 className="text-base sm:text-lg md:text-xl lg:text-2xl font-black italic uppercase tracking-tighter text-amber-400">
+                      <h3 className="text-base sm:text-lg md:text-xl lg:text-2xl font-black italic uppercase tracking-tighter text-amber-500 dark:text-amber-400">
                         Ready for Bidding
                       </h3>
-                      <p className="text-[8px] sm:text-xs md:text-sm font-medium mt-1 text-amber-300">
+                      <p className="text-[8px] sm:text-xs md:text-sm font-medium mt-1 text-amber-600 dark:text-amber-300">
                         Awaiting admin to start bidding...
                       </p>
                     </motion.div>
                   ) : (
-                    <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="text-slate-600 text-center">
-                      <div className="h-12 sm:h-16 md:h-20 lg:h-24 w-12 sm:w-16 md:w-20 lg:w-24 bg-slate-900 rounded-full flex items-center justify-center mb-3 md:mb-4 lg:mb-6 mx-auto border border-slate-800">
-                        <Gavel size={24} className="text-slate-700" />
+                    <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="text-slate-800 dark:text-slate-600 text-center">
+                      <div className="h-12 sm:h-16 md:h-20 lg:h-24 w-12 sm:w-16 md:w-20 lg:w-24 bg-slate-200 dark:bg-slate-900 rounded-full flex items-center justify-center mb-3 md:mb-4 lg:mb-6 mx-auto border border-slate-300 dark:border-slate-800">
+                        <Gavel size={24} className="text-slate-400 dark:text-slate-700" />
                       </div>
                       <h3 className="text-base sm:text-lg md:text-xl lg:text-2xl font-black italic uppercase tracking-tighter">
                         Arena Idle
@@ -305,17 +310,17 @@ export default function LiveAuctionPage({
               </div>
 
               {/* Bottom Stats Bar */}
-              <div className="h-12 sm:h-16 md:h-20 lg:h-24 bg-slate-950 border-t border-slate-800 flex items-center justify-around px-2 sm:px-4 md:px-6 lg:px-12 gap-1 flex-shrink-0 overflow-x-auto">
+              <div className="h-12 sm:h-14 md:h-16 bg-slate-50 dark:bg-slate-950 border-t border-slate-300 dark:border-slate-800 flex items-center justify-around px-2 sm:px-4 md:px-6 lg:px-12 gap-1 flex-shrink-0 overflow-x-auto">
                 <div className="text-center flex-shrink-0">
                   <div className="text-[7px] md:text-[9px] lg:text-[10px] font-black text-slate-600 uppercase tracking-tighter md:tracking-widest">Sold</div>
-                  <div className="text-sm md:text-lg lg:text-2xl font-black text-white italic">{players.filter((p) => p.status === "sold").length}</div>
+                  <div className="text-sm md:text-lg lg:text-2xl font-black text-slate-800 dark:text-white italic">{players.filter((p) => p.status === "sold").length}</div>
                 </div>
-                <div className="h-4 sm:h-6 md:h-8 w-[1px] bg-slate-800" />
+                <div className="h-4 sm:h-6 md:h-8 w-[1px] bg-slate-300 dark:bg-slate-800" />
                 <div className="text-center flex-shrink-0">
                   <div className="text-[7px] md:text-[9px] lg:text-[10px] font-black text-slate-600 uppercase tracking-tighter md:tracking-widest">Upcoming</div>
-                  <div className="text-sm md:text-lg lg:text-2xl font-black text-white italic">{players.filter((p) => p.status === "upcoming").length}</div>
+                  <div className="text-sm md:text-lg lg:text-2xl font-black text-slate-800 dark:text-white italic">{players.filter((p) => p.status === "upcoming").length}</div>
                 </div>
-                <div className="h-4 sm:h-6 md:h-8 w-[1px] bg-slate-800" />
+                <div className="h-4 sm:h-6 md:h-8 w-[1px] bg-slate-300 dark:bg-slate-800" />
                 <div className="text-center flex-shrink-0">
                   <div className="text-[7px] md:text-[9px] lg:text-[10px] font-black text-slate-600 uppercase tracking-tighter md:tracking-widest">Total</div>
                   <div className="text-sm md:text-lg lg:text-2xl font-black text-emerald-500 italic">
@@ -329,9 +334,9 @@ export default function LiveAuctionPage({
 
         {/* ─── RIGHT: Sidebar (visible only in auction view) ─── */}
         {!selectedTeam && viewMode === "auction" && (
-          <div className="w-full xl:w-[30%] flex-shrink-0 flex flex-col h-auto xl:h-full min-h-[120px] gap-4">
+          <div className="w-full xl:w-80 2xl:w-96 flex-shrink-0 flex flex-col h-auto xl:h-full min-h-[120px] gap-4">
             {/* View Squads Panel */}
-            <div className="flex-1 rounded-2xl border border-slate-800 bg-slate-900/40 p-4 overflow-hidden flex flex-col">
+            <div className="flex-1 rounded-2xl border border-slate-300 dark:border-slate-800 bg-white/40 dark:bg-slate-900/40 p-4 overflow-hidden flex flex-col">
               <ViewSquadsPanel
                 auction={auction}
                 teams={teams}
@@ -341,7 +346,7 @@ export default function LiveAuctionPage({
             </div>
 
             {/* Repository Panel */}
-            <div className="flex-1 rounded-2xl border border-slate-800 bg-slate-900/40 p-4 overflow-hidden flex flex-col">
+            <div className="flex-1 rounded-2xl border border-slate-300 dark:border-slate-800 bg-white/40 dark:bg-slate-900/40 p-4 overflow-hidden flex flex-col">
               <RepositoryPanel
                 players={players}
                 onExpand={() => setViewMode("repository")}

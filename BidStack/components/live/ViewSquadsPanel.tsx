@@ -14,7 +14,7 @@ interface ViewSquadsPanelProps {
 export function ViewSquadsPanel({ auction, teams, players, onTeamSelect }: ViewSquadsPanelProps) {
     return (
         <div className="flex flex-col gap-3 h-full">
-            <div className="flex items-center gap-2 text-emerald-500 font-bold text-xs uppercase tracking-widest px-1">
+            <div className="flex items-center gap-2 text-emerald-600 dark:text-emerald-500 font-bold text-xs uppercase tracking-widest px-1">
                 <Shield size={14} />
                 Select a Franchise
             </div>

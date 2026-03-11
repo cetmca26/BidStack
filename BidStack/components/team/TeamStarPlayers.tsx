@@ -14,7 +14,7 @@ export function TeamStarPlayers({ captain, mvp }: TeamStarPlayersProps) {
     return (
         <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
             {/* Captain Card */}
-            <div className="relative rounded-2xl border-2 border-amber-500/30 bg-gradient-to-br from-amber-950/20 to-slate-900/40 p-6 flex flex-col items-center justify-center text-center overflow-hidden">
+            <div className="relative rounded-2xl border-2 border-amber-500/30 bg-gradient-to-br from-amber-100/40 dark:from-amber-950/20 to-slate-50/60 dark:to-slate-900/40 p-6 flex flex-col items-center justify-center text-center overflow-hidden">
                 <div className="absolute top-0 right-0 w-28 h-28 bg-amber-500/5 blur-[60px] rounded-full" />
 
                 <div className="flex items-center gap-2 text-amber-500 font-black text-[9px] uppercase tracking-[0.3em] mb-4">
@@ -36,26 +36,26 @@ export function TeamStarPlayers({ captain, mvp }: TeamStarPlayersProps) {
                             />
                         </div>
                         <div className="w-full min-w-0">
-                            <h4 className="text-base sm:text-lg font-heading font-bold text-white uppercase tracking-tighter truncate w-full">
+                            <h4 className="text-base sm:text-lg font-heading font-bold text-slate-900 dark:text-white uppercase tracking-tighter truncate w-full">
                                 {captain.name}
                             </h4>
                             <div className="text-[10px] text-amber-500 font-bold uppercase tracking-[0.2em] mt-1 mb-3 truncate w-full">
                                 {captain.role}
                             </div>
-                            <div className="px-3 py-1 rounded-full bg-slate-950/80 border border-amber-500/40 text-amber-400 font-mono font-bold text-sm inline-block max-w-full">
+                            <div className="px-3 py-1 rounded-full bg-white/80 dark:bg-slate-950/80 border border-amber-500/40 text-amber-600 dark:text-amber-400 font-mono font-bold text-sm inline-block max-w-full">
                                 <span className="truncate block">{formatPrice(captain.sold_price)}</span>
                             </div>
                         </div>
                     </>
                 ) : (
-                    <div className="flex-1 flex flex-col items-center justify-center py-6 text-slate-600 text-sm italic">
+                    <div className="flex-1 flex flex-col items-center justify-center py-6 text-slate-500 dark:text-slate-600 text-sm italic">
                         No captain assigned
                     </div>
                 )}
             </div>
 
             {/* MVP Card */}
-            <div className="relative rounded-2xl border-2 border-emerald-500/30 bg-gradient-to-br from-emerald-950/20 to-slate-900/40 p-6 flex flex-col items-center justify-center text-center overflow-hidden">
+            <div className="relative rounded-2xl border-2 border-emerald-500/30 bg-gradient-to-br from-emerald-100/40 dark:from-emerald-950/20 to-slate-50/60 dark:to-slate-900/40 p-6 flex flex-col items-center justify-center text-center overflow-hidden">
                 <div className="absolute top-0 right-0 w-28 h-28 bg-emerald-500/5 blur-[60px] rounded-full" />
 
                 <div className="flex items-center gap-2 text-emerald-500 font-black text-[9px] uppercase tracking-[0.3em] mb-4">
@@ -76,19 +76,19 @@ export function TeamStarPlayers({ captain, mvp }: TeamStarPlayersProps) {
                             />
                         </div>
                         <div className="w-full min-w-0">
-                            <h4 className="text-base sm:text-lg font-heading font-bold text-white uppercase tracking-tighter truncate w-full">
+                            <h4 className="text-base sm:text-lg font-heading font-bold text-slate-900 dark:text-white uppercase tracking-tighter truncate w-full">
                                 {mvp.name}
                             </h4>
                             <div className="text-[10px] text-emerald-500 font-bold uppercase tracking-[0.2em] mt-1 mb-3 truncate w-full">
                                 {mvp.role}
                             </div>
-                            <div className="px-3 py-1 rounded-full bg-slate-950/80 border border-emerald-500/40 text-emerald-400 font-mono font-bold text-sm inline-block max-w-full">
+                            <div className="px-3 py-1 rounded-full bg-white/80 dark:bg-slate-950/80 border border-emerald-500/40 text-emerald-600 dark:text-emerald-400 font-mono font-bold text-sm inline-block max-w-full">
                                 <span className="truncate block">{formatPrice(mvp.sold_price)}</span>
                             </div>
                         </div>
                     </>
                 ) : (
-                    <div className="flex-1 flex flex-col items-center justify-center py-6 text-slate-600 text-sm italic">
+                    <div className="flex-1 flex flex-col items-center justify-center py-6 text-slate-500 dark:text-slate-600 text-sm italic">
                         No non-captain signings
                     </div>
                 )}

@@ -271,9 +271,9 @@ export default function ManageTeamsPage({ params }: { params: Promise<{ id: stri
 
   if (checkingAuth) {
     return (
-      <div className="min-h-screen bg-slate-950 flex flex-col items-center justify-center">
+      <div className="min-h-screen bg-slate-100 dark:bg-slate-950 flex flex-col items-center justify-center">
         <div className="h-12 w-12 border-4 border-emerald-500 border-t-transparent rounded-full animate-spin" />
-        <div className="mt-4 text-emerald-500 font-black uppercase tracking-widest text-xs">
+        <div className="mt-4 text-emerald-600 dark:text-emerald-500 font-black uppercase tracking-widest text-xs">
           Verifying Access...
         </div>
       </div>
@@ -285,29 +285,29 @@ export default function ManageTeamsPage({ params }: { params: Promise<{ id: stri
   }
 
   if (!auction) {
-    return <div className="p-6 text-slate-50">Loading Verification Hub...</div>;
+    return <div className="p-6 text-slate-700 dark:text-slate-50">Loading Verification Hub...</div>;
   }
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-slate-950 via-slate-900 to-slate-950 px-6 py-10 text-slate-50">
+    <div className="min-h-screen bg-gradient-to-br from-slate-100 via-slate-50 to-slate-100 dark:from-slate-950 dark:via-slate-900 dark:to-slate-950 px-4 sm:px-6 py-8 sm:py-10 text-slate-800 dark:text-slate-50">
       <div className="mx-auto flex max-w-6xl flex-col gap-6">
         <header className="flex flex-col justify-between gap-2 md:flex-row md:items-end">
           <div>
             <h1 className="text-2xl font-semibold tracking-tight md:text-3xl">
               Verification Hub · {auction.name}
             </h1>
-            <p className="text-sm text-slate-300">
+            <p className="text-sm text-slate-500 dark:text-slate-300">
               Verify registered participants and create teams. Lock participants to proceed to the Live Controller.
             </p>
-            <div className="mt-3 flex items-center gap-2 text-sm bg-slate-900/50 p-2 rounded-lg border border-slate-800 w-fit">
-              <span className="text-slate-400 font-medium">Registration Link:</span>
-              <code className="text-emerald-400 font-mono text-xs select-all">
+            <div className="mt-3 flex items-center gap-2 text-sm bg-slate-50/50 dark:bg-slate-900/50 p-2 rounded-lg border border-slate-200 dark:border-slate-800 w-fit">
+              <span className="text-slate-500 dark:text-slate-400 font-medium">Registration Link:</span>
+              <code className="text-emerald-600 dark:text-emerald-400 font-mono text-xs select-all">
                 {typeof window !== 'undefined' ? `${window.location.origin}/auction/${auction.id}` : ''}
               </code>
               <Button
                 size="sm"
                 variant="outline"
-                className="h-6 px-2 ml-2 border-slate-700 bg-slate-800 text-[10px] text-slate-300 hover:bg-slate-700 uppercase tracking-wider"
+                className="h-6 px-2 ml-2 border-slate-300 dark:border-slate-700 bg-slate-100 dark:bg-slate-800 text-[10px] text-slate-600 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-700 uppercase tracking-wider"
                 onClick={(e) => {
                   navigator.clipboard.writeText(`${window.location.origin}/auction/${auction.id}`);
                   const btn = e.currentTarget;
@@ -348,31 +348,31 @@ export default function ManageTeamsPage({ params }: { params: Promise<{ id: stri
         </header>
 
         <div className="grid gap-6 md:grid-cols-[2fr,3fr]">
-          <Card className="border-slate-800 bg-slate-900/70 p-5 shadow-xl shadow-black/60">
-            <h2 className="mb-3 text-sm font-semibold uppercase tracking-[0.18em] text-slate-400">
+          <Card className="border-slate-200 dark:border-slate-800 bg-white/70 dark:bg-slate-900/70 p-5 shadow-xl shadow-slate-300/40 dark:shadow-black/60">
+            <h2 className="mb-3 text-sm font-semibold uppercase tracking-[0.18em] text-slate-500 dark:text-slate-400">
               Create Team
             </h2>
             <form className="space-y-3 text-sm" onSubmit={handleCreateTeam}>
               <div className="space-y-1">
-                <Label htmlFor="team-name" className="text-slate-100">
+                <Label htmlFor="team-name" className="text-slate-700 dark:text-slate-100">
                   Team Name
                 </Label>
                 <Input
                   id="team-name"
                   value={teamName}
                   onChange={(e) => setTeamName(e.target.value)}
-                  className="bg-slate-950/80 text-slate-50"
+                  className="bg-slate-50 dark:bg-slate-950/80 text-slate-900 dark:text-slate-50"
                 />
               </div>
               <div className="space-y-1">
-                <Label htmlFor="team-manager" className="text-slate-100">
+                <Label htmlFor="team-manager" className="text-slate-700 dark:text-slate-100">
                   Manager Name
                 </Label>
                 <Input
                   id="team-manager"
                   value={teamManager}
                   onChange={(e) => setTeamManager(e.target.value)}
-                  className="bg-slate-950/80 text-slate-50"
+                  className="bg-slate-50 dark:bg-slate-950/80 text-slate-900 dark:text-slate-50"
                 />
               </div>
               <ImageUploadField
@@ -384,13 +384,13 @@ export default function ManageTeamsPage({ params }: { params: Promise<{ id: stri
                 error={logoError}
                 required
               />
-              <p className="text-xs text-slate-400">
+              <p className="text-xs text-slate-500 dark:text-slate-400">
                 Each new team starts with a purse of{" "}
-                <span className="font-semibold text-slate-100">
+                <span className="font-semibold text-slate-800 dark:text-slate-100">
                   {formatPrice(auction.settings.purse)}
                 </span>{" "}
                 and{" "}
-                <span className="font-semibold text-slate-100">
+                <span className="font-semibold text-slate-800 dark:text-slate-100">
                   {auction.settings.max_players} slots
                 </span>
                 .
@@ -402,12 +402,12 @@ export default function ManageTeamsPage({ params }: { params: Promise<{ id: stri
             </form>
           </Card>
 
-          <Card className="border-slate-800 bg-slate-900/70 p-5 shadow-xl shadow-black/60">
-            <h2 className="mb-3 text-sm font-semibold uppercase tracking-[0.18em] text-slate-400">
+          <Card className="border-slate-200 dark:border-slate-800 bg-white/70 dark:bg-slate-900/70 p-5 shadow-xl shadow-slate-300/40 dark:shadow-black/60">
+            <h2 className="mb-3 text-sm font-semibold uppercase tracking-[0.18em] text-slate-500 dark:text-slate-400">
               Verified Teams
             </h2>
             {teams.length === 0 ? (
-              <p className="text-sm text-slate-400">
+              <p className="text-sm text-slate-500 dark:text-slate-400">
                 No teams created yet. Add teams on the left to begin.
               </p>
             ) : (
@@ -416,16 +416,16 @@ export default function ManageTeamsPage({ params }: { params: Promise<{ id: stri
                   return (
                     <div
                       key={team.id}
-                      className="rounded-lg border border-slate-800 bg-slate-950/60 px-3 py-3"
+                      className="rounded-lg border border-slate-200 dark:border-slate-800 bg-slate-50/60 dark:bg-slate-950/60 px-3 py-3"
                     >
                       <div className="flex items-center justify-between gap-3">
                         <div>
                           <div className="font-semibold">{team.name}</div>
-                          <div className="text-[11px] uppercase tracking-wide text-slate-400">
+                          <div className="text-[11px] uppercase tracking-wide text-slate-500 dark:text-slate-400">
                             {team.manager}
                           </div>
                         </div>
-                        <div className="text-right text-[11px] text-slate-300">
+                        <div className="text-right text-[11px] text-slate-600 dark:text-slate-300">
                           <div>
                             Purse:{" "}
                             <span className="font-semibold">
@@ -437,7 +437,7 @@ export default function ManageTeamsPage({ params }: { params: Promise<{ id: stri
                           </div>
                         </div>
                       </div>
-                      <div className="mt-3 border-t border-slate-800 pt-3 text-xs text-slate-400 italic text-center">
+                      <div className="mt-3 border-t border-slate-200 dark:border-slate-800 pt-3 text-xs text-slate-500 dark:text-slate-400 italic text-center">
                         Captain matching will be performed in the Live Control portal.
                       </div>
                     </div>
@@ -449,13 +449,13 @@ export default function ManageTeamsPage({ params }: { params: Promise<{ id: stri
         </div>
 
         {/* Registered Players Cleanup UI */}
-        <Card className="border-slate-800 bg-slate-900/70 p-5 shadow-xl shadow-black/60">
+        <Card className="border-slate-200 dark:border-slate-800 bg-white/70 dark:bg-slate-900/70 p-5 shadow-xl shadow-slate-300/40 dark:shadow-black/60">
           <div className="mb-4 flex flex-col justify-between gap-3 md:flex-row md:items-end">
             <div>
-              <h2 className="text-sm font-semibold uppercase tracking-[0.18em] text-slate-400">
+              <h2 className="text-sm font-semibold uppercase tracking-[0.18em] text-slate-500 dark:text-slate-400">
                 Registered Players Cleanup
               </h2>
-              <p className="text-xs text-slate-400 mt-1">
+              <p className="text-xs text-slate-500 dark:text-slate-400 mt-1">
                 Select unwanted or duplicate players directly to remove them from the auction pool. Entries from the same IP are highlighted.
               </p>
             </div>
@@ -469,14 +469,14 @@ export default function ManageTeamsPage({ params }: { params: Promise<{ id: stri
             </Button>
           </div>
 
-          <div className="max-h-[400px] overflow-y-auto rounded-md border border-slate-800">
-            <table className="w-full text-left text-sm text-slate-300">
-              <thead className="sticky top-0 bg-slate-950 px-4 py-3 text-xs uppercase tracking-wider text-slate-400">
+          <div className="max-h-[400px] overflow-y-auto rounded-md border border-slate-200 dark:border-slate-800">
+            <table className="w-full text-left text-sm text-slate-600 dark:text-slate-300">
+              <thead className="sticky top-0 bg-slate-50 dark:bg-slate-950 px-4 py-3 text-xs uppercase tracking-wider text-slate-500 dark:text-slate-400">
                 <tr>
                   <th className="px-4 py-3 font-medium w-10">
                     <input
                       type="checkbox"
-                      className="rounded border-slate-700 bg-slate-900 accent-emerald-500"
+                      className="rounded border-slate-300 dark:border-slate-700 bg-slate-50 dark:bg-slate-900 accent-emerald-500"
                       checked={players.length > 0 && selectedPlayerIds.size === players.length}
                       onChange={(e) => {
                         if (e.target.checked) {
@@ -495,7 +495,7 @@ export default function ManageTeamsPage({ params }: { params: Promise<{ id: stri
               <tbody className="divide-y divide-slate-800/50">
                 {players.length === 0 ? (
                   <tr>
-                    <td colSpan={4} className="px-4 py-8 text-center text-slate-500">
+                    <td colSpan={4} className="px-4 py-8 text-center text-slate-500 dark:text-slate-500">
                       No players registered yet.
                     </td>
                   </tr>
@@ -506,7 +506,7 @@ export default function ManageTeamsPage({ params }: { params: Promise<{ id: stri
                     return (
                       <tr
                         key={`player-row-${p.id}`}
-                        className={`transition-colors hover:bg-slate-800/30 ${isSelected ? "bg-slate-800/40" : ""
+                        className={`transition-colors hover:bg-slate-100/30 dark:hover:bg-slate-800/30 ${isSelected ? "bg-slate-100/40 dark:bg-slate-800/40" : ""
                           }`}
                       >
                         <td className="px-4 py-3">
@@ -514,19 +514,19 @@ export default function ManageTeamsPage({ params }: { params: Promise<{ id: stri
                             type="checkbox"
                             checked={isSelected}
                             onChange={() => handleTogglePlayerSelection(p.id)}
-                            className="rounded border-slate-700 bg-slate-900 accent-emerald-500"
+                            className="rounded border-slate-300 dark:border-slate-700 bg-slate-50 dark:bg-slate-900 accent-emerald-500"
                           />
                         </td>
                         <td className="px-4 py-3">
-                          <div className="font-medium text-slate-100">{p.name}</div>
-                          <div className="text-[10px] uppercase tracking-wider text-slate-500">{p.role}</div>
+                          <div className="font-medium text-slate-800 dark:text-slate-100">{p.name}</div>
+                          <div className="text-[10px] uppercase tracking-wider text-slate-500 dark:text-slate-500">{p.role}</div>
                         </td>
                         <td className="px-4 py-3 hidden sm:table-cell">
-                          <div className="text-xs text-slate-400">{p.phone_number || "No Phone"}</div>
+                          <div className="text-xs text-slate-500 dark:text-slate-400">{p.phone_number || "No Phone"}</div>
                           <div
                             className={`mt-0.5 inline-block rounded px-1.5 py-0.5 text-[10px] uppercase font-medium ${isFarm
-                              ? "bg-amber-900/30 text-amber-400 ring-1 ring-amber-500/50"
-                              : "text-slate-500 bg-slate-900/50"
+                              ? "bg-amber-100/30 dark:bg-amber-900/30 text-amber-600 dark:text-amber-400 ring-1 ring-amber-500/50"
+                              : "text-slate-500 bg-slate-100/50 dark:bg-slate-900/50"
                               }`}
                           >
                             IP: {p.ip_address || "Unknown"}
@@ -538,7 +538,7 @@ export default function ManageTeamsPage({ params }: { params: Promise<{ id: stri
                               <Button
                                 size="sm"
                                 variant="outline"
-                                className="h-7 px-2 border-slate-700 bg-slate-800 text-[10px] text-slate-300 hover:bg-slate-700 uppercase tracking-wider"
+                                className="h-7 px-2 border-slate-300 dark:border-slate-700 bg-slate-100 dark:bg-slate-800 text-[10px] text-slate-600 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-700 uppercase tracking-wider"
                                 onClick={() => {
                                   if (p.photo_url) {
                                     setSelectedImageUrl(p.photo_url);

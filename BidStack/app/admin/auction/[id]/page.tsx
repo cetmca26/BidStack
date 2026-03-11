@@ -18,6 +18,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import TeamRoster from "@/components/team/TeamRoster";
+import { ThemeToggle } from "@/components/ThemeToggle";
 
 export default function AdminAuctionPage({ params }: { params: Promise<{ id: string }> }) {
   const router = useRouter();
@@ -109,7 +110,7 @@ export default function AdminAuctionPage({ params }: { params: Promise<{ id: str
   }, [state?.phase, auctionId]);
 
   if (checkingAuth) {
-    return <div className="p-6 text-lg text-slate-50">Checking admin access...</div>;
+    return <div className="p-6 text-lg text-slate-700 dark:text-slate-50">Checking admin access...</div>;
   }
 
   if (!isAuthed) {
@@ -122,16 +123,16 @@ export default function AdminAuctionPage({ params }: { params: Promise<{ id: str
 
   if (auction.status === "completed") {
     return (
-      <div className="min-h-screen bg-slate-950 flex flex-col">
-        <div className="p-4 border-b border-slate-800 bg-slate-900/50 flex justify-between items-center">
+      <div className="min-h-screen bg-slate-100 dark:bg-slate-950 flex flex-col">
+        <div className="p-4 border-b border-slate-200 dark:border-slate-800 bg-white/50 dark:bg-slate-900/50 flex justify-between items-center">
           <div className="flex items-center gap-4">
-            <h1 className="text-xl font-bold text-slate-100">{auction.name} - Results</h1>
-            <span className="bg-emerald-500/10 text-emerald-500 text-[10px] uppercase font-bold tracking-widest px-2 py-0.5 rounded border border-emerald-500/20">Auction Completed</span>
+            <h1 className="text-xl font-bold text-slate-800 dark:text-slate-100">{auction.name} - Results</h1>
+            <span className="bg-emerald-500/10 text-emerald-600 dark:text-emerald-500 text-[10px] uppercase font-bold tracking-widest px-2 py-0.5 rounded border border-emerald-500/20">Auction Completed</span>
           </div>
           <Button
             variant="outline"
             size="sm"
-            className="border-slate-700 hover:bg-slate-800 text-slate-300 gap-2"
+            className="border-slate-300 dark:border-slate-700 hover:bg-slate-200 dark:hover:bg-slate-800 text-slate-600 dark:text-slate-300 gap-2"
             onClick={() => router.push(`/admin`)}
           >
             ← Return to Dashboard
@@ -403,15 +404,15 @@ export default function AdminAuctionPage({ params }: { params: Promise<{ id: str
 
   if (!allTeamsHaveCaptain && state?.phase !== "captain_round") {
     return (
-      <div className="min-h-screen bg-gradient-to-br from-slate-950 via-slate-900 to-slate-950 p-6 text-slate-50">
+      <div className="min-h-screen bg-gradient-to-br from-slate-100 via-slate-50 to-slate-100 dark:from-slate-950 dark:via-slate-900 dark:to-slate-950 p-4 sm:p-6 text-slate-800 dark:text-slate-50">
         <div className="mx-auto flex max-w-6xl flex-col gap-6">
           <header className="flex flex-col items-start justify-between gap-3 md:flex-row md:items-center">
             <div>
               <h1 className="text-2xl font-semibold tracking-tight">Captain Selection Phase</h1>
-              <p className="text-sm text-slate-400">
+              <p className="text-sm text-slate-500 dark:text-slate-400">
                 {auction.name} · {auction.sport_type.toUpperCase()}
               </p>
-              <p className="mt-1 text-xs text-amber-300">
+              <p className="mt-1 text-xs text-amber-600 dark:text-amber-300">
                 You must mark exactly {teams.length} players as Captains before proceeding to the Live Hype reveal.
               </p>
             </div>
@@ -428,9 +429,9 @@ export default function AdminAuctionPage({ params }: { params: Promise<{ id: str
             </div>
           </header>
 
-          <Card className="border-slate-800 bg-slate-900/60 p-5 shadow-xl shadow-slate-950/50">
+          <Card className="border-slate-200 dark:border-slate-800 bg-white/60 dark:bg-slate-900/60 p-5 shadow-xl shadow-slate-300/40 dark:shadow-slate-950/50">
             <div className="flex items-center justify-between mb-4">
-              <h2 className="text-sm font-semibold uppercase tracking-[0.15em] text-slate-400">
+              <h2 className="text-sm font-semibold uppercase tracking-[0.15em] text-slate-500 dark:text-slate-400">
                 Select Captains ({selectedCaptains.length} / {teams.length})
               </h2>
             </div>
@@ -440,7 +441,7 @@ export default function AdminAuctionPage({ params }: { params: Promise<{ id: str
                   key={p.id}
                   variant={p.is_captain ? "default" : "outline"}
                   size="sm"
-                  className={`h-auto flex flex-col w-full items-start justify-start p-3 ${p.is_captain ? 'bg-amber-600 hover:bg-amber-500 text-white border-amber-500' : 'border-slate-700 bg-slate-900/50 text-slate-300'}`}
+                  className={`h-auto flex flex-col w-full items-start justify-start p-3 ${p.is_captain ? 'bg-amber-600 hover:bg-amber-500 text-white border-amber-500' : 'border-slate-300 dark:border-slate-700 bg-slate-50/50 dark:bg-slate-900/50 text-slate-700 dark:text-slate-300'}`}
                   onClick={() => handleToggleCaptain(p.id, !!p.is_captain)}
                 >
                   <span className="font-semibold text-left">{p.name}</span>
@@ -456,17 +457,17 @@ export default function AdminAuctionPage({ params }: { params: Promise<{ id: str
 
   if (!allTeamsHaveCaptain && state?.phase === "captain_round") {
     return (
-      <div className="min-h-screen bg-gradient-to-br from-slate-950 via-slate-900 to-slate-950 p-6 text-slate-50">
+      <div className="min-h-screen bg-gradient-to-br from-slate-100 via-slate-50 to-slate-100 dark:from-slate-950 dark:via-slate-900 dark:to-slate-950 p-4 sm:p-6 text-slate-800 dark:text-slate-50">
         <div className="mx-auto flex max-w-6xl flex-col gap-6">
           <header className="flex flex-col items-start justify-between gap-3 md:flex-row md:items-center">
             <div>
-              <h1 className="text-2xl font-semibold text-emerald-400 tracking-tight">Captain Blind Bidding Setup</h1>
-              <p className="text-sm text-slate-400 mt-1">The Live Screen is currently portraying the Blind Bidding animation. Match captains to proceed.</p>
+              <h1 className="text-2xl font-semibold text-emerald-600 dark:text-emerald-400 tracking-tight">Captain Blind Bidding Setup</h1>
+              <p className="text-sm text-slate-500 dark:text-slate-400 mt-1">The Live Screen is currently portraying the Blind Bidding animation. Match captains to proceed.</p>
             </div>
           </header>
 
-          <Card className="border-slate-800 bg-slate-900/60 p-5 shadow-xl shadow-slate-950/50">
-            <h2 className="mb-4 text-sm font-semibold uppercase tracking-[0.15em] text-slate-400">
+          <Card className="border-slate-200 dark:border-slate-800 bg-white/60 dark:bg-slate-900/60 p-5 shadow-xl shadow-slate-300/40 dark:shadow-slate-950/50">
+            <h2 className="mb-4 text-sm font-semibold uppercase tracking-[0.15em] text-slate-500 dark:text-slate-400">
               Match Captains to Teams
             </h2>
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
@@ -474,23 +475,23 @@ export default function AdminAuctionPage({ params }: { params: Promise<{ id: str
                 if (team.captain_id) {
                   const c = players.find(p => p.id === team.captain_id);
                   return (
-                    <div key={`matched-${team.id}`} className="rounded-lg border border-emerald-800/50 bg-emerald-950/20 p-4">
-                      <div className="font-semibold text-emerald-400">✓ {team.name}</div>
-                      <div className="text-sm text-slate-300 mt-2">Captain: <span className="text-white font-medium">{c?.name}</span></div>
-                      <div className="text-xs text-slate-400 mt-1">Bid Amount: {formatPrice(c?.sold_price)}</div>
+                    <div key={`matched-${team.id}`} className="rounded-lg border border-emerald-300/50 dark:border-emerald-800/50 bg-emerald-50/20 dark:bg-emerald-950/20 p-4">
+                      <div className="font-semibold text-emerald-600 dark:text-emerald-400">✓ {team.name}</div>
+                      <div className="text-sm text-slate-600 dark:text-slate-300 mt-2">Captain: <span className="text-slate-900 dark:text-white font-medium">{c?.name}</span></div>
+                      <div className="text-xs text-slate-500 dark:text-slate-400 mt-1">Bid Amount: {formatPrice(c?.sold_price)}</div>
                     </div>
                   );
                 }
 
                 return (
-                  <div key={`unmatched-${team.id}`} className="rounded-lg border border-slate-700 bg-slate-800/40 p-4 space-y-3">
+                  <div key={`unmatched-${team.id}`} className="rounded-lg border border-slate-300 dark:border-slate-700 bg-slate-50/40 dark:bg-slate-800/40 p-4 space-y-3">
                     <div className="font-semibold">{team.name}</div>
-                    <div className="text-xs text-slate-400">Purse: {formatPrice(team.purse_remaining)}</div>
+                    <div className="text-xs text-slate-500 dark:text-slate-400">Purse: {formatPrice(team.purse_remaining)}</div>
 
                     <div className="space-y-1">
-                      <Label className="text-xs text-slate-400">Select Captain</Label>
+                      <Label className="text-xs text-slate-500 dark:text-slate-400">Select Captain</Label>
                       <select
-                        className="w-full bg-slate-950 border border-slate-700 rounded px-2 py-1.5 text-sm outline-none focus:border-amber-500"
+                        className="w-full bg-slate-50 dark:bg-slate-950 border border-slate-300 dark:border-slate-700 rounded px-2 py-1.5 text-sm outline-none focus:border-amber-500"
                         value={captainBids[team.id]?.captainId || ""}
                         onChange={(e: React.ChangeEvent<HTMLSelectElement>) => setCaptainBids(prev => ({ ...prev, [team.id]: { ...prev[team.id], captainId: e.target.value, amount: prev[team.id]?.amount || '' } }))}
                       >
@@ -500,11 +501,11 @@ export default function AdminAuctionPage({ params }: { params: Promise<{ id: str
                     </div>
 
                     <div className="space-y-1">
-                      <Label className="text-xs text-slate-400">Winning Blind Bid</Label>
+                      <Label className="text-xs text-slate-500 dark:text-slate-400">Winning Blind Bid</Label>
                       <Input
                         type="number"
                         min={auction.settings.captain_base_price ?? auction.settings.base_price}
-                        className="bg-slate-950 h-8 text-sm"
+                        className="bg-slate-50 dark:bg-slate-950 h-8 text-sm"
                         placeholder={`Min: ${auction.settings.captain_base_price ?? auction.settings.base_price}`}
                         value={captainBids[team.id]?.amount ?? ''}
                         onChange={(e: React.ChangeEvent<HTMLInputElement>) => setCaptainBids(prev => ({ ...prev, [team.id]: { ...prev[team.id], amount: e.target.value } }))}
@@ -532,10 +533,10 @@ export default function AdminAuctionPage({ params }: { params: Promise<{ id: str
 
   if (allTeamsHaveCaptain && state?.phase === "captain_round") {
     return (
-      <div className="min-h-screen bg-gradient-to-br from-slate-950 via-slate-900 to-slate-950 p-6 flex flex-col items-center justify-center">
-        <div className="text-center space-y-6 bg-slate-900/50 p-10 rounded-2xl border border-slate-800">
-          <h2 className="text-3xl font-semibold text-emerald-400 tracking-tight">Captain Matching Complete!</h2>
-          <p className="text-slate-400 max-w-lg mx-auto leading-relaxed">
+      <div className="min-h-screen bg-gradient-to-br from-slate-100 via-slate-50 to-slate-100 dark:from-slate-950 dark:via-slate-900 dark:to-slate-950 p-6 flex flex-col items-center justify-center">
+        <div className="text-center space-y-6 bg-white/50 dark:bg-slate-900/50 p-10 rounded-2xl border border-slate-200 dark:border-slate-800">
+          <h2 className="text-3xl font-semibold text-emerald-600 dark:text-emerald-400 tracking-tight">Captain Matching Complete!</h2>
+          <p className="text-slate-500 dark:text-slate-400 max-w-lg mx-auto leading-relaxed">
             All teams have their captains assigned successfully via Blind Bidding.
             The audience is currently watching the Blind Bidding screen.
             You can now conclude the captain phase and begin the regular player auction.
@@ -550,10 +551,10 @@ export default function AdminAuctionPage({ params }: { params: Promise<{ id: str
 
   if (state?.phase === "phase_1_complete") {
     return (
-      <div className="min-h-screen bg-gradient-to-br from-slate-950 via-slate-900 to-slate-950 p-6 flex flex-col items-center justify-center animate-in fade-in duration-500">
-        <div className="text-center space-y-6 bg-slate-900/50 p-10 rounded-2xl border border-amber-800 shadow-2xl shadow-amber-900/20 max-w-xl">
-          <h2 className="text-3xl font-semibold text-amber-500 tracking-tight">Phase 1 Complete!</h2>
-          <div className="text-slate-400 leading-relaxed text-sm space-y-2">
+      <div className="min-h-screen bg-gradient-to-br from-slate-100 via-slate-50 to-slate-100 dark:from-slate-950 dark:via-slate-900 dark:to-slate-950 p-6 flex flex-col items-center justify-center animate-in fade-in duration-500">
+        <div className="text-center space-y-6 bg-white/50 dark:bg-slate-900/50 p-10 rounded-2xl border border-amber-300 dark:border-amber-800 shadow-2xl shadow-amber-200/20 dark:shadow-amber-900/20 max-w-xl">
+          <h2 className="text-3xl font-semibold text-amber-600 dark:text-amber-500 tracking-tight">Phase 1 Complete!</h2>
+          <div className="text-slate-500 dark:text-slate-400 leading-relaxed text-sm space-y-2">
             <p>The primary upcoming player pool has been entirely exhausted.</p>
             <p><strong>({players.filter(p => p.status === "upcoming").length})</strong> players remain for drawing.</p>
             <p>Click below to transition to Phase 2. This will broadcast an intermission 'Hype' screen to the Audience and begin drawing from the remaining pool.</p>
@@ -568,10 +569,10 @@ export default function AdminAuctionPage({ params }: { params: Promise<{ id: str
   if (state?.phase === "phase_2_complete") {
     const finalUnsolds = players.filter(p => p.status === "upcoming").length;
     return (
-      <div className="min-h-screen bg-gradient-to-br from-slate-950 via-slate-900 to-slate-950 p-6 flex flex-col items-center justify-center animate-in fade-in duration-500">
-        <div className="text-center space-y-6 bg-slate-900/50 p-10 rounded-2xl border border-rose-800 shadow-2xl shadow-rose-900/20 max-w-xl">
-          <h2 className="text-3xl font-semibold text-rose-500 tracking-tight">Phase 2 Complete!</h2>
-          <div className="text-slate-400 leading-relaxed text-sm space-y-2">
+      <div className="min-h-screen bg-gradient-to-br from-slate-100 via-slate-50 to-slate-100 dark:from-slate-950 dark:via-slate-900 dark:to-slate-950 p-6 flex flex-col items-center justify-center animate-in fade-in duration-500">
+        <div className="text-center space-y-6 bg-white/50 dark:bg-slate-900/50 p-10 rounded-2xl border border-rose-300 dark:border-rose-800 shadow-2xl shadow-rose-200/20 dark:shadow-rose-900/20 max-w-xl">
+          <h2 className="text-3xl font-semibold text-rose-600 dark:text-rose-500 tracking-tight">Phase 2 Complete!</h2>
+          <div className="text-slate-500 dark:text-slate-400 leading-relaxed text-sm space-y-2">
             <p>The entire player pool has been exhausted.</p>
             <p><strong>({finalUnsolds})</strong> players were never drawn after Phase 2.</p>
             <p>You can now permanently End the Auction if minimum player requirements are met.</p>
@@ -586,16 +587,19 @@ export default function AdminAuctionPage({ params }: { params: Promise<{ id: str
     )
   }
   return (
-    <div className="min-h-screen bg-gradient-to-br from-slate-950 via-slate-900 to-slate-950 p-6 text-slate-50">
+    <div className="min-h-screen bg-gradient-to-br from-slate-100 via-slate-50 to-slate-100 dark:from-slate-950 dark:via-slate-900 dark:to-slate-950 p-4 sm:p-6 text-slate-800 dark:text-slate-50">
       <div className="mx-auto flex max-w-6xl flex-col gap-6">
         <header className="flex flex-col items-start justify-between gap-3 md:flex-row md:items-center">
           <div>
-            <h1 className="text-2xl font-semibold tracking-tight">Auction Control</h1>
-            <p className="text-sm text-slate-400">
+            <div className="flex items-center gap-3">
+              <h1 className="text-2xl font-semibold tracking-tight">Auction Control</h1>
+              <ThemeToggle />
+            </div>
+            <p className="text-sm text-slate-500 dark:text-slate-400">
               {auction.name} · {auction.sport_type.toUpperCase()}
             </p>
             {!allTeamsHaveCaptain && (
-              <p className="mt-1 text-xs text-amber-300">
+              <p className="mt-1 text-xs text-amber-600 dark:text-amber-300">
                 Assign captains to every team in{" "}
                 <span className="underline">Admin &gt; Manage Teams</span> before starting the live
                 auction.
@@ -657,11 +661,11 @@ export default function AdminAuctionPage({ params }: { params: Promise<{ id: str
 
         {state?.show_undo_notice && (
           <div className="animate-in fade-in slide-in-from-top-4 duration-500">
-            <div className="flex items-center gap-4 rounded-xl border border-amber-500/30 bg-amber-950/40 p-4 shadow-2xl shadow-amber-900/20 ring-1 ring-amber-500/20">
-              <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-full bg-amber-500 text-slate-950 text-xl font-black shadow-lg">!</div>
+            <div className="flex items-center gap-4 rounded-xl border border-amber-400/30 dark:border-amber-500/30 bg-amber-50/40 dark:bg-amber-950/40 p-4 shadow-2xl shadow-amber-200/20 dark:shadow-amber-900/20 ring-1 ring-amber-400/20 dark:ring-amber-500/20">
+              <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-full bg-amber-500 text-white dark:text-slate-950 text-xl font-black shadow-lg">!</div>
               <div className="flex-1">
-                <h3 className="text-lg font-bold text-amber-400">SALE REVERSED</h3>
-                <p className="text-sm text-amber-200/80 leading-snug">The previous transaction was undone. The player has been restored. You can now start the bidding again.</p>
+                <h3 className="text-lg font-bold text-amber-500 dark:text-amber-400">SALE REVERSED</h3>
+                <p className="text-sm text-amber-700/80 dark:text-amber-200/80 leading-snug">The previous transaction was undone. The player has been restored. You can now start the bidding again.</p>
               </div>
               <Button
                 size="lg"
@@ -675,13 +679,13 @@ export default function AdminAuctionPage({ params }: { params: Promise<{ id: str
         )}
 
         <div className="grid gap-6 md:grid-cols-[2fr,3fr]">
-          <Card className="border-slate-800 bg-slate-900/60 p-5 shadow-xl shadow-slate-950/50">
-            <h2 className="mb-3 text-sm font-semibold uppercase tracking-[0.15em] text-slate-400">
+          <Card className="border-slate-200 dark:border-slate-800 bg-white/60 dark:bg-slate-900/60 p-5 shadow-xl shadow-slate-300/40 dark:shadow-slate-950/50">
+            <h2 className="mb-3 text-sm font-semibold uppercase tracking-[0.15em] text-slate-500 dark:text-slate-400">
               Current Player
             </h2>
             {currentPlayer ? (
               <div className="space-y-4">
-                <div className="flex items-center gap-4 bg-slate-950/40 p-3 rounded-xl border border-slate-800">
+                <div className="flex items-center gap-4 bg-slate-100/40 dark:bg-slate-950/40 p-3 rounded-xl border border-slate-200 dark:border-slate-800">
                   <div className="scale-75 origin-left w-[80px]">
                     <PlayerAvatar
                       id={currentPlayer.id}
@@ -692,19 +696,19 @@ export default function AdminAuctionPage({ params }: { params: Promise<{ id: str
                     />
                   </div>
                   <div>
-                    <div className="text-xl font-bold text-white">{currentPlayer.name}</div>
+                    <div className="text-xl font-bold text-slate-900 dark:text-white">{currentPlayer.name}</div>
                     <div className="text-xs uppercase tracking-widest text-emerald-400 font-bold">{currentPlayer.role}</div>
                   </div>
                 </div>
                 <div className="mt-4 grid grid-cols-2 gap-2 text-sm">
-                  <div className="rounded-md bg-slate-900/80 px-3 py-2">
-                    <div className="text-xs uppercase text-slate-400">Base Price</div>
+                  <div className="rounded-md bg-slate-100/80 dark:bg-slate-900/80 px-3 py-2">
+                    <div className="text-xs uppercase text-slate-500 dark:text-slate-400">Base Price</div>
                     <div className="text-lg font-semibold">
                       {formatPrice(settings.base_price)}
                     </div>
                   </div>
-                  <div className="rounded-md bg-slate-900/80 px-3 py-2">
-                    <div className="text-xs uppercase text-slate-400">Increment</div>
+                  <div className="rounded-md bg-slate-100/80 dark:bg-slate-900/80 px-3 py-2">
+                    <div className="text-xs uppercase text-slate-500 dark:text-slate-400">Increment</div>
                     <div className="text-lg font-semibold">
                       +{formatPrice(settings.increment)}
                     </div>
@@ -713,8 +717,8 @@ export default function AdminAuctionPage({ params }: { params: Promise<{ id: str
                     <div className="text-xs uppercase text-emerald-300">Current Bid</div>
                     {formatPrice(state?.current_bid ?? settings.base_price)}
                   </div>
-                  <div className="rounded-md bg-slate-900/80 px-3 py-2">
-                    <div className="text-xs uppercase text-slate-400">Leading Team</div>
+                  <div className="rounded-md bg-slate-100/80 dark:bg-slate-900/80 px-3 py-2">
+                    <div className="text-xs uppercase text-slate-500 dark:text-slate-400">Leading Team</div>
                     <div className="text-lg font-semibold">
                       {leadingTeam ? leadingTeam.name : "—"}
                     </div>
@@ -731,19 +735,19 @@ export default function AdminAuctionPage({ params }: { params: Promise<{ id: str
                 </div>
               </div>
             ) : (
-              <div className="flex h-40 items-center justify-center text-sm text-slate-500">
+              <div className="flex h-40 items-center justify-center text-sm text-slate-500 dark:text-slate-500">
                 No player selected. Use &quot;Next Player&quot; to draw one.
               </div>
             )}
           </Card>
 
-          <Card className="border-slate-800 bg-slate-900/60 p-5 shadow-xl shadow-slate-950/50">
-            <h2 className="mb-3 text-sm font-semibold uppercase tracking-[0.15em] text-slate-400">
+          <Card className="border-slate-200 dark:border-slate-800 bg-white/60 dark:bg-slate-900/60 p-5 shadow-xl shadow-slate-300/40 dark:shadow-slate-950/50">
+            <h2 className="mb-3 text-sm font-semibold uppercase tracking-[0.15em] text-slate-500 dark:text-slate-400">
               Teams · Bid Controls
             </h2>
 
             {state?.current_bid === null ? (
-              <div className="flex h-32 items-center justify-center text-sm text-slate-500 rounded-xl border border-dashed border-slate-800 bg-slate-900/40">
+              <div className="flex h-32 items-center justify-center text-sm text-slate-500 dark:text-slate-500 rounded-xl border border-dashed border-slate-300 dark:border-slate-800 bg-slate-50/40 dark:bg-slate-900/40">
                 Click "Start Bid" to unlock team controls for the current player.
               </div>
             ) : (
@@ -756,16 +760,16 @@ export default function AdminAuctionPage({ params }: { params: Promise<{ id: str
                   return (
                     <Button
                       key={team.id}
-                      className={`relative flex h-auto flex-col items-start justify-between gap-1.5 rounded-xl border px-3 py-3 text-left shadow-sm transition-all duration-300 ${isLeading ? 'border-emerald-500 bg-emerald-950/40 ring-1 ring-emerald-500/50 shadow-[0_0_15px_rgba(16,185,129,0.15)] scale-[1.02]' : 'border-slate-800 bg-slate-900/80 hover:border-emerald-500/50 hover:bg-slate-900'}`}
+                      className={`relative flex h-auto flex-col items-start justify-between gap-1.5 rounded-xl border px-3 py-3 text-left shadow-sm transition-all duration-300 ${isLeading ? 'border-emerald-500 bg-emerald-50/40 dark:bg-emerald-950/40 ring-1 ring-emerald-500/50 shadow-[0_0_15px_rgba(16,185,129,0.15)] scale-[1.02]' : 'border-slate-200 dark:border-slate-800 bg-white/80 dark:bg-slate-900/80 hover:border-emerald-500/50 hover:bg-slate-50 dark:hover:bg-slate-900'}`}
                       disabled={!canBid || isLoading || isLeading}
                       onClick={() => handlePlaceBid(team.id)}
                     >
                       <div className="w-full">
-                        <span className="font-bold flex items-center justify-between gap-2 text-sm text-slate-100 truncate w-full">
+                        <span className="font-bold flex items-center justify-between gap-2 text-sm text-slate-700 dark:text-slate-100 truncate w-full">
                           <span className="truncate">{team.name}</span>
                           {isLeading && <span className="h-2 w-2 rounded-full bg-emerald-500 animate-pulse flex-shrink-0 shadow-[0_0_8px_rgba(16,185,129,0.8)]" />}
                         </span>
-                        <span className="text-[10px] uppercase font-semibold tracking-wider text-slate-400 block truncate mt-0.5">
+                        <span className="text-[10px] uppercase font-semibold tracking-wider text-slate-500 dark:text-slate-400 block truncate mt-0.5">
                           {team.manager}
                         </span>
                       </div>
