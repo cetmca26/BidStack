@@ -117,56 +117,57 @@ export default function TeamRoster({
                 })}
             </div>
 
-            {/* Tab Toggle Bar */}
-            <div className="flex justify-center">
-                <div className="bg-slate-900 border border-slate-800 p-1 rounded-full flex items-center">
-                    <button
-                        onClick={() => setActiveTab("highlights")}
-                        className={`px-6 py-2 rounded-full text-xs font-bold uppercase tracking-widest transition-colors ${activeTab === "highlights"
-                            ? "bg-emerald-500 text-slate-950"
-                            : "text-slate-400 hover:text-slate-200"
-                            }`}
-                    >
-                        Highlights
-                    </button>
-                    <button
-                        onClick={() => setActiveTab("rosters")}
-                        className={`px-6 py-2 rounded-full text-xs font-bold uppercase tracking-widest transition-colors ${activeTab === "rosters"
-                            ? "bg-emerald-500 text-slate-950"
-                            : "text-slate-400 hover:text-slate-200"
-                            }`}
-                    >
-                        Final Rosters
-                    </button>
-                </div>
-            </div>
-
             {/* Main Content Area */}
             <div className="w-full">
                 <Card className="bg-slate-900/40 border-slate-800 rounded-3xl min-h-[600px] backdrop-blur-xl overflow-hidden">
                     {selectedTeam ? (
                         <div className="flex flex-col h-full min-h-0">
-                            {/* Team Header (extracted subcomponent) */}
-                            <TeamRosterHeader
-                                team={selectedTeam}
-                                signings={stats.signings}
-                                totalSpend={stats.totalSpend}
-                                mode={mode}
-                            />
+                            {/* Header with Centered Tabs */}
+                            <div className="relative">
+                                <TeamRosterHeader
+                                    team={selectedTeam}
+                                    signings={stats.signings}
+                                    totalSpend={stats.totalSpend}
+                                    mode={mode}
+                                />
 
-                            {/* Conditional Content Based on Active Tab */}
+                                {/* Absolute Centered Toggle */}
+                                <div className="absolute inset-0 pointer-events-none flex items-center justify-center pt-2">
+                                    <div className="bg-slate-900 border border-slate-800 p-1 rounded-full flex items-center pointer-events-auto shadow-2xl">
+                                        <button
+                                            onClick={() => setActiveTab("highlights")}
+                                            className={`px-5 py-1.5 rounded-full text-[10px] font-black uppercase tracking-widest transition-all ${activeTab === "highlights"
+                                                    ? "bg-emerald-500 text-slate-950"
+                                                    : "text-slate-400 hover:text-slate-200"
+                                                }`}
+                                        >
+                                            Highlights
+                                        </button>
+                                        <button
+                                            onClick={() => setActiveTab("rosters")}
+                                            className={`px-5 py-1.5 rounded-full text-[10px] font-black uppercase tracking-widest transition-all ${activeTab === "rosters"
+                                                    ? "bg-emerald-500 text-slate-950"
+                                                    : "text-slate-400 hover:text-slate-200"
+                                                }`}
+                                        >
+                                            Final Rosters
+                                        </button>
+                                    </div>
+                                </div>
+                            </div>
+
                             {activeTab === "highlights" ? (
-                                <div className="flex-1 flex flex-col lg:flex-row gap-4 p-4 sm:p-6 overflow-hidden min-h-0">
-                                    {/* Formation — hero area */}
-                                    <div className="flex-1 min-h-[500px] lg:min-h-0 flex flex-col overflow-y-auto lg:overflow-hidden rounded-2xl bg-slate-950">
+                                <div className="flex-1 flex flex-col lg:flex-row gap-4 p-4 sm:p-6 overflow-hidden min-h-0 justify-center">
+                                    {/* Formation Container - Constrained width */}
+                                    <div className="w-full lg:max-w-[550px] xl:max-w-[750px] min-h-[250px] lg:min-h-0 flex flex-col overflow-y-auto lg:overflow-hidden rounded-2xl bg-slate-950 border border-white/5">
                                         <div className="flex items-center justify-end p-2 lg:hidden">
                                             <button
                                                 onClick={() => setIsSquadPanelOpen(!isSquadPanelOpen)}
-                                                className={`flex items-center gap-1.5 font-bold text-xs uppercase tracking-widest transition-colors ${isSquadPanelOpen ? "text-emerald-400" : "text-slate-500 hover:text-slate-300"
+                                                className={`flex items-center gap-1.5 font-bold text-xs uppercase tracking-widest ${isSquadPanelOpen ? "text-emerald-400" : "text-slate-500"
                                                     }`}
                                             >
-                                                {isSquadPanelOpen ? <PanelRightClose size={14} /> : <PanelRightOpen size={14} />}
-                                                <span className="inline">Squad</span>
+                                                {isSquadPanelOpen ? <PanelRightClose size={18} /> : <PanelRightOpen size={18} />}
+                                                <span>Squad</span>
                                             </button>
                                         </div>
                                         <TeamFormation
@@ -180,20 +181,16 @@ export default function TeamRoster({
                                     <AnimatePresence mode="wait">
                                         {isSquadPanelOpen && (
                                             <motion.div
-                                                initial={mode === "live" ? { width: 0, opacity: 0, scale: 0.95 } : false}
-                                                animate={{ width: "auto", opacity: 1, scale: 1 }}
-                                                exit={{ width: 0, opacity: 0, scale: 0.95 }}
-                                                transition={{ type: "spring", stiffness: 300, damping: 30 }}
-                                                className="lg:w-[340px] xl:w-[380px] flex-shrink-0 overflow-y-auto origin-right custom-scrollbar"
+                                                initial={mode === "live" ? { width: 0, opacity: 0 } : false}
+                                                animate={{ width: "auto", opacity: 1 }}
+                                                exit={{ width: 0, opacity: 0 }}
+                                                className="lg:w-[520px] xl:w-[560px] flex-shrink-0 overflow-y-auto custom-scrollbar"
                                             >
-                                                <div className="w-full h-full min-w-[300px] space-y-4">
-                                                    <div className="text-sm font-black text-slate-500 uppercase tracking-widest mt-2 px-2">
+                                                <div className="w-fluid space-y-4 pt-2">
+                                                    <div className="text-[20px] font-black text-slate-500 uppercase tracking-widest px-2">
                                                         Team Star Players
                                                     </div>
-                                                    <TeamStarPlayers
-                                                        captain={captain}
-                                                        mvp={mvp}
-                                                    />
+                                                    <TeamStarPlayers captain={captain} mvp={mvp} />
                                                 </div>
                                             </motion.div>
                                         )}
@@ -203,12 +200,12 @@ export default function TeamRoster({
                                 <div className="flex-1 p-4 sm:p-6 overflow-y-auto">
                                     <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
                                         {teamPlayers.map(player => (
-                                            <div key={player.id} className="bg-slate-900 border border-slate-800 rounded-xl p-3 flex items-center gap-3">
-                                                <div className="w-12 h-12 rounded-lg bg-slate-800 overflow-hidden flex-shrink-0">
+                                            <div key={player.id} className="bg-slate-900 border border-slate-800 p-3 flex items-center gap-3">
+                                                <div className="w-fluid h-fluid bg-slate-800 overflow-hidden flex-shrink-0">
                                                     {player.photo_url ? (
-                                                        <img src={player.photo_url} alt={player.name} className="w-full h-full object-cover object-top" />
+                                                        <img src={player.photo_url} alt={player.name} className="w-fluid h-fluid object-cover object-top" />
                                                     ) : (
-                                                        <div className="w-full h-full flex items-center justify-center font-heading font-bold text-slate-500">
+                                                        <div className="w-fluid h-fluid flex items-center justify-center font-heading font-bold text-slate-500">
                                                             {player.name.charAt(0)}
                                                         </div>
                                                     )}
@@ -229,11 +226,6 @@ export default function TeamRoster({
                                                 )}
                                             </div>
                                         ))}
-                                        {teamPlayers.length === 0 && (
-                                            <div className="col-span-full py-12 text-center text-slate-500 italic uppercase font-bold tracking-widest text-sm">
-                                                No players signed yet.
-                                            </div>
-                                        )}
                                     </div>
                                 </div>
                             )}
@@ -246,6 +238,14 @@ export default function TeamRoster({
                             </p>
                         </div>
                     )}
+                    {/* //: (
+//                         <div className="w-full h-full flex flex-col items-center justify-center text-slate-500 p-12">
+//                             <Users size={48} className="opacity-10 mb-4" />
+//                             <p className="text-sm italic font-bold uppercase tracking-widest">
+//                                 Select a team to view their final roster
+//                             </p>
+//                         </div>
+//                     )} */}
                 </Card>
             </div>
         </div>
