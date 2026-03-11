@@ -16,7 +16,10 @@ import { UnsoldFeedback } from "@/components/live/UnsoldFeedback";
 import { Gavel, LayoutDashboard, ArrowLeft, Users } from "lucide-react";
 import AuctionHero from "@/components/live/AuctionHero";
 import CaptainCard from "@/components/live/TempCard";
+import CaptainDeck from "@/components/live/CaptainDeck";
+import BlindBidReveal from "@/components/live/BlindBidReveal";
 import { ThemeToggle } from "@/components/ThemeToggle";
+import { formatPriceCompact } from "@/lib/utils";
 
 import {
   getTeamPlayers,
@@ -110,12 +113,12 @@ export default function LiveAuctionPage({
     }
   }, [state?.phase, state?.current_player_id, players]);
 
-  // Redirect to recap on completion
+  // Redirect to recap on completion or slot filling
   useEffect(() => {
-    if (!loading && auction?.status === "completed") {
+    if (!loading && (auction?.status === "completed" || state?.phase === "slot_filling")) {
       router.replace(`/live/${auctionId}/recap`);
     }
-  }, [auction?.status, auctionId, loading, router]);
+  }, [auction?.status, state?.phase, auctionId, loading, router]);
 
   if (loading || !auction) {
     return (
@@ -216,60 +219,9 @@ export default function LiveAuctionPage({
               <div className="flex-1 flex flex-col items-center justify-center p-fluid-lg relative z-10 text-center overflow-y-auto">
                 <AnimatePresence mode="wait">
                   {state?.phase === "captain_round" ? (
-                    <motion.section
-                      key="captain-phase"
-                      initial={{ opacity: 0 }}
-                      animate={{ opacity: 1 }}
-                      exit={{ opacity: 0 }}
-                      transition={{ duration: 0.4 }}
-                      className="min-h-screen w-full flex flex-col items-center justify-center py-8 sm:py-12 md:py-16 px-4 sm:px-6 md:px-8"
-                    >
-                      <motion.div
-                        initial={{ opacity: 0, y: -20 }}
-                        animate={{ opacity: 1, y: 0 }}
-                        transition={{ duration: 0.5, delay: 0.2 }}
-                        className="text-center mb-8 sm:mb-12 md:mb-16"
-                      >
-                        <h2 className="italic tracking-tighter text-amber-500 uppercase mb-3 sm:mb-4 animate-pulse text-2xl sm:text-3xl md:text-4xl font-black">
-                          Captain Reveal
-                        </h2>
-                        <p className="max-w-md mx-auto text-sm md:text-base text-slate-600 dark:text-slate-400 font-medium px-2">
-                          Franchises selecting leadership via Blind Bidding...
-                        </p>
-                      </motion.div>
-
-                      <div className="w-full flex items-center justify-center flex-shrink-0">
-                        <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-4 sm:gap-6 md:gap-8 w-full max-w-screen-2xl">
-                          {players
-                            .filter((p) => p.is_captain)
-                            .map((captain, index) => {
-                              const matchedTeam = teams.find((t) => t.captain_id === captain.id);
-                              return (
-                                <motion.div
-                                  key={captain.id}
-                                  initial={{ opacity: 0, y: 40, scale: 0.9 }}
-                                  animate={{ opacity: 1, y: 0, scale: 1 }}
-                                  transition={{ duration: 0.5, delay: 0.3 + index * 0.08, ease: "easeOut" }}
-                                  className="w-full flex justify-center"
-                                >
-                                  <div className="w-full max-w-xs sm:max-w-sm md:max-w-md lg:max-w-lg">
-                                    <CaptainCard
-                                      index={index}
-                                      name={captain.name}
-                                      role={captain.role}
-                                      image={captain.photo_url || "/placeholder-player.png"}
-                                      teamColor="#22c55e"
-                                      teamName={matchedTeam?.name}
-                                      price={matchedTeam && captain.sold_price ? Math.round(captain.sold_price / 100000) : undefined}
-                                      isSold={!!matchedTeam}
-                                    />
-                                  </div>
-                                </motion.div>
-                              );
-                            })}
-                        </div>
-                      </div>
-                    </motion.section>
+                    <CaptainDeck players={players} teams={teams} />
+                  ) : state?.phase === "blind_bid_round" ? (
+                    <BlindBidReveal players={players} teams={teams} />
                   ) : currentPlayer && state?.current_bid !== null ? (
                     <div className="h-full flex flex-col">
                       <div className="flex-1 p-6">
@@ -324,7 +276,7 @@ export default function LiveAuctionPage({
                 <div className="text-center flex-shrink-0">
                   <div className="text-[7px] md:text-[9px] lg:text-[10px] font-black text-slate-600 uppercase tracking-tighter md:tracking-widest">Total</div>
                   <div className="text-sm md:text-lg lg:text-2xl font-black text-emerald-500 italic">
-                    ₹{Math.round(players.reduce((sum, p) => sum + (p.sold_price || 0), 0) / 100000)}L
+                    {formatPriceCompact(players.reduce((sum, p) => sum + (p.sold_price || 0), 0))}
                   </div>
                 </div>
               </div>

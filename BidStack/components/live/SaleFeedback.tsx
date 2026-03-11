@@ -3,7 +3,7 @@
 import { useEffect, useState } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { Player, Team } from "@/lib/hooks/useAuctionState";
-import { formatPrice } from "@/lib/utils";
+import { formatPrice, formatPriceCompact } from "@/lib/utils";
 import { Gavel } from "lucide-react";
 
 interface SaleFeedbackProps {
@@ -170,8 +170,11 @@ export function SaleFeedback({ player, team, price, isVisible, currentView = "au
                                         <Gavel size={14} />
                                         Final Hammer Price
                                     </div>
-                                    <div className="text-4xl sm:text-5xl font-mono font-black text-slate-950 tracking-tight">
+                                    <div className="text-4xl sm:text-5xl font-mono font-black text-slate-950 tracking-tight text-center">
                                         {formatPrice(price)}
+                                        <div className="text-lg sm:text-xl text-slate-800/80 -mt-1 font-sans italic tracking-wider">
+                                            ({formatPriceCompact(price)})
+                                        </div>
                                     </div>
                                 </div>
                             </div>

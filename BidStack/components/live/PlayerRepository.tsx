@@ -23,7 +23,9 @@ export function PlayerRepository({ players, teams, onBack }: PlayerRepositoryPro
         return players
             .filter((p) => {
                 if (filter === "all") return true;
-                if (filter === "unsold") return p.status === "upcoming" && !p.sold_team_id;
+                if (filter === "sold") return p.status === "sold" || p.sold_team_id !== null;
+                if (filter === "unsold") return p.status === "unsold" || p.status === "unsold_final";
+                if (filter === "upcoming") return p.status === "upcoming" || p.status === "upcoming_phase2" || p.status === "blind_reserved";
                 return p.status === filter;
             })
             .filter((p) => p.name.toLowerCase().includes(search.toLowerCase()))

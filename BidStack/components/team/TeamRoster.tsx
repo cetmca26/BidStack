@@ -137,8 +137,8 @@ export default function TeamRoster({
                                         <button
                                             onClick={() => setActiveTab("highlights")}
                                             className={`px-5 py-1.5 rounded-full text-[10px] font-black uppercase tracking-widest transition-all ${activeTab === "highlights"
-                                                    ? "bg-emerald-500 text-slate-950"
-                                                    : "text-slate-400 hover:text-slate-200"
+                                                ? "bg-emerald-500 text-slate-950"
+                                                : "text-slate-400 hover:text-slate-200"
                                                 }`}
                                         >
                                             Highlights
@@ -146,8 +146,8 @@ export default function TeamRoster({
                                         <button
                                             onClick={() => setActiveTab("rosters")}
                                             className={`px-5 py-1.5 rounded-full text-[10px] font-black uppercase tracking-widest transition-all ${activeTab === "rosters"
-                                                    ? "bg-emerald-500 text-slate-950"
-                                                    : "text-slate-400 hover:text-slate-200"
+                                                ? "bg-emerald-500 text-slate-950"
+                                                : "text-slate-400 hover:text-slate-200"
                                                 }`}
                                         >
                                             Final Rosters

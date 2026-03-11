@@ -12,7 +12,7 @@ interface RepositoryPanelProps {
 export function RepositoryPanel({ players, onExpand }: RepositoryPanelProps) {
     const upcomingPlayers = players
         .filter((p) => p.status === "upcoming")
-        .slice(0, 5);
+        .slice(0, 4);
 
     const soldCount = players.filter((p) => p.status === "sold").length;
     const upcomingCount = players.filter((p) => p.status === "upcoming").length;
@@ -36,9 +36,18 @@ export function RepositoryPanel({ players, onExpand }: RepositoryPanelProps) {
                 </div>
             </div>
 
+            {/* Expand Button */}
+            <button
+                onClick={onExpand}
+                className="w-full flex items-center justify-center gap-1.5 py-2.5 rounded-xl border border-sky-300 dark:border-sky-500/30 text-sky-600 dark:text-sky-400 hover:bg-sky-500/10 hover:border-sky-400 dark:hover:border-sky-500/50 transition-all text-xs font-black uppercase tracking-widest"
+            >
+                Expand Repository
+                <ChevronRight size={12} />
+            </button>
+
             {/* Upcoming Players Preview */}
             {upcomingPlayers.length > 0 && (
-                <div className="space-y-1.5">
+                <div className="space-y-1.5 mt-auto">
                     <div className="text-[10px] font-black text-slate-600 dark:text-slate-500 uppercase tracking-widest px-1">
                         Next Up
                     </div>
@@ -64,15 +73,6 @@ export function RepositoryPanel({ players, onExpand }: RepositoryPanelProps) {
                     ))}
                 </div>
             )}
-
-            {/* Expand Button */}
-            <button
-                onClick={onExpand}
-                className="mt-auto w-full flex items-center justify-center gap-1.5 py-2.5 rounded-xl border border-sky-300 dark:border-sky-500/30 text-sky-600 dark:text-sky-400 hover:bg-sky-500/10 hover:border-sky-400 dark:hover:border-sky-500/50 transition-all text-xs font-black uppercase tracking-widest"
-            >
-                Expand Repository
-                <ChevronRight size={12} />
-            </button>
         </div>
     );
 }

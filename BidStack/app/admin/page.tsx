@@ -4,6 +4,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { supabase } from "@/lib/supabase";
+import { numberToIndianWords } from "@/lib/utils";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -20,8 +21,13 @@ type Auction = {
     min_players: number;
     max_players: number;
     base_price: number;
-    increment: number;
+    increment?: number;
     captain_base_price?: number;
+    tier1_increment?: number;
+    tier1_threshold?: number;
+    tier2_increment?: number;
+    tier2_threshold?: number;
+    tier3_increment?: number;
   };
 };
 
@@ -36,7 +42,11 @@ export default function AdminDashboardPage() {
   const [maxPlayers, setMaxPlayers] = useState("11");
   const [basePrice, setBasePrice] = useState("10");
   const [captainBasePrice, setCaptainBasePrice] = useState("50");
-  const [increment, setIncrement] = useState("5");
+  const [tier1Increment, setTier1Increment] = useState("30");
+  const [tier1Threshold, setTier1Threshold] = useState("60");
+  const [tier2Increment, setTier2Increment] = useState("50");
+  const [tier2Threshold, setTier2Threshold] = useState("100");
+  const [tier3Increment, setTier3Increment] = useState("100");
   const [creating, setCreating] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const createSectionRef = useRef<HTMLDivElement | null>(null);
@@ -132,7 +142,11 @@ export default function AdminDashboardPage() {
     const maxVal = Number(maxPlayers);
     const baseVal = Number(basePrice);
     const captBaseVal = Number(captainBasePrice);
-    const incVal = Number(increment);
+    const t1Inc = Number(tier1Increment);
+    const t1Thresh = Number(tier1Threshold);
+    const t2Inc = Number(tier2Increment);
+    const t2Thresh = Number(tier2Threshold);
+    const t3Inc = Number(tier3Increment);
 
     if (!name.trim()) {
       setError("Auction name is required.");
@@ -149,8 +163,12 @@ export default function AdminDashboardPage() {
           min_players: minVal,
           max_players: maxVal,
           base_price: baseVal,
-          increment: incVal,
           captain_base_price: captBaseVal,
+          tier1_increment: t1Inc,
+          tier1_threshold: t1Thresh,
+          tier2_increment: t2Inc,
+          tier2_threshold: t2Thresh,
+          tier3_increment: t3Inc,
         },
       });
 
@@ -277,6 +295,7 @@ export default function AdminDashboardPage() {
                     onChange={(e) => setPurse(e.target.value)}
                     className="bg-slate-50 dark:bg-slate-950/80 text-slate-900 dark:text-slate-50"
                   />
+                  {Number(purse) > 0 && <p className="text-[10px] text-emerald-500 dark:text-emerald-400 mt-0.5">₹{numberToIndianWords(Number(purse))}</p>}
                 </div>
                 <div className="space-y-1">
                   <Label htmlFor="minPlayers" className="text-slate-100">
@@ -303,7 +322,7 @@ export default function AdminDashboardPage() {
                   />
                 </div>
                 <div className="space-y-1">
-                  <Label htmlFor="basePrice" className="text-slate-100">
+                  <Label htmlFor="basePrice" className="text-slate-700 dark:text-slate-100">
                     Base Price
                   </Label>
                   <Input
@@ -313,9 +332,10 @@ export default function AdminDashboardPage() {
                     onChange={(e) => setBasePrice(e.target.value)}
                     className="bg-slate-50 dark:bg-slate-950/80 text-slate-900 dark:text-slate-50"
                   />
+                  {Number(basePrice) > 0 && <p className="text-[10px] text-emerald-500 dark:text-emerald-400 mt-0.5">₹{numberToIndianWords(Number(basePrice))}</p>}
                 </div>
                 <div className="space-y-1">
-                  <Label htmlFor="captBasePrice" className="text-slate-100">
+                  <Label htmlFor="captBasePrice" className="text-slate-700 dark:text-slate-100">
                     Captain Base Price
                   </Label>
                   <Input
@@ -325,18 +345,74 @@ export default function AdminDashboardPage() {
                     onChange={(e) => setCaptainBasePrice(e.target.value)}
                     className="bg-slate-50 dark:bg-slate-950/80 text-slate-900 dark:text-slate-50"
                   />
+                  {Number(captainBasePrice) > 0 && <p className="text-[10px] text-emerald-500 dark:text-emerald-400 mt-0.5">₹{numberToIndianWords(Number(captainBasePrice))}</p>}
                 </div>
-                <div className="space-y-1">
-                  <Label htmlFor="increment" className="text-slate-100">
-                    Bid Increment
-                  </Label>
-                  <Input
-                    id="increment"
-                    type="number"
-                    value={increment}
-                    onChange={(e) => setIncrement(e.target.value)}
-                    className="bg-slate-50 dark:bg-slate-950/80 text-slate-900 dark:text-slate-50"
-                  />
+                {/* Dynamic Bid Increment Tiers */}
+                <div className="md:col-span-2 border-t border-slate-200 dark:border-slate-800 pt-3 mt-1">
+                  <h3 className="text-xs font-semibold uppercase tracking-[0.15em] text-slate-500 dark:text-slate-400 mb-3">Dynamic Bid Increment Tiers</h3>
+                  <div className="flex flex-col gap-3">
+                    {/* Row 1 */}
+                    <div className="flex flex-wrap sm:flex-nowrap items-start gap-x-4 gap-y-2 text-sm bg-slate-100/60 dark:bg-slate-800/40 p-3 rounded-lg border border-slate-200 dark:border-slate-700/60">
+                      <div className="flex items-start gap-3 font-medium min-w-[200px]">
+                        <div className="flex flex-col items-end w-16">
+                           <span className="text-slate-400 text-right mt-1.5">₹{basePrice || '0'}</span>
+                           {Number(basePrice) > 0 && <span className="text-[9px] text-slate-400 italic text-right leading-tight break-words">{numberToIndianWords(Number(basePrice))}</span>}
+                        </div>
+                        <span className="text-slate-300 dark:text-slate-600 font-bold tracking-widest mt-1.5">→</span>
+                        <div className="flex flex-col w-24">
+                           <Input id="tier1Thresh" type="number" value={tier1Threshold} onChange={(e) => setTier1Threshold(e.target.value)} className="w-full bg-white dark:bg-slate-950 font-semibold h-8" placeholder="60" />
+                           {Number(tier1Threshold) > 0 && <span className="text-[9px] text-blue-500 dark:text-blue-400 italic mt-1 leading-tight break-words">{numberToIndianWords(Number(tier1Threshold))}</span>}
+                        </div>
+                      </div>
+                      <div className="flex items-start gap-3 flex-1 mt-1 sm:mt-0">
+                        <span className="text-slate-500 text-xs font-semibold uppercase tracking-wider mt-1.5">: Increment =</span>
+                        <div className="flex flex-col w-24">
+                           <Input id="tier1Inc" type="number" value={tier1Increment} onChange={(e) => setTier1Increment(e.target.value)} className="w-full bg-white dark:bg-slate-950 font-semibold text-blue-600 dark:text-blue-400 h-8" placeholder="30" />
+                           {Number(tier1Increment) > 0 && <span className="text-[9px] text-blue-500 dark:text-blue-400 italic mt-1 leading-tight break-words">{numberToIndianWords(Number(tier1Increment))}</span>}
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* Row 2 */}
+                    <div className="flex flex-wrap sm:flex-nowrap items-start gap-x-4 gap-y-2 text-sm bg-slate-100/60 dark:bg-slate-800/40 p-3 rounded-lg border border-slate-200 dark:border-slate-700/60">
+                      <div className="flex items-start gap-3 font-medium min-w-[200px]">
+                        <div className="flex flex-col items-end w-16">
+                           <span className="text-slate-400 text-right mt-1.5">₹{tier1Threshold || '0'}</span>
+                           {Number(tier1Threshold) > 0 && <span className="text-[9px] text-slate-400 italic text-right leading-tight break-words">{numberToIndianWords(Number(tier1Threshold))}</span>}
+                        </div>
+                        <span className="text-slate-300 dark:text-slate-600 font-bold tracking-widest mt-1.5">→</span>
+                        <div className="flex flex-col w-24">
+                           <Input id="tier2Thresh" type="number" value={tier2Threshold} onChange={(e) => setTier2Threshold(e.target.value)} className="w-full bg-white dark:bg-slate-950 font-semibold h-8" placeholder="100" />
+                           {Number(tier2Threshold) > 0 && <span className="text-[9px] text-blue-500 dark:text-blue-400 italic mt-1 leading-tight break-words">{numberToIndianWords(Number(tier2Threshold))}</span>}
+                        </div>
+                      </div>
+                      <div className="flex items-start gap-3 flex-1 mt-1 sm:mt-0">
+                        <span className="text-slate-500 text-xs font-semibold uppercase tracking-wider mt-1.5">: Increment =</span>
+                        <div className="flex flex-col w-24">
+                           <Input id="tier2Inc" type="number" value={tier2Increment} onChange={(e) => setTier2Increment(e.target.value)} className="w-full bg-white dark:bg-slate-950 font-semibold text-blue-600 dark:text-blue-400 h-8" placeholder="50" />
+                           {Number(tier2Increment) > 0 && <span className="text-[9px] text-blue-500 dark:text-blue-400 italic mt-1 leading-tight break-words">{numberToIndianWords(Number(tier2Increment))}</span>}
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* Row 3 */}
+                    <div className="flex flex-wrap sm:flex-nowrap items-start gap-x-4 gap-y-2 text-sm bg-slate-100/60 dark:bg-slate-800/40 p-3 rounded-lg border border-slate-200 dark:border-slate-700/60">
+                      <div className="flex items-start gap-3 font-medium min-w-[200px]">
+                        <div className="flex flex-col items-end w-16">
+                           <span className="text-slate-400 text-right mt-1.5">₹{tier2Threshold || '0'}</span>
+                           {Number(tier2Threshold) > 0 && <span className="text-[9px] text-slate-400 italic text-right leading-tight break-words">{numberToIndianWords(Number(tier2Threshold))}</span>}
+                        </div>
+                        <span className="text-slate-300 dark:text-slate-600 font-bold tracking-widest mt-1.5 w-24 text-center ml-3">+</span>
+                      </div>
+                      <div className="flex items-start gap-3 flex-1 mt-1 sm:mt-0">
+                        <span className="text-slate-500 text-xs font-semibold uppercase tracking-wider mt-1.5">: Increment =</span>
+                        <div className="flex flex-col w-24">
+                           <Input id="tier3Inc" type="number" value={tier3Increment} onChange={(e) => setTier3Increment(e.target.value)} className="w-full bg-white dark:bg-slate-950 font-semibold text-blue-600 dark:text-blue-400 h-8" placeholder="100" />
+                           {Number(tier3Increment) > 0 && <span className="text-[9px] text-blue-500 dark:text-blue-400 italic mt-1 leading-tight break-words">{numberToIndianWords(Number(tier3Increment))}</span>}
+                        </div>
+                      </div>
+                    </div>
+                  </div>
                 </div>
                 {error && (
                   <p className="md:col-span-2 text-xs text-rose-400">

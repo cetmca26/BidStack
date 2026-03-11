@@ -6,8 +6,13 @@ export type AuctionSettings = {
     min_players: number;
     max_players: number;
     base_price: number;
-    increment: number;
+    increment?: number;
     captain_base_price?: number;
+    tier1_increment?: number;
+    tier1_threshold?: number;
+    tier2_increment?: number;
+    tier2_threshold?: number;
+    tier3_increment?: number;
 };
 
 export type Auction = {
@@ -36,9 +41,10 @@ export type Player = {
     role: string;
     photo_url: string | null;
     is_captain: boolean;
+    is_blind_bid: boolean;
     sold_team_id: string | null;
     sold_price: number | null;
-    status: "sold" | "live" | "upcoming"; // Computed field
+    status: "sold" | "live" | "upcoming" | "unsold" | "blind_reserved" | "upcoming_phase2" | "unsold_final"; // DB enum values
 };
 
 export type AuctionState = {

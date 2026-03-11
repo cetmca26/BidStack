@@ -1,6 +1,7 @@
 "use client"
 
 import { motion } from "framer-motion"
+import { formatPriceCompact } from "@/lib/utils"
 
 export default function AuctionHero({
     player,
@@ -74,8 +75,13 @@ export default function AuctionHero({
                             CURRENT BID
                         </div>
 
-                        <div className="text-[clamp(1.75rem,1.5rem+2vw,3rem)] font-black italic text-black tracking-tight">
-                            ₹{bid.toLocaleString("en-IN")}
+                        <div className="flex flex-col justify-end mt-1">
+                            <div className="text-[clamp(1.75rem,1.5rem+2vw,3rem)] font-black italic text-black tracking-tight leading-none">
+                                ₹{bid.toLocaleString("en-IN")}
+                            </div>
+                            <div className="text-sm font-bold text-black/60 italic tracking-wider mt-1">
+                                {formatPriceCompact(bid)}
+                            </div>
                         </div>
 
 

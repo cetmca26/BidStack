@@ -1,5 +1,6 @@
 import { motion } from "framer-motion";
 import { Crown } from "lucide-react";
+import { formatPriceCompact } from "@/lib/utils";
 
 interface CaptainCardProps {
   name: string;
@@ -110,7 +111,7 @@ const CaptainCard = ({ name, role, image, teamColor, index, teamName, price, isS
               className="mt-3 bg-secondary rounded-lg py-1.5 px-3 relative z-10"
             >
               <span className="font-display text-xs" style={{ color: teamColor }}>{teamName}</span>
-              <span className="font-display text-xs text-accent ml-2">₹{price}L</span>
+              <span className="font-display text-xs text-accent ml-2">{formatPriceCompact(price)}</span>
             </motion.div>
           ) : (
             <motion.div
