@@ -4,9 +4,9 @@ import { useState, useEffect, useMemo } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { Card } from "@/components/ui/card";
 import { TeamLogo } from "@/components/TeamLogo";
-import { UserCheck, Wallet, TrendingUp, Users, PanelRightClose, PanelRightOpen, PanelRight } from "lucide-react";
+import { Users, PanelRightClose, PanelRightOpen } from "lucide-react";
 import { formatPrice } from "@/lib/utils";
-import { Player, Team } from "@/lib/hooks/useAuctionState";
+import { Player, Team, Auction } from "@/lib/hooks/useAuctionState";
 import {
     getTeamPlayers,
     groupPlayersByRole,
@@ -15,34 +15,45 @@ import {
     computeTeamStats,
 } from "@/lib/shared/playerUtils";
 import { TeamFormation } from "@/components/live/TeamFormation";
-import { TeamRosterPanel } from "@/components/live/TeamRosterPanel";
+import { TeamRosterHeader } from "@/components/team/TeamRosterHeader";
+import { TeamStarPlayers } from "@/components/team/TeamStarPlayers";
 
-interface Auction {
-    id: string;
-    name: string;
-    status: string;
-    sport_type: string;
-}
-
-interface ConsolidatedTeamRosterProps {
+interface TeamRosterProps {
     auction: Auction;
     teams: Team[];
     players: Player[];
+    mode: "live" | "recap";
+    /** Externally controlled selected team (optional — used by live page sidebar) */
+    selectedTeamId?: string | null;
+    onTeamSelect?: (teamId: string) => void;
 }
 
-export default function ConsolidatedTeamRoster({
+export default function TeamRoster({
     auction,
     teams,
     players,
-}: ConsolidatedTeamRosterProps) {
-    const [selectedTeamId, setSelectedTeamId] = useState<string | null>(null);
+    mode,
+    selectedTeamId: externalSelectedTeamId,
+    onTeamSelect,
+}: TeamRosterProps) {
+    const [internalSelectedTeamId, setInternalSelectedTeamId] = useState<string | null>(null);
     const [isSquadPanelOpen, setIsSquadPanelOpen] = useState(false);
     const [activeTab, setActiveTab] = useState<"highlights" | "rosters">("highlights");
 
+    // Use external selection if provided, otherwise internal
+    const selectedTeamId = externalSelectedTeamId !== undefined ? externalSelectedTeamId : internalSelectedTeamId;
+    const setSelectedTeamId = (id: string) => {
+        if (onTeamSelect) onTeamSelect(id);
+        else setInternalSelectedTeamId(id);
+    };
+
     useEffect(() => {
-        // default to open on desktop
-        setIsSquadPanelOpen(window.innerWidth >= 1024);
-    }, []);
+        if (mode === "live") {
+            setIsSquadPanelOpen(window.innerWidth >= 1024);
+        } else {
+            setIsSquadPanelOpen(true);
+        }
+    }, [mode]);
 
     useEffect(() => {
         if (teams.length > 0 && !selectedTeamId) {
@@ -52,7 +63,6 @@ export default function ConsolidatedTeamRoster({
 
     const selectedTeam = teams.find((t) => t.id === selectedTeamId) || null;
 
-    // ─── Computed data using shared utilities ───
     const teamPlayers = useMemo(
         () => (selectedTeamId ? getTeamPlayers(players, selectedTeamId) : []),
         [players, selectedTeamId],
@@ -75,7 +85,7 @@ export default function ConsolidatedTeamRoster({
 
     return (
         <div className="flex flex-col gap-6">
-            {/* Team Selector Pills (Horizontal) */}
+            {/* Team Selector Pills */}
             <div className="flex overflow-x-auto pb-4 -mx-4 px-4 sm:mx-0 sm:px-0 custom-scrollbar gap-3 snap-x">
                 {teams.map((team) => {
                     const count = getTeamPlayers(players, team.id).length;
@@ -136,68 +146,13 @@ export default function ConsolidatedTeamRoster({
                 <Card className="bg-slate-900/40 border-slate-800 rounded-3xl min-h-[600px] backdrop-blur-xl overflow-hidden">
                     {selectedTeam ? (
                         <div className="flex flex-col h-full min-h-0">
-                            {/* Team Header */}
-                            <div className="flex flex-col sm:flex-row items-center justify-between bg-slate-900/60 backdrop-blur-md p-5 sm:p-6 border-b border-slate-800 gap-4 flex-shrink-0">
-                                <div className="flex items-center gap-5">
-                                    <motion.div
-                                        initial={{ scale: 0.8, opacity: 0 }}
-                                        animate={{ scale: 1, opacity: 1 }}
-                                        transition={{ type: "spring", bounce: 0.5 }}
-                                    >
-                                        <TeamLogo
-                                            name={selectedTeam.name}
-                                            logoUrl={selectedTeam.logo_url}
-                                            size="lg"
-                                        />
-                                    </motion.div>
-                                    <div>
-                                        <h2 className="text-2xl sm:text-3xl font-heading font-bold text-white uppercase tracking-tighter">
-                                            {selectedTeam.name}
-                                        </h2>
-                                        <div className="flex items-center gap-3 mt-1">
-                                            <span className="text-amber-400 font-bold text-sm tracking-widest uppercase">
-                                                {selectedTeam.manager}
-                                            </span>
-                                            <div className="h-1 w-1 rounded-full bg-slate-700" />
-                                            <div className="flex items-center gap-1.5 text-slate-400 text-xs font-bold uppercase tracking-wider">
-                                                <UserCheck size={14} className="text-emerald-500" />
-                                                {stats.signings} Signings
-                                            </div>
-                                        </div>
-                                    </div>
-                                </div>
-
-                                <div className="grid grid-cols-2 gap-3">
-                                    <div className="bg-slate-950/60 rounded-xl p-3 border border-slate-800/50 min-w-[130px]">
-                                        <div className="flex items-center gap-1.5 text-[10px] font-black text-slate-500 uppercase tracking-widest mb-1">
-                                            <Wallet size={12} className="text-emerald-500" />
-                                            Remaining
-                                        </div>
-                                        <div className="text-lg sm:text-xl font-mono font-bold text-emerald-400">
-                                            {formatPrice(selectedTeam.purse_remaining)}
-                                        </div>
-                                    </div>
-                                    <div className="relative bg-slate-950/60 rounded-xl p-3 border border-slate-800/50 min-w-[130px]">
-                                        <div className="flex items-center gap-1.5 text-[10px] font-black text-slate-500 uppercase tracking-widest mb-1">
-                                            <TrendingUp size={12} className="text-amber-500" />
-                                            Total Spend
-                                        </div>
-                                        <div className="text-lg sm:text-xl font-mono font-bold text-amber-400">
-                                            {formatPrice(stats.totalSpend)}
-                                        </div>
-
-                                        {/* Toggle Button for Squad Panel positioned inside header or next to it */}
-                                        <button
-                                            onClick={() => setIsSquadPanelOpen(!isSquadPanelOpen)}
-                                            className={`absolute -bottom-10 right-0 sm:top-1/2 sm:-translate-y-1/2 sm:-right-24 md:-right-28 sm:bottom-auto flex items-center gap-1.5 font-bold text-xs uppercase tracking-widest transition-colors ${isSquadPanelOpen ? "text-emerald-400" : "text-slate-500 hover:text-slate-300"
-                                                }`}
-                                        >
-                                            {isSquadPanelOpen ? <PanelRightClose size={14} /> : <PanelRightOpen size={14} />}
-                                            <span className="hidden sm:inline">Squad</span>
-                                        </button>
-                                    </div>
-                                </div>
-                            </div>
+                            {/* Team Header (extracted subcomponent) */}
+                            <TeamRosterHeader
+                                team={selectedTeam}
+                                signings={stats.signings}
+                                totalSpend={stats.totalSpend}
+                                mode={mode}
+                            />
 
                             {/* Conditional Content Based on Active Tab */}
                             {activeTab === "highlights" ? (
@@ -221,11 +176,11 @@ export default function ConsolidatedTeamRoster({
                                         />
                                     </div>
 
-                                    {/* Captain and MVP Highlights directly here on desktop, or side panel space */}
+                                    {/* Star Players Side Panel */}
                                     <AnimatePresence mode="wait">
                                         {isSquadPanelOpen && (
                                             <motion.div
-                                                initial={{ width: 0, opacity: 0, scale: 0.95 }}
+                                                initial={mode === "live" ? { width: 0, opacity: 0, scale: 0.95 } : false}
                                                 animate={{ width: "auto", opacity: 1, scale: 1 }}
                                                 exit={{ width: 0, opacity: 0, scale: 0.95 }}
                                                 transition={{ type: "spring", stiffness: 300, damping: 30 }}
@@ -235,10 +190,9 @@ export default function ConsolidatedTeamRoster({
                                                     <div className="text-sm font-black text-slate-500 uppercase tracking-widest mt-2 px-2">
                                                         Team Star Players
                                                     </div>
-                                                    <TeamRosterPanel
+                                                    <TeamStarPlayers
                                                         captain={captain}
                                                         mvp={mvp}
-                                                        teamPlayers={[]} // Specifically only highlight captain and MVP here
                                                     />
                                                 </div>
                                             </motion.div>

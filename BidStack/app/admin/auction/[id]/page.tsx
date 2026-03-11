@@ -17,7 +17,7 @@ import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import ConsolidatedTeamRoster from "@/components/ConsolidatedTeamRoster";
+import TeamRoster from "@/components/team/TeamRoster";
 
 export default function AdminAuctionPage({ params }: { params: Promise<{ id: string }> }) {
   const router = useRouter();
@@ -138,7 +138,7 @@ export default function AdminAuctionPage({ params }: { params: Promise<{ id: str
           </Button>
         </div>
         <div className="flex-1 overflow-auto">
-          <ConsolidatedTeamRoster auction={auction} teams={teams} players={players} />
+          <TeamRoster auction={auction} teams={teams} players={players} mode="recap" />
         </div>
       </div>
     );

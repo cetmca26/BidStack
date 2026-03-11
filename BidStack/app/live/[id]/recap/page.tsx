@@ -4,7 +4,7 @@ import { use } from "react";
 import { useRouter } from "next/navigation";
 import { useAuctionState } from "@/lib/hooks/useAuctionState";
 import { RecapStats } from "@/components/live/RecapStats";
-import ConsolidatedTeamRoster from "@/components/ConsolidatedTeamRoster";
+import TeamRoster from "@/components/team/TeamRoster";
 import { Button } from "@/components/ui/button";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Trophy, Users, BarChart3, ArrowLeft } from "lucide-react";
@@ -83,7 +83,7 @@ export default function AuctionRecapPage({ params }: { params: Promise<{ id: str
                     </TabsContent>
 
                     <TabsContent value="rosters" className="mt-0 focus-visible:ring-0">
-                        <ConsolidatedTeamRoster auction={auction} teams={teams} players={players} />
+                        <TeamRoster auction={auction} teams={teams} players={players} mode="recap" />
                     </TabsContent>
                 </Tabs>
             </main>

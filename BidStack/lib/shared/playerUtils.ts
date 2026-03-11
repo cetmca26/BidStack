@@ -92,3 +92,38 @@ export function splitName(name: string): { firstName: string; lastName: string }
         lastName: parts[parts.length - 1],
     };
 }
+
+// ─── Team-level Convenience Utilities ───────────────────────────────
+export function groupPlayersByTeam(
+    players: Player[],
+): Record<string, Player[]> {
+    return players.reduce(
+        (acc, p) => {
+            if (p.sold_team_id) {
+                if (!acc[p.sold_team_id]) acc[p.sold_team_id] = [];
+                acc[p.sold_team_id].push(p);
+            }
+            return acc;
+        },
+        {} as Record<string, Player[]>,
+    );
+}
+
+export function calculateTeamSpend(players: Player[], teamId: string): number {
+    return getTeamPlayers(players, teamId).reduce(
+        (sum, p) => sum + (p.sold_price || 0),
+        0,
+    );
+}
+
+export function getTeamCaptain(players: Player[], teamId: string): Player | null {
+    return getTeamPlayers(players, teamId).find((p) => p.is_captain) || null;
+}
+
+export function getTeamMVP(players: Player[], teamId: string): Player | null {
+    const teamPlayers = getTeamPlayers(players, teamId).filter((p) => !p.is_captain);
+    if (teamPlayers.length === 0) return null;
+    return [...teamPlayers].sort(
+        (a, b) => (b.sold_price || 0) - (a.sold_price || 0),
+    )[0];
+}
