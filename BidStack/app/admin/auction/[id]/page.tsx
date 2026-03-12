@@ -46,7 +46,7 @@ export default function AdminAuctionPage({ params }: { params: Promise<{ id: str
     () => selectedCaptains.filter((c) => c.status === "upcoming"),
     [selectedCaptains]
   );
-  const blindBidPlayers = useMemo(() => players.filter((p) => p.status === "blind_reserved"), [players]);
+  const blindBidPlayers = useMemo(() => players.filter((p) => p.is_blind_bid), [players]);
   const unassignedBlindBids = useMemo(() => blindBidPlayers.filter((p) => p.status === "blind_reserved"), [blindBidPlayers]);
 
   const [blindBidAssignments, setBlindBidAssignments] = useState<Record<string, { playerId: string; amount: string }>>({});
