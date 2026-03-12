@@ -13,7 +13,7 @@ import { PlayerRepository } from "@/components/live/PlayerRepository";
 import { BiddingPIP } from "@/components/live/BiddingPIP";
 import { SaleFeedback } from "@/components/live/SaleFeedback";
 import { UnsoldFeedback } from "@/components/live/UnsoldFeedback";
-import { Gavel, LayoutDashboard, ArrowLeft, Users } from "lucide-react";
+import { Gavel, LayoutDashboard, ArrowLeft, Users, Shield, BookOpen } from "lucide-react";
 import AuctionHero from "@/components/live/AuctionHero";
 import CaptainCard from "@/components/live/TempCard";
 import CaptainDeck from "@/components/live/CaptainDeck";
@@ -186,10 +186,10 @@ export default function LiveAuctionPage({
       </nav>
 
       {/* ═══ MAIN CONTENT ═══ */}
-      <main className="relative z-10 flex-1 flex flex-col xl:flex-row overflow-y-auto xl:overflow-hidden w-full gap-[--spacing-auction-gap] p-[--spacing-auction-pad]">
+      <main className="relative z-10 flex-1 flex flex-col xl:flex-row overflow-y-auto xl:overflow-hidden w-full gap-[--spacing-auction-gap] p-[--spacing-auction-pad] pb-20 xl:pb-[--spacing-auction-pad]">
 
         {/* ─── LEFT: Primary Content Area ─── */}
-        <div className={`flex flex-col gap-[--spacing-auction-gap] overflow-hidden min-w-0 min-h-[60vh] xl:min-h-0 ${selectedTeam || viewMode !== "auction" ? 'w-full' : 'flex-1'}`}>
+        <div className={`flex flex-col gap-[--spacing-auction-gap] overflow-hidden min-w-0 xl:min-h-0 ${selectedTeam || viewMode !== "auction" ? 'w-full' : 'flex-1'}`}>
 
           {/* Squad View (TeamRoster) */}
           {selectedTeam ? (
@@ -212,8 +212,8 @@ export default function LiveAuctionPage({
               onBack={handleBackToAuction}
             />
 
-          /* Default: Auction View */
-          ) : (
+          /* Squads View (mobile - content rendered separately below) */
+          ) : viewMode === "squads" ? null : (
             <div className="flex-1 relative rounded-2xl bg-white/40 dark:bg-slate-900/40 border border-slate-300 dark:border-slate-800 overflow-hidden flex flex-col">
               <div className="absolute inset-0 bg-[radial-gradient(circle_at_top,_#10b98111,_transparent_60%)] pointer-events-none" />
               <div className="flex-1 flex flex-col items-center justify-center p-fluid-lg relative z-10 text-center overflow-y-auto">
@@ -284,9 +284,9 @@ export default function LiveAuctionPage({
           )}
         </div>
 
-        {/* ─── RIGHT: Sidebar (visible only in auction view) ─── */}
+        {/* ─── RIGHT: Sidebar (desktop only) ─── */}
         {!selectedTeam && viewMode === "auction" && (
-          <div className="w-full xl:w-80 2xl:w-96 flex-shrink-0 flex flex-col h-auto xl:h-full min-h-[120px] gap-4">
+          <div className="hidden xl:flex w-80 2xl:w-96 flex-shrink-0 flex-col h-full gap-4">
             {/* View Squads Panel */}
             <div className="flex-1 rounded-2xl border border-slate-300 dark:border-slate-800 bg-white/40 dark:bg-slate-900/40 p-4 overflow-hidden flex flex-col">
               <ViewSquadsPanel
@@ -306,7 +306,56 @@ export default function LiveAuctionPage({
             </div>
           </div>
         )}
+
+        {/* ─── Mobile: Squads Full View ─── */}
+        {!selectedTeam && viewMode === "squads" && (
+          <div className="xl:hidden flex-1 rounded-2xl border border-slate-300 dark:border-slate-800 bg-white/40 dark:bg-slate-900/40 p-4 overflow-hidden flex flex-col">
+            <ViewSquadsPanel
+              auction={auction}
+              teams={teams}
+              players={players}
+              onTeamSelect={(team) => setSelectedTeam(team)}
+            />
+          </div>
+        )}
       </main>
+
+      {/* ═══ MOBILE BOTTOM TAB BAR ═══ */}
+      <div className="xl:hidden fixed bottom-0 left-0 right-0 z-50 bg-white/90 dark:bg-slate-900/90 backdrop-blur-xl border-t border-slate-300 dark:border-slate-800 flex items-center justify-around h-14 px-2">
+        <button
+          onClick={() => { setViewMode("auction"); setSelectedTeam(null); }}
+          className={`flex flex-col items-center gap-0.5 px-4 py-1.5 rounded-xl transition-colors ${
+            viewMode === "auction" && !selectedTeam
+              ? "text-emerald-500"
+              : "text-slate-400 dark:text-slate-500"
+          }`}
+        >
+          <Gavel size={18} strokeWidth={2.5} />
+          <span className="text-[9px] font-black uppercase tracking-wider">Auction</span>
+        </button>
+        <button
+          onClick={() => { setViewMode("squads"); setSelectedTeam(null); }}
+          className={`flex flex-col items-center gap-0.5 px-4 py-1.5 rounded-xl transition-colors ${
+            viewMode === "squads" || selectedTeam
+              ? "text-emerald-500"
+              : "text-slate-400 dark:text-slate-500"
+          }`}
+        >
+          <Shield size={18} strokeWidth={2.5} />
+          <span className="text-[9px] font-black uppercase tracking-wider">Squads</span>
+        </button>
+        <button
+          onClick={() => { setViewMode("repository"); setSelectedTeam(null); }}
+          className={`flex flex-col items-center gap-0.5 px-4 py-1.5 rounded-xl transition-colors ${
+            viewMode === "repository"
+              ? "text-emerald-500"
+              : "text-slate-400 dark:text-slate-500"
+          }`}
+        >
+          <BookOpen size={18} strokeWidth={2.5} />
+          <span className="text-[9px] font-black uppercase tracking-wider">Players</span>
+        </button>
+      </div>
 
       {/* ═══ OVERLAYS ═══ */}
       <AnimatePresence>

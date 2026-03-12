@@ -198,35 +198,37 @@ export default function TeamRoster({
                                 </div>
                             ) : (
                                 <div className="flex-1 p-4 sm:p-6 overflow-y-auto">
-                                    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
+                                    <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-3">
                                         {teamPlayers.map(player => (
-                                            <div key={player.id} className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 p-3 flex items-center gap-3 shadow-sm rounded-lg">
-                                                <div className="w-fluid h-fluid bg-slate-100 dark:bg-slate-800 overflow-hidden flex-shrink-0 rounded-md">
+                                            <div key={player.id} className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl overflow-hidden shadow-sm flex flex-col">
+                                                {/* Image – fixed aspect ratio */}
+                                                <div className="aspect-square bg-slate-100 dark:bg-slate-800 overflow-hidden relative">
                                                     {player.photo_url ? (
-                                                        <img src={player.photo_url} alt={player.name} className="w-fluid h-fluid object-cover object-top" />
+                                                        <img src={player.photo_url} alt={player.name} className="w-full h-full object-cover object-top" />
                                                     ) : (
-                                                        <div className="w-fluid h-fluid flex items-center justify-center font-heading font-bold text-slate-400 dark:text-slate-500">
+                                                        <div className="w-full h-full flex items-center justify-center font-heading font-black text-slate-300 dark:text-slate-700 text-4xl">
                                                             {player.name.charAt(0)}
                                                         </div>
                                                     )}
+                                                    {player.is_captain && (
+                                                        <div className="absolute top-2 right-2 bg-amber-500 text-amber-950 text-[9px] font-black px-1.5 py-0.5 rounded-sm uppercase shadow">C</div>
+                                                    )}
                                                 </div>
-                                                <div className="flex-1 min-w-0">
-                                                    <div className="font-bold text-sm text-slate-800 dark:text-white truncate uppercase tracking-tight font-heading">
+                                                {/* Info */}
+                                                <div className="p-2.5 flex flex-col gap-0.5">
+                                                    <div className="font-bold text-xs text-slate-800 dark:text-white truncate uppercase tracking-tight font-heading">
                                                         {player.name}
                                                     </div>
-                                                    <div className="text-[10px] font-black text-slate-500 uppercase tracking-widest mt-0.5">
+                                                    <div className="text-[9px] font-black text-slate-500 uppercase tracking-widest">
                                                         {player.role}
                                                     </div>
                                                     <div className="text-xs font-mono font-bold text-emerald-500 mt-1">
                                                         <div>{formatPrice(player.sold_price)}</div>
-                                                        <div className="text-[10px] text-emerald-600/70 dark:text-emerald-500/70 font-medium italic">
+                                                        <div className="text-[9px] text-emerald-600/70 dark:text-emerald-500/70 font-medium italic">
                                                             ({formatPriceCompact(player.sold_price)})
                                                         </div>
                                                     </div>
                                                 </div>
-                                                {player.is_captain && (
-                                                    <div className="bg-amber-500 text-amber-950 text-[10px] font-black px-2 py-0.5 rounded-sm uppercase">C</div>
-                                                )}
                                             </div>
                                         ))}
                                     </div>

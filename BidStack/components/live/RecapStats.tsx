@@ -104,7 +104,7 @@ export function RecapStats({ teams, players, sportType }: RecapStatsProps) {
                                         {mvp.name.charAt(0)}
                                     </div>
                                 )}
-                                <div className="absolute inset-0 bg-gradient-to-t from-white via-white/80 dark:from-slate-900 dark:via-slate-900/80 to-transparent" />
+                                <div className="absolute inset-0 bg-gradient-to-t from-white via-white/60 dark:from-slate-900 dark:via-slate-900/60 to-transparent" />
                             </div>
 
                             {/* Content overlay */}
@@ -151,7 +151,7 @@ export function RecapStats({ teams, players, sportType }: RecapStatsProps) {
                                         {player.name.charAt(0)}
                                     </div>
                                 )}
-                                <div className="absolute inset-0 bg-gradient-to-t from-white via-white/80 dark:from-slate-900 dark:via-slate-900/80 to-transparent" />
+                                <div className="absolute inset-0 bg-gradient-to-t from-white via-white/60 dark:from-slate-900 dark:via-slate-900/60 to-transparent" />
                             </div>
 
                             {/* Content overlay */}
@@ -214,7 +214,7 @@ export function RecapStats({ teams, players, sportType }: RecapStatsProps) {
                             {mostValuableCaptain?.photo_url ? (
                                 <img src={mostValuableCaptain.photo_url} alt={mostValuableCaptain.name} className="w-full h-[85%] object-contain object-bottom opacity-90 mix-blend-luminosity" />
                             ) : null}
-                            <div className="absolute inset-0 bg-gradient-to-t from-blue-800/80 via-blue-600/30 to-transparent" />
+                            <div className="absolute inset-0 bg-gradient-to-t from-blue-800/60 via-blue-600/20 to-transparent" />
                         </div>
 
                         <div className="relative z-10 w-full flex flex-col items-center p-4 sm:p-6 flex-1 justify-end h-full pb-8">

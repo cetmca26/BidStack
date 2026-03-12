@@ -464,6 +464,11 @@ export default function AdminAuctionPage({ params }: { params: Promise<{ id: str
     if (!assignment || !assignment.playerId) return;
 
     const matchPrice = assignment.amount ? Number(assignment.amount) : (auction?.settings?.base_price ?? 0);
+    const minPrice = auction?.settings?.base_price ?? 0;
+    if (matchPrice < minPrice) {
+      alert(`Bid amount (₹${matchPrice.toLocaleString('en-IN')}) cannot be less than the base price (₹${minPrice.toLocaleString('en-IN')}).`);
+      return;
+    }
 
     setLoadingAction(`blind_match_${teamId}`);
     try {
@@ -504,6 +509,11 @@ export default function AdminAuctionPage({ params }: { params: Promise<{ id: str
     if (!bidInfo || !bidInfo.captainId) return;
 
     const matchPrice = bidInfo.amount ? Number(bidInfo.amount) : (auction.settings.captain_base_price ?? auction.settings.base_price);
+    const minCaptainPrice = auction.settings.captain_base_price ?? auction.settings.base_price;
+    if (matchPrice < minCaptainPrice) {
+      alert(`Captain bid amount (₹${matchPrice.toLocaleString('en-IN')}) cannot be less than the captain base price (₹${minCaptainPrice.toLocaleString('en-IN')}).`);
+      return;
+    }
 
     setLoadingAction(`match_${teamId}`);
     try {
