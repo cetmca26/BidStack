@@ -11,26 +11,26 @@ export default function AuctionHero({
 }: any) {
 
     return (
-        <div className="relative w-full h-full grid grid-cols-1 md:grid-cols-2 overflow-hidden rounded-2xl bg-white dark:bg-[#03070a] shadow-lg border border-slate-200 dark:border-slate-800">
+        <div className="relative w-full h-full flex flex-col xl:flex-row overflow-hidden rounded-2xl bg-white dark:bg-[#03070a] shadow-lg border border-slate-200 dark:border-slate-800">
 
             {/* LEFT SIDE — PLAYER IMAGE */}
-            <div className="relative h-full min-h-[200px] md:min-h-0 w-full overflow-hidden">
+            <div className="relative xl:w-1/2 w-full min-h-[200px] xl:min-h-0 flex-shrink-0 overflow-hidden">
 
                 <img
                     src={player.photo_url}
                     alt={player.name}
-                    className="absolute inset-0 w-full h-full object-contain object-top"
+                    className="w-full h-auto max-h-[60vh] xl:max-h-full object-contain object-top"
                 />
 
                 {/* gradient fade — bottom on mobile, right on desktop */}
-                <div className="absolute inset-0 bg-gradient-to-b md:bg-gradient-to-r from-transparent via-transparent to-white dark:to-[#03070a]" />
-                <div className="absolute inset-0 bg-gradient-to-r from-white/40 dark:from-black/40 via-transparent to-transparent hidden md:block" />
+                <div className="absolute inset-0 bg-gradient-to-b xl:bg-gradient-to-r from-transparent via-transparent to-white dark:to-[#03070a]" />
+                <div className="absolute inset-0 bg-gradient-to-r from-white/40 dark:from-black/40 via-transparent to-transparent hidden xl:block" />
 
             </div>
 
 
             {/* RIGHT SIDE */}
-            <div className="relative flex flex-col justify-center px-[clamp(1.5rem,1rem+2vw,4rem)] py-[clamp(1rem,0.8rem+1.5vw,2.5rem)] gap-[clamp(0.75rem,0.5rem+1vw,1.5rem)]">
+            <div className="relative xl:w-1/2 w-full min-w-0 flex flex-col justify-center px-[clamp(1.5rem,1rem+2vw,4rem)] py-[clamp(1rem,0.8rem+1.5vw,2.5rem)] gap-[clamp(0.75rem,0.5rem+1vw,1.5rem)]">
 
                 {/* LIVE AUCTION */}
                 <div className="flex items-center gap-2 text-red-400 text-xs tracking-[0.35em] font-semibold">

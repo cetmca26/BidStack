@@ -69,7 +69,7 @@ export default function BlindBidReveal({ players, teams }: BlindBidRevealProps) 
 
       {/* Cards Grid */}
       <div
-        className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-4 sm:gap-6 w-full max-w-screen-2xl"
+        className="flex flex-wrap items-center justify-center gap-4 sm:gap-6 w-full max-w-screen-2xl"
         style={{ perspective: "1200px" }}
       >
         {blindPlayers.map((player, index) => {
@@ -110,7 +110,7 @@ function FlipCard({
 }) {
   return (
     <motion.div
-      className="w-full"
+      className="flex justify-center shrink-0 w-[140px] sm:w-[180px] lg:w-[220px]"
       initial={{ opacity: 0, y: 30 }}
       animate={{ opacity: 1, y: 0 }}
       transition={{ delay: 0.1 + index * 0.04, duration: 0.4 }}

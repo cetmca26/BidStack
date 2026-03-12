@@ -138,7 +138,7 @@ export default function LiveAuctionPage({
   };
 
   return (
-    <div className="h-screen bg-slate-100 dark:bg-slate-950 text-slate-900 dark:text-slate-50 flex flex-col font-sans selection:bg-emerald-500 selection:text-slate-950 overflow-hidden">
+    <div className="min-h-screen bg-slate-100 dark:bg-slate-950 text-slate-900 dark:text-slate-50 flex flex-col font-sans selection:bg-emerald-500 selection:text-slate-950 overflow-x-hidden">
       {/* Background Glow */}
       <div className="fixed inset-0 z-0 overflow-hidden pointer-events-none">
         <div className="absolute top-[-10%] left-[-10%] w-[40%] h-[40%] bg-emerald-500/10 blur-[120px] rounded-full animate-pulse" />
@@ -186,10 +186,10 @@ export default function LiveAuctionPage({
       </nav>
 
       {/* ═══ MAIN CONTENT ═══ */}
-      <main className="relative z-10 flex-1 flex flex-col xl:flex-row overflow-y-auto xl:overflow-hidden w-full gap-[--spacing-auction-gap] p-[--spacing-auction-pad] pb-20 xl:pb-[--spacing-auction-pad]">
+      <main className="relative z-10 flex-1 flex flex-col xl:flex-row xl:overflow-hidden w-full gap-[--spacing-auction-gap] p-[--spacing-auction-pad] pb-20 xl:pb-[--spacing-auction-pad]">
 
         {/* ─── LEFT: Primary Content Area ─── */}
-        <div className={`flex flex-col gap-[--spacing-auction-gap] overflow-hidden min-w-0 xl:min-h-0 ${selectedTeam || viewMode !== "auction" ? 'w-full' : 'flex-1'}`}>
+        <div className={`flex flex-col gap-[--spacing-auction-gap] overflow-hidden min-w-0 xl:min-h-0 ${selectedTeam || viewMode !== "auction" ? 'w-full' : 'flex-1 min-w-0'}`}>
 
           {/* Squad View (TeamRoster) */}
           {selectedTeam ? (
@@ -216,7 +216,7 @@ export default function LiveAuctionPage({
           ) : viewMode === "squads" ? null : (
             <div className="flex-1 relative rounded-2xl bg-white/40 dark:bg-slate-900/40 border border-slate-300 dark:border-slate-800 overflow-hidden flex flex-col">
               <div className="absolute inset-0 bg-[radial-gradient(circle_at_top,_#10b98111,_transparent_60%)] pointer-events-none" />
-              <div className="flex-1 flex flex-col items-center justify-center p-fluid-lg relative z-10 text-center overflow-y-auto">
+              <div className="flex-1 flex flex-col items-center justify-center p-fluid-lg relative z-10 text-center">
                 <AnimatePresence mode="wait">
                   {state?.phase === "captain_round" ? (
                     <CaptainDeck players={players} teams={teams} />
@@ -245,6 +245,30 @@ export default function LiveAuctionPage({
                         Awaiting admin to start bidding...
                       </p>
                     </motion.div>
+                  ) : state?.phase === "phase_1_complete" ? (
+                    <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="text-slate-400 dark:text-slate-600 text-center">
+                      <div className="h-12 sm:h-16 md:h-20 lg:h-24 w-12 sm:w-16 md:w-20 lg:w-24 bg-amber-500/10 dark:bg-amber-500/10 rounded-full flex items-center justify-center mb-3 md:mb-4 lg:mb-6 mx-auto border border-amber-500/30">
+                        <Users size={24} className="text-amber-500" />
+                      </div>
+                      <h3 className="text-base sm:text-lg md:text-xl lg:text-2xl font-black italic uppercase tracking-tighter text-amber-500 dark:text-amber-400">
+                        Auction pool finished
+                      </h3>
+                      <p className="text-[8px] sm:text-xs md:text-sm font-medium mt-1 text-slate-500 dark:text-slate-400 max-w-sm mx-auto">
+                        Waiting for admin to start Phase 2 (Unsold Players)
+                      </p>
+                    </motion.div>
+                  ) : state?.phase === "phase_2_complete" ? (
+                    <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="text-slate-400 dark:text-slate-600 text-center">
+                      <div className="h-12 sm:h-16 md:h-20 lg:h-24 w-12 sm:w-16 md:w-20 lg:w-24 bg-emerald-500/10 dark:bg-emerald-500/10 rounded-full flex items-center justify-center mb-3 md:mb-4 lg:mb-6 mx-auto border border-emerald-500/30">
+                        <LayoutDashboard size={24} className="text-emerald-500" />
+                      </div>
+                      <h3 className="text-base sm:text-lg md:text-xl lg:text-2xl font-black italic uppercase tracking-tighter text-emerald-500 dark:text-emerald-400">
+                        Auction Complete
+                      </h3>
+                      <p className="text-[8px] sm:text-xs md:text-sm font-medium mt-1 text-slate-500 dark:text-slate-400 max-w-sm mx-auto">
+                        Waiting for admin to finalize auction
+                      </p>
+                    </motion.div>
                   ) : (
                     <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="text-slate-800 dark:text-slate-600 text-center">
                       <div className="h-12 sm:h-16 md:h-20 lg:h-24 w-12 sm:w-16 md:w-20 lg:w-24 bg-slate-200 dark:bg-slate-900 rounded-full flex items-center justify-center mb-3 md:mb-4 lg:mb-6 mx-auto border border-slate-300 dark:border-slate-800">
@@ -262,7 +286,7 @@ export default function LiveAuctionPage({
               </div>
 
               {/* Bottom Stats Bar */}
-              <div className="h-12 sm:h-14 md:h-16 bg-slate-50 dark:bg-slate-950 border-t border-slate-300 dark:border-slate-800 flex items-center justify-around px-2 sm:px-4 md:px-6 lg:px-12 gap-1 flex-shrink-0 overflow-x-auto">
+              <div className="h-12 sm:h-14 md:h-16 bg-slate-50 dark:bg-slate-950 border-t border-slate-300 dark:border-slate-800 flex items-center justify-around px-2 sm:px-4 md:px-6 lg:px-12 gap-1 flex-shrink-0 overflow-x-hidden">
                 <div className="text-center flex-shrink-0">
                   <div className="text-[7px] md:text-[9px] lg:text-[10px] font-black text-slate-600 uppercase tracking-tighter md:tracking-widest">Sold</div>
                   <div className="text-sm md:text-lg lg:text-2xl font-black text-slate-800 dark:text-white italic">{players.filter((p) => p.status === "sold").length}</div>
@@ -270,7 +294,7 @@ export default function LiveAuctionPage({
                 <div className="h-4 sm:h-6 md:h-8 w-[1px] bg-slate-300 dark:bg-slate-800" />
                 <div className="text-center flex-shrink-0">
                   <div className="text-[7px] md:text-[9px] lg:text-[10px] font-black text-slate-600 uppercase tracking-tighter md:tracking-widest">Upcoming</div>
-                  <div className="text-sm md:text-lg lg:text-2xl font-black text-slate-800 dark:text-white italic">{players.filter((p) => p.status === "upcoming").length}</div>
+                  <div className="text-sm md:text-lg lg:text-2xl font-black text-slate-800 dark:text-white italic">{players.filter((p) => p.status === "upcoming" || p.status === "upcoming_phase2").length}</div>
                 </div>
                 <div className="h-4 sm:h-6 md:h-8 w-[1px] bg-slate-300 dark:bg-slate-800" />
                 <div className="text-center flex-shrink-0">
@@ -286,7 +310,7 @@ export default function LiveAuctionPage({
 
         {/* ─── RIGHT: Sidebar (desktop only) ─── */}
         {!selectedTeam && viewMode === "auction" && (
-          <div className="hidden xl:flex w-80 2xl:w-96 flex-shrink-0 flex-col h-full gap-4">
+          <div className="hidden xl:flex w-72 xl:w-80 2xl:w-96 flex-shrink-0 flex-col h-full gap-4">
             {/* View Squads Panel */}
             <div className="flex-1 rounded-2xl border border-slate-300 dark:border-slate-800 bg-white/40 dark:bg-slate-900/40 p-4 overflow-hidden flex flex-col">
               <ViewSquadsPanel

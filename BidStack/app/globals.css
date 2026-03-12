@@ -221,6 +221,10 @@
   }
 }
 
+html, body {
+  overflow-x: hidden;
+}
+
 @layer utilities {
   .fluid-grid {
     display: grid;
@@ -259,5 +263,17 @@
 
   .gap-fluid {
     gap: var(--spacing-fluid-md);
+  }
+
+  .glass-panel {
+    @apply bg-white/10 dark:bg-slate-900/10 backdrop-blur-md border border-white/20 dark:border-slate-700/30 rounded-xl shadow-lg;
+  }
+
+  .photo-container {
+    @apply overflow-hidden rounded-xl;
+  }
+
+  .photo-img {
+    @apply w-full h-auto object-cover;
   }
 }

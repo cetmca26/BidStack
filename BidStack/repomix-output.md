@@ -46,21 +46,31 @@ app/globals.css
 app/layout.tsx
 app/live/[id]/page.tsx
 app/live/[id]/recap/page.tsx
+app/live/[id]/repository/page.tsx
 app/page.tsx
 components.json
-components/ConsolidatedTeamRoster.tsx
 components/ImageUploadField.tsx
 components/ImageViewerModal.tsx
 components/live/AuctionHero.tsx
 components/live/BiddingPIP.tsx
-components/live/LiveSidebar.tsx
+components/live/BlindBidReveal.tsx
+components/live/CaptainDeck.tsx
+components/live/PlayerRepository.tsx
 components/live/RecapStats.tsx
+components/live/RepositoryPanel.tsx
 components/live/SaleFeedback.tsx
 components/live/TeamFormation.tsx
-components/live/TeamRosterPanel.tsx
+components/live/TeamListCard.tsx
+components/live/TempCard.tsx
 components/live/UnsoldFeedback.tsx
+components/live/ViewSquadsPanel.tsx
 components/PlayerAvatar.tsx
+components/team/TeamRoster.tsx
+components/team/TeamRosterHeader.tsx
+components/team/TeamStarPlayers.tsx
 components/TeamLogo.tsx
+components/ThemeProvider.tsx
+components/ThemeToggle.tsx
 components/ui/button.tsx
 components/ui/card.tsx
 components/ui/checkbox.tsx
@@ -130,7 +140,12 @@ supabase/migrations/0029_fix_rpc_ambiguous_column.sql
 supabase/migrations/0030_refactor_execute_bid.sql
 supabase/migrations/0031_optimize_bidding_latency.sql
 supabase/migrations/0032_add_unsold_final_enum.sql
-supabase/migrations/0032_admin_authorization_checks.sql
+supabase/migrations/0033_fix_phase2_loop.sql
+supabase/migrations/0034_blind_bids_extension.sql
+supabase/migrations/0035_dynamic_increments.sql
+supabase/migrations/0036_admin_authorization_checks.sql
+supabase/migrations/0037_add_is_blind_bid.sql
+supabase/migrations/0038_fix_next_player.sql
 tsconfig.json
 ```
 
@@ -193,7 +208,7 @@ repomix-output.md
 import { use, useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import { supabase } from "@/lib/supabase";
-import { formatPrice } from "@/lib/utils";
+import { formatPrice, numberToIndianWords } from "@/lib/utils";
 import {
   useAuctionState,
   Auction,
@@ -207,7 +222,8 @@ import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import ConsolidatedTeamRoster from "@/components/ConsolidatedTeamRoster";
+import TeamRoster from "@/components/team/TeamRoster";
+import { ThemeToggle } from "@/components/ThemeToggle";
 
 export default function AdminAuctionPage({ params }: { params: Promise<{ id: string }> }) {
   const router = useRouter();
@@ -235,6 +251,25 @@ export default function AdminAuctionPage({ params }: { params: Promise<{ id: str
     () => selectedCaptains.filter((c) => c.status === "upcoming"),
     [selectedCaptains]
   );
+  const blindBidPlayers = useMemo(() => players.filter((p) => p.status === "blind_reserved"), [players]);
+  const unassignedBlindBids = useMemo(() => blindBidPlayers.filter((p) => p.status === "blind_reserved"), [blindBidPlayers]);
+
+  const [blindBidAssignments, setBlindBidAssignments] = useState<Record<string, { playerId: string; amount: string }>>({});
+
+  // Helper: compute tier-based dynamic increment from auction settings
+  const getDynamicIncrement = (currentBid: number): number => {
+    if (!auction) return 0;
+    const s = auction.settings as any;
+    const t1Thresh = Number(s.tier1_threshold);
+    const t2Thresh = Number(s.tier2_threshold);
+    if (t1Thresh && t2Thresh) {
+      if (currentBid < t1Thresh) return Number(s.tier1_increment) || 0;
+      if (currentBid < t2Thresh) return Number(s.tier2_increment) || 0;
+      return Number(s.tier3_increment) || 0;
+    }
+    // Legacy fallback
+    return Number(s.increment) || 0;
+  };
 
   const [captainBids, setCaptainBids] = useState<Record<string, { captainId: string; amount: string }>>({});
 
@@ -248,6 +283,22 @@ export default function AdminAuctionPage({ params }: { params: Promise<{ id: str
         teams.forEach(t => {
           if (!t.captain_id && !updated[t.id]) {
             updated[t.id] = { captainId: '', amount: basePrice };
+          }
+        });
+        return updated;
+      });
+    }
+  }, [auction, teams]);
+
+  // Initialize blind bid assignment amounts with base_price
+  useEffect(() => {
+    if (auction && teams.length > 0) {
+      const basePrice = String(auction.settings?.base_price ?? '');
+      setBlindBidAssignments(prev => {
+        const updated = { ...prev };
+        teams.forEach(t => {
+          if (!updated[t.id]) {
+            updated[t.id] = { playerId: '', amount: basePrice };
           }
         });
         return updated;
@@ -298,8 +349,16 @@ export default function AdminAuctionPage({ params }: { params: Promise<{ id: str
     }
   }, [state?.phase, auctionId]);
 
+  const safeSettings = auction?.settings;
+
+  // Compute current dynamic increment for display
+  const currentDynamicIncrement = useMemo(() => {
+    if (!state?.current_bid && !safeSettings?.base_price) return 0;
+    return getDynamicIncrement(state?.current_bid ?? Number(safeSettings?.base_price ?? 0));
+  }, [state?.current_bid, safeSettings, auction]);
+
   if (checkingAuth) {
-    return <div className="p-6 text-lg text-slate-50">Checking admin access...</div>;
+    return <div className="p-6 text-lg text-slate-700 dark:text-slate-50">Checking admin access...</div>;
   }
 
   if (!isAuthed) {
@@ -312,23 +371,23 @@ export default function AdminAuctionPage({ params }: { params: Promise<{ id: str
 
   if (auction.status === "completed") {
     return (
-      <div className="min-h-screen bg-slate-950 flex flex-col">
-        <div className="p-4 border-b border-slate-800 bg-slate-900/50 flex justify-between items-center">
+      <div className="min-h-screen bg-slate-100 dark:bg-slate-950 flex flex-col">
+        <div className="p-4 border-b border-slate-200 dark:border-slate-800 bg-white/50 dark:bg-slate-900/50 flex justify-between items-center">
           <div className="flex items-center gap-4">
-            <h1 className="text-xl font-bold text-slate-100">{auction.name} - Results</h1>
-            <span className="bg-emerald-500/10 text-emerald-500 text-[10px] uppercase font-bold tracking-widest px-2 py-0.5 rounded border border-emerald-500/20">Auction Completed</span>
+            <h1 className="text-xl font-bold text-slate-800 dark:text-slate-100">{auction.name} - Results</h1>
+            <span className="bg-emerald-500/10 text-emerald-600 dark:text-emerald-500 text-[10px] uppercase font-bold tracking-widest px-2 py-0.5 rounded border border-emerald-500/20">Auction Completed</span>
           </div>
           <Button
             variant="outline"
             size="sm"
-            className="border-slate-700 hover:bg-slate-800 text-slate-300 gap-2"
+            className="border-slate-300 dark:border-slate-700 hover:bg-slate-200 dark:hover:bg-slate-800 text-slate-600 dark:text-slate-300 gap-2"
             onClick={() => router.push(`/admin`)}
           >
             ← Return to Dashboard
           </Button>
         </div>
         <div className="flex-1 overflow-auto">
-          <ConsolidatedTeamRoster auction={auction} teams={teams} players={players} />
+          <TeamRoster auction={auction} teams={teams} players={players} mode="recap" />
         </div>
       </div>
     );
@@ -338,18 +397,19 @@ export default function AdminAuctionPage({ params }: { params: Promise<{ id: str
   const allTeamsHaveCaptain = teams.length > 0 && teams.every((t) => t.captain_id);
 
   const computeCanBid = (team: Team) => {
-    if (!settings) return false;
+    const s = auction?.settings;
+    if (!s) return false;
     if (!state) return false;
     if (!state.current_player_id) return false;
     if (state.leading_team_id === team.id) return false;
 
-    const basePrice = Number(settings.base_price ?? 0);
-    const increment = Number(settings.increment ?? 0);
+    const basePrice = Number(s.base_price ?? 0);
     const currentBid = state.current_bid ?? basePrice;
+    const dynamicIncrement = getDynamicIncrement(currentBid);
 
-    // THE FIX: If no leading team, next bid IS the current_bid (base_price).
-    // Otherwise, it's current_bid + increment.
-    const nextBid = state.leading_team_id === null ? currentBid : currentBid + increment;
+    // If no leading team, next bid IS the current_bid (base_price).
+    // Otherwise, it's current_bid + dynamicIncrement.
+    const nextBid = state.leading_team_id === null ? currentBid : currentBid + dynamicIncrement;
 
     const purse = Number(team.purse_remaining ?? 0);
     const slots = team.slots_remaining ?? 0;
@@ -367,8 +427,16 @@ export default function AdminAuctionPage({ params }: { params: Promise<{ id: str
   const handleNextPlayer = async () => {
     setLoadingAction("next_player");
     try {
-      const { error } = await supabase.rpc("next_player", { p_auction_id: auctionId });
-      if (error) window.alert(`Next player failed: ${error.message}`);
+      const { data: updatedState, error } = await supabase.rpc("next_player", { p_auction_id: auctionId });
+      if (error) {
+        window.alert(`Next player failed: ${error.message}`);
+      } else if (updatedState) {
+        if (updatedState.phase === "phase_2_complete") {
+          window.alert("Phase 2 pool is empty! All players have completed bidding. Please proceed to the Slot Filling phase.");
+        } else if (updatedState.phase === "phase_1_complete") {
+          window.alert("Phase 1 pool is empty! Please proceed to Phase 2 (Unsold Players).");
+        }
+      }
     } catch (e: any) {
       console.error("Auto-advance failed:", e);
       window.alert(`Critical error: ${e.message}`);
@@ -403,13 +471,41 @@ export default function AdminAuctionPage({ params }: { params: Promise<{ id: str
     }
 
     setLoadingAction(`bid_${teamId}`);
-    try {
-      // Calculate next bid amount
-      const base_price = auction.settings.base_price;
-      const increment = auction.settings.increment;
-      const current_bid = state.current_bid ?? base_price;
-      const next_bid = state.leading_team_id === null ? current_bid : current_bid + increment;
 
+    // Calculate next bid amount using dynamic tier increments
+    const base_price = auction.settings.base_price;
+    const current_bid = state.current_bid ?? base_price;
+    const dynamicIncr = getDynamicIncrement(current_bid);
+    const next_bid = state.leading_team_id === null ? current_bid : current_bid + dynamicIncr;
+
+    // --- Optimistic UI Update ---
+    // Backup the old state to revert if the RPC fails
+    const previousState = { ...state };
+    const oldTeamPurse = teams.find(t => t.id === teamId)?.purse_remaining;
+
+    // Immediately apply new state locally so the button feels instant
+    setState(prev => prev ? {
+      ...prev,
+      current_bid: next_bid,
+      leading_team_id: teamId,
+      previous_bid: prev.current_bid,
+      previous_leading_team_id: prev.leading_team_id
+    } : null);
+
+    // Optimistically deduct purse for the new leader
+    setTeams(prev => prev.map(t => {
+      // Restore old leader's purse
+      if (t.id === previousState.leading_team_id) {
+        return { ...t, purse_remaining: t.purse_remaining + (previousState.current_bid || 0) };
+      }
+      // Deduct new leader's purse
+      if (t.id === teamId) {
+        return { ...t, purse_remaining: t.purse_remaining - next_bid };
+      }
+      return t;
+    }));
+
+    try {
       const { data: result, error: invokeError } = await supabase.rpc('execute_bid', {
         p_auction_id: auctionId,
         p_team_id: teamId,
@@ -420,6 +516,11 @@ export default function AdminAuctionPage({ params }: { params: Promise<{ id: str
         // Handle race condition: bid was outpaced, retry with fresh state
         if (invokeError.message?.includes('must be higher than current bid')) {
           console.warn('Bid outpaced, retrying with fresh state...');
+
+          // Revert optimistic updates first
+          setState(previousState as AuctionState);
+          setTeams(prev => prev.map(t => t.id === teamId && oldTeamPurse !== undefined ? { ...t, purse_remaining: oldTeamPurse } : t));
+
           const { data: freshState } = await supabase
             .from('auction_state')
             .select('current_bid, leading_team_id')
@@ -427,9 +528,15 @@ export default function AdminAuctionPage({ params }: { params: Promise<{ id: str
             .single();
 
           if (freshState) {
+            const freshDynIncr = getDynamicIncrement(freshState.current_bid ?? base_price);
             const freshBid = freshState.leading_team_id === null
               ? (freshState.current_bid ?? base_price)
-              : (freshState.current_bid ?? base_price) + increment;
+              : (freshState.current_bid ?? base_price) + freshDynIncr;
+
+            // Apply optimistic update for the retry
+            setState(prev => prev ? {
+              ...prev, current_bid: freshBid, leading_team_id: teamId
+            } : null);
 
             const { error: retryError } = await supabase.rpc('execute_bid', {
               p_auction_id: auctionId,
@@ -438,16 +545,23 @@ export default function AdminAuctionPage({ params }: { params: Promise<{ id: str
             });
 
             if (retryError) {
+              setState(previousState as AuctionState); // Rollback on final failure
               window.alert(`Bid failed: ${retryError.message}`);
             }
           }
         } else {
+          // Revert optimistic updates on normal error
+          setState(previousState as AuctionState);
+          setTeams(prev => prev.map(t => t.id === teamId && oldTeamPurse !== undefined ? { ...t, purse_remaining: oldTeamPurse } : t));
           window.alert(`Bid failed: ${invokeError.message}`);
         }
       }
 
     } catch (err: any) {
       console.error("Bid error:", err);
+      // Revert optimistic updates on exception
+      setState(previousState as AuctionState);
+      setTeams(prev => prev.map(t => t.id === teamId && oldTeamPurse !== undefined ? { ...t, purse_remaining: oldTeamPurse } : t));
       window.alert(`Bid Execution Failed:\n\n${err.message}`);
     } finally {
       setLoadingAction(null);
@@ -483,17 +597,97 @@ export default function AdminAuctionPage({ params }: { params: Promise<{ id: str
     }
   };
 
+  const handleStartSlotFilling = async () => {
+    setLoadingAction("start_slot_filling");
+    try {
+      const { error } = await supabase
+        .from("auction_state")
+        .update({ phase: "slot_filling" })
+        .eq("auction_id", auctionId);
+      if (error) throw error;
+      
+      router.push(`/admin/auction/${auctionId}/verify`);
+    } catch (e: any) {
+      window.alert(`Failed to start slot filling: ${e.message}`);
+    } finally {
+      setLoadingAction(null);
+    }
+  };
+
   const handleEndAuction = async () => {
     router.push(`/admin/auction/${auctionId}/verify`);
   };
 
+  const handleSetPlayerCategory = async (playerId: string, category: 'regular' | 'captain' | 'blind_bid') => {
+    const player = players.find(p => p.id === playerId);
+    if (!player) return;
+
+    if (category === 'captain') {
+      // Set is_captain = true, status stays 'upcoming', is_blind_bid = false
+      setPlayers(prev => prev.map(p => p.id === playerId ? { ...p, is_captain: true, status: 'upcoming' as any, is_blind_bid: false } : p));
+      const { error } = await supabase.from('players').update({ is_captain: true, status: 'upcoming', is_blind_bid: false }).eq('id', playerId);
+      if (error) {
+        alert('Failed to set category: ' + error.message);
+        setPlayers(prev => prev.map(p => p.id === playerId ? { ...p, is_captain: player.is_captain, status: player.status } : p));
+      }
+    } else if (category === 'blind_bid') {
+      // Set status = 'blind_reserved', is_captain = false, is_blind_bid = true
+      setPlayers(prev => prev.map(p => p.id === playerId ? { ...p, is_captain: false, status: 'blind_reserved' as any, is_blind_bid: true } : p));
+      const { error } = await supabase.from('players').update({ is_captain: false, status: 'blind_reserved', is_blind_bid: true }).eq('id', playerId);
+      if (error) {
+        alert('Failed to set category: ' + error.message);
+        setPlayers(prev => prev.map(p => p.id === playerId ? { ...p, is_captain: player.is_captain, status: player.status } : p));
+      }
+    } else {
+      // Regular: is_captain = false, status = 'upcoming', is_blind_bid = false
+      setPlayers(prev => prev.map(p => p.id === playerId ? { ...p, is_captain: false, status: 'upcoming' as any, is_blind_bid: false } : p));
+      const { error } = await supabase.from('players').update({ is_captain: false, status: 'upcoming', is_blind_bid: false }).eq('id', playerId);
+      if (error) {
+        alert('Failed to set category: ' + error.message);
+        setPlayers(prev => prev.map(p => p.id === playerId ? { ...p, is_captain: player.is_captain, status: player.status } : p));
+      }
+    }
+  };
+
+  // Legacy wrapper for backward compat
   const handleToggleCaptain = async (playerId: string, currentVal: boolean) => {
-    setPlayers(prev => prev.map(p => p.id === playerId ? { ...p, is_captain: !currentVal } : p));
-    const { error } = await supabase.from("players").update({ is_captain: !currentVal }).eq("id", playerId);
-    if (error) {
-      console.error("Failed to toggle captain:", error);
-      alert("Failed to toggle captain: " + error.message);
-      setPlayers(prev => prev.map(p => p.id === playerId ? { ...p, is_captain: currentVal } : p));
+    await handleSetPlayerCategory(playerId, currentVal ? 'regular' : 'captain');
+  };
+
+  const handleStartBlindBidRound = async () => {
+    setLoadingAction('start_blind_bid_round');
+    try {
+      const { error } = await supabase.rpc('start_blind_bid_round', { p_auction_id: auctionId });
+      if (error) window.alert(`Failed to start blind bid round: ${error.message}`);
+    } finally {
+      setLoadingAction(null);
+    }
+  };
+
+  const handleMatchBlindBid = async (teamId: string) => {
+    const assignment = blindBidAssignments[teamId];
+    if (!assignment || !assignment.playerId) return;
+
+    const matchPrice = assignment.amount ? Number(assignment.amount) : (auction?.settings?.base_price ?? 0);
+    const minPrice = auction?.settings?.base_price ?? 0;
+    if (matchPrice < minPrice) {
+      alert(`Bid amount (₹${matchPrice.toLocaleString('en-IN')}) cannot be less than the base price (₹${minPrice.toLocaleString('en-IN')}).`);
+      return;
+    }
+
+    setLoadingAction(`blind_match_${teamId}`);
+    try {
+      const { error } = await supabase.rpc('match_player_blind_bid', {
+        p_auction_id: auctionId,
+        p_team_id: teamId,
+        p_player_id: assignment.playerId,
+        p_price: matchPrice
+      });
+      if (error) {
+        alert('Failed to match blind bid: ' + error.message);
+      }
+    } finally {
+      setLoadingAction(null);
     }
   };
 
@@ -520,6 +714,11 @@ export default function AdminAuctionPage({ params }: { params: Promise<{ id: str
     if (!bidInfo || !bidInfo.captainId) return;
 
     const matchPrice = bidInfo.amount ? Number(bidInfo.amount) : (auction.settings.captain_base_price ?? auction.settings.base_price);
+    const minCaptainPrice = auction.settings.captain_base_price ?? auction.settings.base_price;
+    if (matchPrice < minCaptainPrice) {
+      alert(`Captain bid amount (₹${matchPrice.toLocaleString('en-IN')}) cannot be less than the captain base price (₹${minCaptainPrice.toLocaleString('en-IN')}).`);
+      return;
+    }
 
     setLoadingAction(`match_${teamId}`);
     try {
@@ -546,52 +745,112 @@ export default function AdminAuctionPage({ params }: { params: Promise<{ id: str
     }
   };
 
-  if (!allTeamsHaveCaptain && state?.phase !== "captain_round") {
+  if (!allTeamsHaveCaptain && state?.phase !== "captain_round" && state?.phase !== "blind_bid_round") {
+    const captainCountValid = selectedCaptains.length === teams.length;
+    const blindBidCountValid = blindBidPlayers.length === 0 || (blindBidPlayers.length > 0 && blindBidPlayers.length % teams.length === 0);
+    const canProceed = captainCountValid && blindBidCountValid;
+
+    const handleProceedToReveal = async () => {
+      if (!captainCountValid) {
+        window.alert(`You must select exactly ${teams.length} captains (currently ${selectedCaptains.length}).`);
+        return;
+      }
+      if (blindBidPlayers.length > 0 && blindBidPlayers.length % teams.length !== 0) {
+        window.alert(`Blind bid count (${blindBidPlayers.length}) must be a multiple of the number of teams (${teams.length}).`);
+        return;
+      }
+      if (blindBidPlayers.length === 0) {
+        const proceed = window.confirm("Proceed without blind bid players other than captains?");
+        if (!proceed) return;
+      }
+      await handleStartCaptainRound();
+    };
+
+    const getPlayerCategory = (p: Player): 'regular' | 'captain' | 'blind_bid' => {
+      if (p.is_captain) return 'captain';
+      if (p.status === 'blind_reserved') return 'blind_bid';
+      return 'regular';
+    };
+
     return (
-      <div className="min-h-screen bg-gradient-to-br from-slate-950 via-slate-900 to-slate-950 p-6 text-slate-50">
+      <div className="min-h-screen bg-gradient-to-br from-slate-100 via-slate-50 to-slate-100 dark:from-slate-950 dark:via-slate-900 dark:to-slate-950 p-4 sm:p-6 text-slate-800 dark:text-slate-50">
         <div className="mx-auto flex max-w-6xl flex-col gap-6">
           <header className="flex flex-col items-start justify-between gap-3 md:flex-row md:items-center">
             <div>
-              <h1 className="text-2xl font-semibold tracking-tight">Captain Selection Phase</h1>
-              <p className="text-sm text-slate-400">
+              <h1 className="text-2xl font-semibold tracking-tight">Player Categorization</h1>
+              <p className="text-sm text-slate-500 dark:text-slate-400">
                 {auction.name} · {auction.sport_type.toUpperCase()}
               </p>
-              <p className="mt-1 text-xs text-amber-300">
-                You must mark exactly {teams.length} players as Captains before proceeding to the Live Hype reveal.
+              <p className="mt-1 text-xs text-amber-600 dark:text-amber-300">
+                Mark exactly {teams.length} captains. Blind bid players (if any) must be a multiple of {teams.length}.
               </p>
             </div>
-            <div className="flex flex-wrap gap-2">
+            <div className="flex flex-wrap gap-2 items-center">
+              <div className="flex gap-3 text-xs">
+                <span className={`font-bold ${captainCountValid ? 'text-emerald-500' : 'text-rose-400'}`}>
+                  Captains: {selectedCaptains.length}/{teams.length}
+                </span>
+                <span className={`font-bold ${blindBidCountValid ? 'text-emerald-500' : 'text-rose-400'}`}>
+                  Blind Bids: {blindBidPlayers.length}
+                </span>
+              </div>
               <Button
                 variant="default"
                 size="sm"
                 className="bg-emerald-600 hover:bg-emerald-500 text-white"
-                onClick={handleStartCaptainRound}
-                disabled={selectedCaptains.length !== teams.length || loadingAction === "start_captain_round"}
+                onClick={handleProceedToReveal}
+                disabled={!canProceed || loadingAction === "start_captain_round"}
               >
-                {loadingAction === "start_captain_round" ? "Starting..." : "Start Captain Reveal Hype"}
+                {loadingAction === "start_captain_round" ? "Starting..." : "Proceed to Captain Reveal"}
               </Button>
             </div>
           </header>
 
-          <Card className="border-slate-800 bg-slate-900/60 p-5 shadow-xl shadow-slate-950/50">
+          <Card className="border-slate-200 dark:border-slate-800 bg-white/60 dark:bg-slate-900/60 p-5 shadow-xl shadow-slate-300/40 dark:shadow-slate-950/50">
             <div className="flex items-center justify-between mb-4">
-              <h2 className="text-sm font-semibold uppercase tracking-[0.15em] text-slate-400">
-                Select Captains ({selectedCaptains.length} / {teams.length})
+              <h2 className="text-sm font-semibold uppercase tracking-[0.15em] text-slate-500 dark:text-slate-400">
+                Categorize Players
               </h2>
             </div>
-            <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-5 gap-3 max-h-[600px] overflow-y-auto pr-2 pb-2">
-              {players.filter(p => p.status === "upcoming").map(p => (
-                <Button
-                  key={p.id}
-                  variant={p.is_captain ? "default" : "outline"}
-                  size="sm"
-                  className={`h-auto flex flex-col w-full items-start justify-start p-3 ${p.is_captain ? 'bg-amber-600 hover:bg-amber-500 text-white border-amber-500' : 'border-slate-700 bg-slate-900/50 text-slate-300'}`}
-                  onClick={() => handleToggleCaptain(p.id, !!p.is_captain)}
-                >
-                  <span className="font-semibold text-left">{p.name}</span>
-                  <span className="text-[10px] uppercase opacity-70 mt-1 break-words line-clamp-1 text-left">{p.role}</span>
-                </Button>
-              ))}
+            <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-3 max-h-[600px] overflow-y-auto pr-2 pb-16">
+              {players.filter(p => p.status === "upcoming" || p.status === "blind_reserved" || (p.is_captain && p.status !== "sold")).map(p => {
+                const category = getPlayerCategory(p);
+                return (
+                  <div
+                    key={p.id}
+                    className={`rounded-lg border p-3 space-y-2 ${
+                      category === 'captain' ? 'border-amber-500 bg-amber-50/30 dark:bg-amber-950/30' :
+                      category === 'blind_bid' ? 'border-blue-500 bg-blue-50/30 dark:bg-blue-950/30' :
+                      'border-slate-300 dark:border-slate-700 bg-slate-50/50 dark:bg-slate-900/50'
+                    }`}
+                  >
+                    <div>
+                      <div className="font-semibold text-sm">{p.name}</div>
+                      <div className="text-[10px] uppercase opacity-70 mt-0.5">{p.role}</div>
+                    </div>
+                    <div className="flex rounded-md overflow-hidden border border-slate-300 dark:border-slate-700 text-[10px] font-bold uppercase">
+                      <button
+                        onClick={() => handleSetPlayerCategory(p.id, 'regular')}
+                        className={`flex-1 py-1.5 px-2 transition-colors ${category === 'regular' ? 'bg-slate-600 text-white' : 'bg-slate-50 dark:bg-slate-900 text-slate-500 hover:bg-slate-200 dark:hover:bg-slate-800'}`}
+                      >
+                        Regular
+                      </button>
+                      <button
+                        onClick={() => handleSetPlayerCategory(p.id, 'captain')}
+                        className={`flex-1 py-1.5 px-2 transition-colors border-x border-slate-300 dark:border-slate-700 ${category === 'captain' ? 'bg-amber-600 text-white' : 'bg-slate-50 dark:bg-slate-900 text-slate-500 hover:bg-slate-200 dark:hover:bg-slate-800'}`}
+                      >
+                        Captain
+                      </button>
+                      <button
+                        onClick={() => handleSetPlayerCategory(p.id, 'blind_bid')}
+                        className={`flex-1 py-1.5 px-2 transition-colors ${category === 'blind_bid' ? 'bg-blue-600 text-white' : 'bg-slate-50 dark:bg-slate-900 text-slate-500 hover:bg-slate-200 dark:hover:bg-slate-800'}`}
+                      >
+                        Blind Bid
+                      </button>
+                    </div>
+                  </div>
+                );
+              })}
             </div>
           </Card>
         </div>
@@ -601,17 +860,17 @@ export default function AdminAuctionPage({ params }: { params: Promise<{ id: str
 
   if (!allTeamsHaveCaptain && state?.phase === "captain_round") {
     return (
-      <div className="min-h-screen bg-gradient-to-br from-slate-950 via-slate-900 to-slate-950 p-6 text-slate-50">
+      <div className="min-h-screen bg-gradient-to-br from-slate-100 via-slate-50 to-slate-100 dark:from-slate-950 dark:via-slate-900 dark:to-slate-950 p-4 sm:p-6 text-slate-800 dark:text-slate-50">
         <div className="mx-auto flex max-w-6xl flex-col gap-6">
           <header className="flex flex-col items-start justify-between gap-3 md:flex-row md:items-center">
             <div>
-              <h1 className="text-2xl font-semibold text-emerald-400 tracking-tight">Captain Blind Bidding Setup</h1>
-              <p className="text-sm text-slate-400 mt-1">The Live Screen is currently portraying the Blind Bidding animation. Match captains to proceed.</p>
+              <h1 className="text-2xl font-semibold text-emerald-600 dark:text-emerald-400 tracking-tight">Captain Blind Bidding Setup</h1>
+              <p className="text-sm text-slate-500 dark:text-slate-400 mt-1">The Live Screen is currently portraying the Blind Bidding animation. Match captains to proceed.</p>
             </div>
           </header>
 
-          <Card className="border-slate-800 bg-slate-900/60 p-5 shadow-xl shadow-slate-950/50">
-            <h2 className="mb-4 text-sm font-semibold uppercase tracking-[0.15em] text-slate-400">
+          <Card className="border-slate-200 dark:border-slate-800 bg-white/60 dark:bg-slate-900/60 p-5 shadow-xl shadow-slate-300/40 dark:shadow-slate-950/50">
+            <h2 className="mb-4 text-sm font-semibold uppercase tracking-[0.15em] text-slate-500 dark:text-slate-400">
               Match Captains to Teams
             </h2>
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
@@ -619,23 +878,23 @@ export default function AdminAuctionPage({ params }: { params: Promise<{ id: str
                 if (team.captain_id) {
                   const c = players.find(p => p.id === team.captain_id);
                   return (
-                    <div key={`matched-${team.id}`} className="rounded-lg border border-emerald-800/50 bg-emerald-950/20 p-4">
-                      <div className="font-semibold text-emerald-400">✓ {team.name}</div>
-                      <div className="text-sm text-slate-300 mt-2">Captain: <span className="text-white font-medium">{c?.name}</span></div>
-                      <div className="text-xs text-slate-400 mt-1">Bid Amount: {formatPrice(c?.sold_price)}</div>
+                    <div key={`matched-${team.id}`} className="rounded-lg border border-emerald-300/50 dark:border-emerald-800/50 bg-emerald-50/20 dark:bg-emerald-950/20 p-4">
+                      <div className="font-semibold text-emerald-600 dark:text-emerald-400">✓ {team.name}</div>
+                      <div className="text-sm text-slate-600 dark:text-slate-300 mt-2">Captain: <span className="text-slate-900 dark:text-white font-medium">{c?.name}</span></div>
+                      <div className="text-xs text-slate-500 dark:text-slate-400 mt-1">Bid Amount: {formatPrice(c?.sold_price)}</div>
                     </div>
                   );
                 }
 
                 return (
-                  <div key={`unmatched-${team.id}`} className="rounded-lg border border-slate-700 bg-slate-800/40 p-4 space-y-3">
+                  <div key={`unmatched-${team.id}`} className="rounded-lg border border-slate-300 dark:border-slate-700 bg-slate-50/40 dark:bg-slate-800/40 p-4 space-y-3">
                     <div className="font-semibold">{team.name}</div>
-                    <div className="text-xs text-slate-400">Purse: {formatPrice(team.purse_remaining)}</div>
+                    <div className="text-xs text-slate-500 dark:text-slate-400">Purse: {formatPrice(team.purse_remaining)}</div>
 
                     <div className="space-y-1">
-                      <Label className="text-xs text-slate-400">Select Captain</Label>
+                      <Label className="text-xs text-slate-500 dark:text-slate-400">Select Captain</Label>
                       <select
-                        className="w-full bg-slate-950 border border-slate-700 rounded px-2 py-1.5 text-sm outline-none focus:border-amber-500"
+                        className="w-full bg-slate-50 dark:bg-slate-950 border border-slate-300 dark:border-slate-700 rounded px-2 py-1.5 text-sm outline-none focus:border-amber-500"
                         value={captainBids[team.id]?.captainId || ""}
                         onChange={(e: React.ChangeEvent<HTMLSelectElement>) => setCaptainBids(prev => ({ ...prev, [team.id]: { ...prev[team.id], captainId: e.target.value, amount: prev[team.id]?.amount || '' } }))}
                       >
@@ -645,15 +904,20 @@ export default function AdminAuctionPage({ params }: { params: Promise<{ id: str
                     </div>
 
                     <div className="space-y-1">
-                      <Label className="text-xs text-slate-400">Winning Blind Bid</Label>
+                      <Label className="text-xs text-slate-500 dark:text-slate-400">Winning Blind Bid</Label>
                       <Input
                         type="number"
                         min={auction.settings.captain_base_price ?? auction.settings.base_price}
-                        className="bg-slate-950 h-8 text-sm"
+                        className="bg-slate-50 dark:bg-slate-950 h-8 text-sm"
                         placeholder={`Min: ${auction.settings.captain_base_price ?? auction.settings.base_price}`}
                         value={captainBids[team.id]?.amount ?? ''}
                         onChange={(e: React.ChangeEvent<HTMLInputElement>) => setCaptainBids(prev => ({ ...prev, [team.id]: { ...prev[team.id], amount: e.target.value } }))}
                       />
+                      {Number(captainBids[team.id]?.amount) > 0 && (
+                        <p className="text-[10px] text-emerald-500 dark:text-emerald-400 italic mt-0.5">
+                          ₹{numberToIndianWords(Number(captainBids[team.id]?.amount))}
+                        </p>
+                      )}
                     </div>
 
                     <Button
@@ -677,13 +941,13 @@ export default function AdminAuctionPage({ params }: { params: Promise<{ id: str
 
   if (allTeamsHaveCaptain && state?.phase === "captain_round") {
     return (
-      <div className="min-h-screen bg-gradient-to-br from-slate-950 via-slate-900 to-slate-950 p-6 flex flex-col items-center justify-center">
-        <div className="text-center space-y-6 bg-slate-900/50 p-10 rounded-2xl border border-slate-800">
-          <h2 className="text-3xl font-semibold text-emerald-400 tracking-tight">Captain Matching Complete!</h2>
-          <p className="text-slate-400 max-w-lg mx-auto leading-relaxed">
+      <div className="min-h-screen bg-gradient-to-br from-slate-100 via-slate-50 to-slate-100 dark:from-slate-950 dark:via-slate-900 dark:to-slate-950 p-6 flex flex-col items-center justify-center">
+        <div className="text-center space-y-6 bg-white/50 dark:bg-slate-900/50 p-10 rounded-2xl border border-slate-200 dark:border-slate-800">
+          <h2 className="text-3xl font-semibold text-emerald-600 dark:text-emerald-400 tracking-tight">Captain Matching Complete!</h2>
+          <p className="text-slate-500 dark:text-slate-400 max-w-lg mx-auto leading-relaxed">
             All teams have their captains assigned successfully via Blind Bidding.
-            The audience is currently watching the Blind Bidding screen.
             You can now conclude the captain phase and begin the regular player auction.
+            {blindBidPlayers.length > 0 && ` (${blindBidPlayers.length} blind bid player(s) can be allocated from the auction panel.)`}
           </p>
           <Button size="lg" className="bg-emerald-600 hover:bg-emerald-500 text-white font-medium" onClick={handleConcludeCaptainPhase} disabled={loadingAction === "conclude_captain_phase"}>
             {loadingAction === "conclude_captain_phase" ? "Transitioning..." : "Conclude Setup & Start Auction"}
@@ -693,12 +957,94 @@ export default function AdminAuctionPage({ params }: { params: Promise<{ id: str
     )
   }
 
+  // Blind Bid Allocation Phase
+  if (state?.phase === "blind_bid_round") {
+    const allBlindBidsAssigned = unassignedBlindBids.length === 0;
+    return (
+      <div className="min-h-screen bg-gradient-to-br from-slate-100 via-slate-50 to-slate-100 dark:from-slate-950 dark:via-slate-900 dark:to-slate-950 p-4 sm:p-6 text-slate-800 dark:text-slate-50">
+        <div className="mx-auto flex max-w-6xl flex-col gap-6">
+          <header className="flex flex-col items-start justify-between gap-3 md:flex-row md:items-center">
+            <div>
+              <h1 className="text-2xl font-semibold text-blue-600 dark:text-blue-400 tracking-tight">Blind Bid Player Allocation</h1>
+              <p className="text-sm text-slate-500 dark:text-slate-400 mt-1">
+                Assign blind bid players to teams. {unassignedBlindBids.length} remaining.
+              </p>
+            </div>
+            {allBlindBidsAssigned && (
+              <Button
+                size="sm"
+                className="bg-emerald-600 hover:bg-emerald-500 text-white"
+                onClick={handleConcludeCaptainPhase}
+                disabled={loadingAction === "conclude_captain_phase"}
+              >
+                {loadingAction === "conclude_captain_phase" ? "Transitioning..." : "Conclude & Start Open Auction"}
+              </Button>
+            )}
+          </header>
+
+          <Card className="border-slate-200 dark:border-slate-800 bg-white/60 dark:bg-slate-900/60 p-5 shadow-xl shadow-slate-300/40 dark:shadow-slate-950/50">
+            <h2 className="mb-4 text-sm font-semibold uppercase tracking-[0.15em] text-slate-500 dark:text-slate-400">
+              Match Blind Bid Players to Teams
+            </h2>
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+              {teams.map(team => (
+                <div key={`blind-${team.id}`} className="rounded-lg border border-slate-300 dark:border-slate-700 bg-slate-50/40 dark:bg-slate-800/40 p-4 space-y-3">
+                  <div className="font-semibold">{team.name}</div>
+                  <div className="text-xs text-slate-500 dark:text-slate-400">Purse: {formatPrice(team.purse_remaining)} · Slots: {team.slots_remaining}</div>
+
+                  <div className="space-y-1">
+                    <Label className="text-xs text-slate-500 dark:text-slate-400">Select Player</Label>
+                    <select
+                      className="w-full bg-slate-50 dark:bg-slate-950 border border-slate-300 dark:border-slate-700 rounded px-2 py-1.5 text-sm outline-none focus:border-blue-500"
+                      value={blindBidAssignments[team.id]?.playerId || ""}
+                      onChange={(e: React.ChangeEvent<HTMLSelectElement>) => setBlindBidAssignments(prev => ({ ...prev, [team.id]: { ...prev[team.id], playerId: e.target.value, amount: prev[team.id]?.amount || '' } }))}
+                    >
+                      <option value="">-- Choose --</option>
+                      {unassignedBlindBids.map(p => <option key={p.id} value={p.id}>{p.name} ({p.role})</option>)}
+                    </select>
+                  </div>
+
+                  <div className="space-y-1">
+                    <Label className="text-xs text-slate-500 dark:text-slate-400">Winning Blind Bid</Label>
+                    <Input
+                      type="number"
+                      min={auction.settings.base_price}
+                      className="bg-slate-50 dark:bg-slate-950 h-8 text-sm"
+                      placeholder={`Min: ${auction.settings.base_price}`}
+                      value={blindBidAssignments[team.id]?.amount ?? ''}
+                      onChange={(e: React.ChangeEvent<HTMLInputElement>) => setBlindBidAssignments(prev => ({ ...prev, [team.id]: { ...prev[team.id], amount: e.target.value } }))}
+                    />
+                    {Number(blindBidAssignments[team.id]?.amount) > 0 && (
+                      <p className="text-[10px] text-emerald-500 dark:text-emerald-400 italic mt-0.5">
+                        ₹{numberToIndianWords(Number(blindBidAssignments[team.id]?.amount))}
+                      </p>
+                    )}
+                  </div>
+
+                  <Button
+                    className="w-full mt-2"
+                    size="sm"
+                    variant="secondary"
+                    disabled={!blindBidAssignments[team.id]?.playerId || loadingAction === `blind_match_${team.id}`}
+                    onClick={() => handleMatchBlindBid(team.id)}
+                  >
+                    {loadingAction === `blind_match_${team.id}` ? "Matching..." : "Confirm & Match"}
+                  </Button>
+                </div>
+              ))}
+            </div>
+          </Card>
+        </div>
+      </div>
+    );
+  }
+
   if (state?.phase === "phase_1_complete") {
     return (
-      <div className="min-h-screen bg-gradient-to-br from-slate-950 via-slate-900 to-slate-950 p-6 flex flex-col items-center justify-center animate-in fade-in duration-500">
-        <div className="text-center space-y-6 bg-slate-900/50 p-10 rounded-2xl border border-amber-800 shadow-2xl shadow-amber-900/20 max-w-xl">
-          <h2 className="text-3xl font-semibold text-amber-500 tracking-tight">Phase 1 Complete!</h2>
-          <div className="text-slate-400 leading-relaxed text-sm space-y-2">
+      <div className="min-h-screen bg-gradient-to-br from-slate-100 via-slate-50 to-slate-100 dark:from-slate-950 dark:via-slate-900 dark:to-slate-950 p-6 flex flex-col items-center justify-center animate-in fade-in duration-500">
+        <div className="text-center space-y-6 bg-white/50 dark:bg-slate-900/50 p-10 rounded-2xl border border-amber-300 dark:border-amber-800 shadow-2xl shadow-amber-200/20 dark:shadow-amber-900/20 max-w-xl">
+          <h2 className="text-3xl font-semibold text-amber-600 dark:text-amber-500 tracking-tight">Phase 1 Complete!</h2>
+          <div className="text-slate-500 dark:text-slate-400 leading-relaxed text-sm space-y-2">
             <p>The primary upcoming player pool has been entirely exhausted.</p>
             <p><strong>({players.filter(p => p.status === "upcoming").length})</strong> players remain for drawing.</p>
             <p>Click below to transition to Phase 2. This will broadcast an intermission 'Hype' screen to the Audience and begin drawing from the remaining pool.</p>
@@ -711,19 +1057,19 @@ export default function AdminAuctionPage({ params }: { params: Promise<{ id: str
     )
   }
   if (state?.phase === "phase_2_complete") {
-    const finalUnsolds = players.filter(p => p.status === "upcoming").length;
+    const finalUnsolds = players.filter(p => ["unsold", "unsold_final"].includes(p.status)).length;
     return (
-      <div className="min-h-screen bg-gradient-to-br from-slate-950 via-slate-900 to-slate-950 p-6 flex flex-col items-center justify-center animate-in fade-in duration-500">
-        <div className="text-center space-y-6 bg-slate-900/50 p-10 rounded-2xl border border-rose-800 shadow-2xl shadow-rose-900/20 max-w-xl">
-          <h2 className="text-3xl font-semibold text-rose-500 tracking-tight">Phase 2 Complete!</h2>
-          <div className="text-slate-400 leading-relaxed text-sm space-y-2">
+      <div className="min-h-screen bg-gradient-to-br from-slate-100 via-slate-50 to-slate-100 dark:from-slate-950 dark:via-slate-900 dark:to-slate-950 p-6 flex flex-col items-center justify-center animate-in fade-in duration-500">
+        <div className="text-center space-y-6 bg-white/50 dark:bg-slate-900/50 p-10 rounded-2xl border border-rose-300 dark:border-rose-800 shadow-2xl shadow-rose-200/20 dark:shadow-rose-900/20 max-w-xl">
+          <h2 className="text-3xl font-semibold text-rose-600 dark:text-rose-500 tracking-tight">Phase 2 Complete!</h2>
+          <div className="text-slate-500 dark:text-slate-400 leading-relaxed text-sm space-y-2">
             <p>The entire player pool has been exhausted.</p>
             <p><strong>({finalUnsolds})</strong> players were never drawn after Phase 2.</p>
-            <p>You can now permanently End the Auction if minimum player requirements are met.</p>
+            <p>You can now proceed to the accelerated Slot Filling phase to quickly complete remaining team slots.</p>
           </div>
           <div className="flex flex-col gap-3 mt-4">
-            <Button size="lg" className="bg-rose-600 hover:bg-rose-500 text-white font-medium w-full" onClick={handleEndAuction} disabled={loadingAction === "end_auction"}>
-              {loadingAction === "end_auction" ? "Ending..." : "End Auction"}
+            <Button size="lg" className="bg-emerald-600 hover:bg-emerald-500 text-white font-medium w-full" onClick={handleStartSlotFilling} disabled={loadingAction === "start_slot_filling"}>
+              {loadingAction === "start_slot_filling" ? "Starting..." : "Proceed to Slot Filling Phase"}
             </Button>
           </div>
         </div>
@@ -731,16 +1077,19 @@ export default function AdminAuctionPage({ params }: { params: Promise<{ id: str
     )
   }
   return (
-    <div className="min-h-screen bg-gradient-to-br from-slate-950 via-slate-900 to-slate-950 p-6 text-slate-50">
+    <div className="min-h-screen bg-gradient-to-br from-slate-100 via-slate-50 to-slate-100 dark:from-slate-950 dark:via-slate-900 dark:to-slate-950 p-4 sm:p-6 text-slate-800 dark:text-slate-50">
       <div className="mx-auto flex max-w-6xl flex-col gap-6">
         <header className="flex flex-col items-start justify-between gap-3 md:flex-row md:items-center">
           <div>
-            <h1 className="text-2xl font-semibold tracking-tight">Auction Control</h1>
-            <p className="text-sm text-slate-400">
+            <div className="flex items-center gap-3">
+              <h1 className="text-2xl font-semibold tracking-tight">Auction Control</h1>
+              <ThemeToggle />
+            </div>
+            <p className="text-sm text-slate-500 dark:text-slate-400">
               {auction.name} · {auction.sport_type.toUpperCase()}
             </p>
             {!allTeamsHaveCaptain && (
-              <p className="mt-1 text-xs text-amber-300">
+              <p className="mt-1 text-xs text-amber-600 dark:text-amber-300">
                 Assign captains to every team in{" "}
                 <span className="underline">Admin &gt; Manage Teams</span> before starting the live
                 auction.
@@ -788,6 +1137,17 @@ export default function AdminAuctionPage({ params }: { params: Promise<{ id: str
             >
               Undo Sale
             </Button>
+            {unassignedBlindBids.length > 0 && (
+              <Button
+                variant="default"
+                size="sm"
+                className="bg-blue-600 hover:bg-blue-500 text-white"
+                onClick={handleStartBlindBidRound}
+                disabled={loadingAction === "start_blind_bid_round"}
+              >
+                {loadingAction === "start_blind_bid_round" ? "Starting..." : `Blind Bids (${unassignedBlindBids.length})`}
+              </Button>
+            )}
             <Button
               variant="default"
               size="sm"
@@ -802,11 +1162,11 @@ export default function AdminAuctionPage({ params }: { params: Promise<{ id: str
 
         {state?.show_undo_notice && (
           <div className="animate-in fade-in slide-in-from-top-4 duration-500">
-            <div className="flex items-center gap-4 rounded-xl border border-amber-500/30 bg-amber-950/40 p-4 shadow-2xl shadow-amber-900/20 ring-1 ring-amber-500/20">
-              <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-full bg-amber-500 text-slate-950 text-xl font-black shadow-lg">!</div>
+            <div className="flex items-center gap-4 rounded-xl border border-amber-400/30 dark:border-amber-500/30 bg-amber-50/40 dark:bg-amber-950/40 p-4 shadow-2xl shadow-amber-200/20 dark:shadow-amber-900/20 ring-1 ring-amber-400/20 dark:ring-amber-500/20">
+              <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-full bg-amber-500 text-white dark:text-slate-950 text-xl font-black shadow-lg">!</div>
               <div className="flex-1">
-                <h3 className="text-lg font-bold text-amber-400">SALE REVERSED</h3>
-                <p className="text-sm text-amber-200/80 leading-snug">The previous transaction was undone. The player has been restored. You can now start the bidding again.</p>
+                <h3 className="text-lg font-bold text-amber-500 dark:text-amber-400">SALE REVERSED</h3>
+                <p className="text-sm text-amber-700/80 dark:text-amber-200/80 leading-snug">The previous transaction was undone. The player has been restored. You can now start the bidding again.</p>
               </div>
               <Button
                 size="lg"
@@ -820,13 +1180,13 @@ export default function AdminAuctionPage({ params }: { params: Promise<{ id: str
         )}
 
         <div className="grid gap-6 md:grid-cols-[2fr,3fr]">
-          <Card className="border-slate-800 bg-slate-900/60 p-5 shadow-xl shadow-slate-950/50">
-            <h2 className="mb-3 text-sm font-semibold uppercase tracking-[0.15em] text-slate-400">
+          <Card className="border-slate-200 dark:border-slate-800 bg-white/60 dark:bg-slate-900/60 p-5 shadow-xl shadow-slate-300/40 dark:shadow-slate-950/50">
+            <h2 className="mb-3 text-sm font-semibold uppercase tracking-[0.15em] text-slate-500 dark:text-slate-400">
               Current Player
             </h2>
             {currentPlayer ? (
               <div className="space-y-4">
-                <div className="flex items-center gap-4 bg-slate-950/40 p-3 rounded-xl border border-slate-800">
+                <div className="flex items-center gap-4 bg-slate-100/40 dark:bg-slate-950/40 p-3 rounded-xl border border-slate-200 dark:border-slate-800">
                   <div className="scale-75 origin-left w-[80px]">
                     <PlayerAvatar
                       id={currentPlayer.id}
@@ -837,29 +1197,29 @@ export default function AdminAuctionPage({ params }: { params: Promise<{ id: str
                     />
                   </div>
                   <div>
-                    <div className="text-xl font-bold text-white">{currentPlayer.name}</div>
+                    <div className="text-xl font-bold text-slate-900 dark:text-white">{currentPlayer.name}</div>
                     <div className="text-xs uppercase tracking-widest text-emerald-400 font-bold">{currentPlayer.role}</div>
                   </div>
                 </div>
                 <div className="mt-4 grid grid-cols-2 gap-2 text-sm">
-                  <div className="rounded-md bg-slate-900/80 px-3 py-2">
-                    <div className="text-xs uppercase text-slate-400">Base Price</div>
+                  <div className="rounded-md bg-slate-100/80 dark:bg-slate-900/80 px-3 py-2">
+                    <div className="text-xs uppercase text-slate-500 dark:text-slate-400">Base Price</div>
                     <div className="text-lg font-semibold">
                       {formatPrice(settings.base_price)}
                     </div>
                   </div>
-                  <div className="rounded-md bg-slate-900/80 px-3 py-2">
-                    <div className="text-xs uppercase text-slate-400">Increment</div>
+                  <div className="rounded-md bg-slate-100/80 dark:bg-slate-900/80 px-3 py-2">
+                    <div className="text-xs uppercase text-slate-500 dark:text-slate-400">Increment</div>
                     <div className="text-lg font-semibold">
-                      +{formatPrice(settings.increment)}
+                      +{formatPrice(currentDynamicIncrement)}
                     </div>
                   </div>
                   <div className="rounded-md bg-emerald-900/40 px-3 py-2">
                     <div className="text-xs uppercase text-emerald-300">Current Bid</div>
                     {formatPrice(state?.current_bid ?? settings.base_price)}
                   </div>
-                  <div className="rounded-md bg-slate-900/80 px-3 py-2">
-                    <div className="text-xs uppercase text-slate-400">Leading Team</div>
+                  <div className="rounded-md bg-slate-100/80 dark:bg-slate-900/80 px-3 py-2">
+                    <div className="text-xs uppercase text-slate-500 dark:text-slate-400">Leading Team</div>
                     <div className="text-lg font-semibold">
                       {leadingTeam ? leadingTeam.name : "—"}
                     </div>
@@ -876,19 +1236,19 @@ export default function AdminAuctionPage({ params }: { params: Promise<{ id: str
                 </div>
               </div>
             ) : (
-              <div className="flex h-40 items-center justify-center text-sm text-slate-500">
+              <div className="flex h-40 items-center justify-center text-sm text-slate-500 dark:text-slate-500">
                 No player selected. Use &quot;Next Player&quot; to draw one.
               </div>
             )}
           </Card>
 
-          <Card className="border-slate-800 bg-slate-900/60 p-5 shadow-xl shadow-slate-950/50">
-            <h2 className="mb-3 text-sm font-semibold uppercase tracking-[0.15em] text-slate-400">
+          <Card className="border-slate-200 dark:border-slate-800 bg-white/60 dark:bg-slate-900/60 p-5 shadow-xl shadow-slate-300/40 dark:shadow-slate-950/50">
+            <h2 className="mb-3 text-sm font-semibold uppercase tracking-[0.15em] text-slate-500 dark:text-slate-400">
               Teams · Bid Controls
             </h2>
 
             {state?.current_bid === null ? (
-              <div className="flex h-32 items-center justify-center text-sm text-slate-500 rounded-xl border border-dashed border-slate-800 bg-slate-900/40">
+              <div className="flex h-32 items-center justify-center text-sm text-slate-500 dark:text-slate-500 rounded-xl border border-dashed border-slate-300 dark:border-slate-800 bg-slate-50/40 dark:bg-slate-900/40">
                 Click "Start Bid" to unlock team controls for the current player.
               </div>
             ) : (
@@ -901,16 +1261,16 @@ export default function AdminAuctionPage({ params }: { params: Promise<{ id: str
                   return (
                     <Button
                       key={team.id}
-                      className={`relative flex h-auto flex-col items-start justify-between gap-1.5 rounded-xl border px-3 py-3 text-left shadow-sm transition-all duration-300 ${isLeading ? 'border-emerald-500 bg-emerald-950/40 ring-1 ring-emerald-500/50 shadow-[0_0_15px_rgba(16,185,129,0.15)] scale-[1.02]' : 'border-slate-800 bg-slate-900/80 hover:border-emerald-500/50 hover:bg-slate-900'}`}
+                      className={`relative flex h-auto flex-col items-start justify-between gap-1.5 rounded-xl border px-3 py-3 text-left shadow-sm transition-all duration-300 ${isLeading ? 'border-emerald-500 bg-emerald-50/40 dark:bg-emerald-950/40 ring-1 ring-emerald-500/50 shadow-[0_0_15px_rgba(16,185,129,0.15)] scale-[1.02]' : 'border-slate-200 dark:border-slate-800 bg-white/80 dark:bg-slate-900/80 hover:border-emerald-500/50 hover:bg-slate-50 dark:hover:bg-slate-900'}`}
                       disabled={!canBid || isLoading || isLeading}
                       onClick={() => handlePlaceBid(team.id)}
                     >
                       <div className="w-full">
-                        <span className="font-bold flex items-center justify-between gap-2 text-sm text-slate-100 truncate w-full">
+                        <span className="font-bold flex items-center justify-between gap-2 text-sm text-slate-700 dark:text-slate-100 truncate w-full">
                           <span className="truncate">{team.name}</span>
                           {isLeading && <span className="h-2 w-2 rounded-full bg-emerald-500 animate-pulse flex-shrink-0 shadow-[0_0_8px_rgba(16,185,129,0.8)]" />}
                         </span>
-                        <span className="text-[10px] uppercase font-semibold tracking-wider text-slate-400 block truncate mt-0.5">
+                        <span className="text-[10px] uppercase font-semibold tracking-wider text-slate-500 dark:text-slate-400 block truncate mt-0.5">
                           {team.manager}
                         </span>
                       </div>
@@ -1235,9 +1595,9 @@ export default function ManageTeamsPage({ params }: { params: Promise<{ id: stri
 
   if (checkingAuth) {
     return (
-      <div className="min-h-screen bg-slate-950 flex flex-col items-center justify-center">
+      <div className="min-h-screen bg-slate-100 dark:bg-slate-950 flex flex-col items-center justify-center">
         <div className="h-12 w-12 border-4 border-emerald-500 border-t-transparent rounded-full animate-spin" />
-        <div className="mt-4 text-emerald-500 font-black uppercase tracking-widest text-xs">
+        <div className="mt-4 text-emerald-600 dark:text-emerald-500 font-black uppercase tracking-widest text-xs">
           Verifying Access...
         </div>
       </div>
@@ -1249,29 +1609,29 @@ export default function ManageTeamsPage({ params }: { params: Promise<{ id: stri
   }
 
   if (!auction) {
-    return <div className="p-6 text-slate-50">Loading Verification Hub...</div>;
+    return <div className="p-6 text-slate-700 dark:text-slate-50">Loading Verification Hub...</div>;
   }
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-slate-950 via-slate-900 to-slate-950 px-6 py-10 text-slate-50">
+    <div className="min-h-screen bg-gradient-to-br from-slate-100 via-slate-50 to-slate-100 dark:from-slate-950 dark:via-slate-900 dark:to-slate-950 px-4 sm:px-6 py-8 sm:py-10 text-slate-800 dark:text-slate-50">
       <div className="mx-auto flex max-w-6xl flex-col gap-6">
         <header className="flex flex-col justify-between gap-2 md:flex-row md:items-end">
           <div>
             <h1 className="text-2xl font-semibold tracking-tight md:text-3xl">
               Verification Hub · {auction.name}
             </h1>
-            <p className="text-sm text-slate-300">
+            <p className="text-sm text-slate-500 dark:text-slate-300">
               Verify registered participants and create teams. Lock participants to proceed to the Live Controller.
             </p>
-            <div className="mt-3 flex items-center gap-2 text-sm bg-slate-900/50 p-2 rounded-lg border border-slate-800 w-fit">
-              <span className="text-slate-400 font-medium">Registration Link:</span>
-              <code className="text-emerald-400 font-mono text-xs select-all">
+            <div className="mt-3 flex items-center gap-2 text-sm bg-slate-50/50 dark:bg-slate-900/50 p-2 rounded-lg border border-slate-200 dark:border-slate-800 w-fit">
+              <span className="text-slate-500 dark:text-slate-400 font-medium">Registration Link:</span>
+              <code className="text-emerald-600 dark:text-emerald-400 font-mono text-xs select-all">
                 {typeof window !== 'undefined' ? `${window.location.origin}/auction/${auction.id}` : ''}
               </code>
               <Button
                 size="sm"
                 variant="outline"
-                className="h-6 px-2 ml-2 border-slate-700 bg-slate-800 text-[10px] text-slate-300 hover:bg-slate-700 uppercase tracking-wider"
+                className="h-6 px-2 ml-2 border-slate-300 dark:border-slate-700 bg-slate-100 dark:bg-slate-800 text-[10px] text-slate-600 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-700 uppercase tracking-wider"
                 onClick={(e) => {
                   navigator.clipboard.writeText(`${window.location.origin}/auction/${auction.id}`);
                   const btn = e.currentTarget;
@@ -1312,31 +1672,31 @@ export default function ManageTeamsPage({ params }: { params: Promise<{ id: stri
         </header>
 
         <div className="grid gap-6 md:grid-cols-[2fr,3fr]">
-          <Card className="border-slate-800 bg-slate-900/70 p-5 shadow-xl shadow-black/60">
-            <h2 className="mb-3 text-sm font-semibold uppercase tracking-[0.18em] text-slate-400">
+          <Card className="border-slate-200 dark:border-slate-800 bg-white/70 dark:bg-slate-900/70 p-5 shadow-xl shadow-slate-300/40 dark:shadow-black/60">
+            <h2 className="mb-3 text-sm font-semibold uppercase tracking-[0.18em] text-slate-500 dark:text-slate-400">
               Create Team
             </h2>
             <form className="space-y-3 text-sm" onSubmit={handleCreateTeam}>
               <div className="space-y-1">
-                <Label htmlFor="team-name" className="text-slate-100">
+                <Label htmlFor="team-name" className="text-slate-700 dark:text-slate-100">
                   Team Name
                 </Label>
                 <Input
                   id="team-name"
                   value={teamName}
                   onChange={(e) => setTeamName(e.target.value)}
-                  className="bg-slate-950/80 text-slate-50"
+                  className="bg-slate-50 dark:bg-slate-950/80 text-slate-900 dark:text-slate-50"
                 />
               </div>
               <div className="space-y-1">
-                <Label htmlFor="team-manager" className="text-slate-100">
+                <Label htmlFor="team-manager" className="text-slate-700 dark:text-slate-100">
                   Manager Name
                 </Label>
                 <Input
                   id="team-manager"
                   value={teamManager}
                   onChange={(e) => setTeamManager(e.target.value)}
-                  className="bg-slate-950/80 text-slate-50"
+                  className="bg-slate-50 dark:bg-slate-950/80 text-slate-900 dark:text-slate-50"
                 />
               </div>
               <ImageUploadField
@@ -1348,13 +1708,13 @@ export default function ManageTeamsPage({ params }: { params: Promise<{ id: stri
                 error={logoError}
                 required
               />
-              <p className="text-xs text-slate-400">
+              <p className="text-xs text-slate-500 dark:text-slate-400">
                 Each new team starts with a purse of{" "}
-                <span className="font-semibold text-slate-100">
+                <span className="font-semibold text-slate-800 dark:text-slate-100">
                   {formatPrice(auction.settings.purse)}
                 </span>{" "}
                 and{" "}
-                <span className="font-semibold text-slate-100">
+                <span className="font-semibold text-slate-800 dark:text-slate-100">
                   {auction.settings.max_players} slots
                 </span>
                 .
@@ -1366,12 +1726,12 @@ export default function ManageTeamsPage({ params }: { params: Promise<{ id: stri
             </form>
           </Card>
 
-          <Card className="border-slate-800 bg-slate-900/70 p-5 shadow-xl shadow-black/60">
-            <h2 className="mb-3 text-sm font-semibold uppercase tracking-[0.18em] text-slate-400">
+          <Card className="border-slate-200 dark:border-slate-800 bg-white/70 dark:bg-slate-900/70 p-5 shadow-xl shadow-slate-300/40 dark:shadow-black/60">
+            <h2 className="mb-3 text-sm font-semibold uppercase tracking-[0.18em] text-slate-500 dark:text-slate-400">
               Verified Teams
             </h2>
             {teams.length === 0 ? (
-              <p className="text-sm text-slate-400">
+              <p className="text-sm text-slate-500 dark:text-slate-400">
                 No teams created yet. Add teams on the left to begin.
               </p>
             ) : (
@@ -1380,16 +1740,16 @@ export default function ManageTeamsPage({ params }: { params: Promise<{ id: stri
                   return (
                     <div
                       key={team.id}
-                      className="rounded-lg border border-slate-800 bg-slate-950/60 px-3 py-3"
+                      className="rounded-lg border border-slate-200 dark:border-slate-800 bg-slate-50/60 dark:bg-slate-950/60 px-3 py-3"
                     >
                       <div className="flex items-center justify-between gap-3">
                         <div>
                           <div className="font-semibold">{team.name}</div>
-                          <div className="text-[11px] uppercase tracking-wide text-slate-400">
+                          <div className="text-[11px] uppercase tracking-wide text-slate-500 dark:text-slate-400">
                             {team.manager}
                           </div>
                         </div>
-                        <div className="text-right text-[11px] text-slate-300">
+                        <div className="text-right text-[11px] text-slate-600 dark:text-slate-300">
                           <div>
                             Purse:{" "}
                             <span className="font-semibold">
@@ -1401,7 +1761,7 @@ export default function ManageTeamsPage({ params }: { params: Promise<{ id: stri
                           </div>
                         </div>
                       </div>
-                      <div className="mt-3 border-t border-slate-800 pt-3 text-xs text-slate-400 italic text-center">
+                      <div className="mt-3 border-t border-slate-200 dark:border-slate-800 pt-3 text-xs text-slate-500 dark:text-slate-400 italic text-center">
                         Captain matching will be performed in the Live Control portal.
                       </div>
                     </div>
@@ -1413,13 +1773,13 @@ export default function ManageTeamsPage({ params }: { params: Promise<{ id: stri
         </div>
 
         {/* Registered Players Cleanup UI */}
-        <Card className="border-slate-800 bg-slate-900/70 p-5 shadow-xl shadow-black/60">
+        <Card className="border-slate-200 dark:border-slate-800 bg-white/70 dark:bg-slate-900/70 p-5 shadow-xl shadow-slate-300/40 dark:shadow-black/60">
           <div className="mb-4 flex flex-col justify-between gap-3 md:flex-row md:items-end">
             <div>
-              <h2 className="text-sm font-semibold uppercase tracking-[0.18em] text-slate-400">
+              <h2 className="text-sm font-semibold uppercase tracking-[0.18em] text-slate-500 dark:text-slate-400">
                 Registered Players Cleanup
               </h2>
-              <p className="text-xs text-slate-400 mt-1">
+              <p className="text-xs text-slate-500 dark:text-slate-400 mt-1">
                 Select unwanted or duplicate players directly to remove them from the auction pool. Entries from the same IP are highlighted.
               </p>
             </div>
@@ -1433,14 +1793,14 @@ export default function ManageTeamsPage({ params }: { params: Promise<{ id: stri
             </Button>
           </div>
 
-          <div className="max-h-[400px] overflow-y-auto rounded-md border border-slate-800">
-            <table className="w-full text-left text-sm text-slate-300">
-              <thead className="sticky top-0 bg-slate-950 px-4 py-3 text-xs uppercase tracking-wider text-slate-400">
+          <div className="max-h-[400px] overflow-y-auto rounded-md border border-slate-200 dark:border-slate-800">
+            <table className="w-full text-left text-sm text-slate-600 dark:text-slate-300">
+              <thead className="sticky top-0 bg-slate-50 dark:bg-slate-950 px-4 py-3 text-xs uppercase tracking-wider text-slate-500 dark:text-slate-400">
                 <tr>
                   <th className="px-4 py-3 font-medium w-10">
                     <input
                       type="checkbox"
-                      className="rounded border-slate-700 bg-slate-900 accent-emerald-500"
+                      className="rounded border-slate-300 dark:border-slate-700 bg-slate-50 dark:bg-slate-900 accent-emerald-500"
                       checked={players.length > 0 && selectedPlayerIds.size === players.length}
                       onChange={(e) => {
                         if (e.target.checked) {
@@ -1459,7 +1819,7 @@ export default function ManageTeamsPage({ params }: { params: Promise<{ id: stri
               <tbody className="divide-y divide-slate-800/50">
                 {players.length === 0 ? (
                   <tr>
-                    <td colSpan={4} className="px-4 py-8 text-center text-slate-500">
+                    <td colSpan={4} className="px-4 py-8 text-center text-slate-500 dark:text-slate-500">
                       No players registered yet.
                     </td>
                   </tr>
@@ -1470,7 +1830,7 @@ export default function ManageTeamsPage({ params }: { params: Promise<{ id: stri
                     return (
                       <tr
                         key={`player-row-${p.id}`}
-                        className={`transition-colors hover:bg-slate-800/30 ${isSelected ? "bg-slate-800/40" : ""
+                        className={`transition-colors hover:bg-slate-100/30 dark:hover:bg-slate-800/30 ${isSelected ? "bg-slate-100/40 dark:bg-slate-800/40" : ""
                           }`}
                       >
                         <td className="px-4 py-3">
@@ -1478,19 +1838,19 @@ export default function ManageTeamsPage({ params }: { params: Promise<{ id: stri
                             type="checkbox"
                             checked={isSelected}
                             onChange={() => handleTogglePlayerSelection(p.id)}
-                            className="rounded border-slate-700 bg-slate-900 accent-emerald-500"
+                            className="rounded border-slate-300 dark:border-slate-700 bg-slate-50 dark:bg-slate-900 accent-emerald-500"
                           />
                         </td>
                         <td className="px-4 py-3">
-                          <div className="font-medium text-slate-100">{p.name}</div>
-                          <div className="text-[10px] uppercase tracking-wider text-slate-500">{p.role}</div>
+                          <div className="font-medium text-slate-800 dark:text-slate-100">{p.name}</div>
+                          <div className="text-[10px] uppercase tracking-wider text-slate-500 dark:text-slate-500">{p.role}</div>
                         </td>
                         <td className="px-4 py-3 hidden sm:table-cell">
-                          <div className="text-xs text-slate-400">{p.phone_number || "No Phone"}</div>
+                          <div className="text-xs text-slate-500 dark:text-slate-400">{p.phone_number || "No Phone"}</div>
                           <div
                             className={`mt-0.5 inline-block rounded px-1.5 py-0.5 text-[10px] uppercase font-medium ${isFarm
-                              ? "bg-amber-900/30 text-amber-400 ring-1 ring-amber-500/50"
-                              : "text-slate-500 bg-slate-900/50"
+                              ? "bg-amber-100/30 dark:bg-amber-900/30 text-amber-600 dark:text-amber-400 ring-1 ring-amber-500/50"
+                              : "text-slate-500 bg-slate-100/50 dark:bg-slate-900/50"
                               }`}
                           >
                             IP: {p.ip_address || "Unknown"}
@@ -1502,7 +1862,7 @@ export default function ManageTeamsPage({ params }: { params: Promise<{ id: stri
                               <Button
                                 size="sm"
                                 variant="outline"
-                                className="h-7 px-2 border-slate-700 bg-slate-800 text-[10px] text-slate-300 hover:bg-slate-700 uppercase tracking-wider"
+                                className="h-7 px-2 border-slate-300 dark:border-slate-700 bg-slate-100 dark:bg-slate-800 text-[10px] text-slate-600 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-700 uppercase tracking-wider"
                                 onClick={() => {
                                   if (p.photo_url) {
                                     setSelectedImageUrl(p.photo_url);
@@ -1686,10 +2046,10 @@ export default function VerifyAuctionPage({ params }: { params: Promise<{ id: st
 
     if (authLoading || stateLoading) {
         return (
-            <div className="min-h-screen bg-slate-950 flex items-center justify-center">
+            <div className="min-h-screen bg-slate-100 dark:bg-slate-950 flex items-center justify-center">
                 <div className="flex flex-col items-center gap-4">
                     <div className="h-12 w-12 rounded-full border-4 border-emerald-500/20 border-t-emerald-500 animate-spin" />
-                    <p className="text-slate-400 font-medium animate-pulse">
+                    <p className="text-slate-500 dark:text-slate-400 font-medium animate-pulse">
                         {authLoading ? "Verifying Credentials..." : "Initializing Verification Hub..."}
                     </p>
                 </div>
@@ -1699,11 +2059,11 @@ export default function VerifyAuctionPage({ params }: { params: Promise<{ id: st
 
     if (stateError) {
         return (
-            <div className="min-h-screen bg-slate-950 flex items-center justify-center p-6">
-                <Card className="max-w-md w-full bg-slate-900 border-red-500/50 p-8 text-center text-red-500">
+            <div className="min-h-screen bg-slate-100 dark:bg-slate-950 flex items-center justify-center p-6">
+                <Card className="max-w-md w-full bg-white dark:bg-slate-900 border-red-500/50 p-8 text-center text-red-500">
                     <AlertCircle className="h-12 w-12 mx-auto mb-4 opacity-50" />
                     <h3 className="text-xl font-bold mb-2">Sync Error</h3>
-                    <p className="text-sm text-slate-400 mb-6">{stateError.message}</p>
+                    <p className="text-sm text-slate-500 dark:text-slate-400 mb-6">{stateError.message}</p>
                     <Button variant="outline" onClick={() => window.location.reload()}>Retry Sync</Button>
                 </Card>
             </div>
@@ -1711,32 +2071,32 @@ export default function VerifyAuctionPage({ params }: { params: Promise<{ id: st
     }
 
     if (!auction) return (
-        <div className="min-h-screen bg-slate-950 flex items-center justify-center text-slate-500 italic">
+        <div className="min-h-screen bg-slate-100 dark:bg-slate-950 flex items-center justify-center text-slate-500 italic">
             Auction not found.
         </div>
     );
 
     return (
-        <div className="min-h-screen bg-gradient-to-br from-slate-950 via-slate-900 to-slate-950 p-6 text-slate-50">
+        <div className="min-h-screen bg-gradient-to-br from-slate-100 via-slate-50 to-slate-100 dark:from-slate-950 dark:via-slate-900 dark:to-slate-950 p-4 sm:p-6 text-slate-800 dark:text-slate-50">
             <div className="mx-auto max-w-7xl space-y-8">
 
                 {/* Header */}
                 <header className="flex flex-col items-start justify-between gap-4 md:flex-row md:items-center">
                     <div className="space-y-1">
-                        <div className="flex items-center gap-2 text-slate-400 mb-2">
+                        <div className="flex items-center gap-2 text-slate-500 dark:text-slate-400 mb-2">
                             <Button
                                 variant="ghost"
                                 size="sm"
-                                className="h-8 px-2 hover:bg-slate-800 text-slate-400 hover:text-slate-100"
+                                className="h-8 px-2 hover:bg-slate-200 dark:hover:bg-slate-800 text-slate-500 dark:text-slate-400 hover:text-slate-800 dark:hover:text-slate-100"
                                 onClick={() => router.push(`/admin/auction/${auctionId}`)}
                             >
                                 <ArrowLeft className="h-4 w-4 mr-1" /> Back to Auction
                             </Button>
                         </div>
-                        <h1 className="text-3xl font-bold tracking-tight bg-clip-text text-transparent bg-gradient-to-r from-emerald-400 to-teal-500">
+                        <h1 className="text-3xl font-bold tracking-tight bg-clip-text text-transparent bg-gradient-to-r from-emerald-500 dark:from-emerald-400 to-teal-500">
                             Slot Filling Phase
                         </h1>
-                        <p className="text-slate-400 text-sm max-w-2xl leading-relaxed">
+                        <p className="text-slate-500 dark:text-slate-400 text-sm max-w-2xl leading-relaxed">
                             Ensure all teams meet the mandatory minimum of {auction.settings.min_players} players.
                             You can optionally fill up to {auction.settings.max_players} players if team purse allows.
                         </p>
@@ -1777,7 +2137,7 @@ export default function VerifyAuctionPage({ params }: { params: Promise<{ id: st
                                 const isSatisfied = count >= auction.settings.min_players;
 
                                 return (
-                                    <Card key={team.id} className={`p-5 relative overflow-hidden border-slate-800 transition-all duration-300 ${isSatisfied ? 'bg-emerald-950/10 border-emerald-800/20' : 'bg-slate-900/40'}`}>
+                                    <Card key={team.id} className={`p-5 relative overflow-hidden border-slate-200 dark:border-slate-800 transition-all duration-300 ${isSatisfied ? 'bg-emerald-50/10 dark:bg-emerald-950/10 border-emerald-200/20 dark:border-emerald-800/20' : 'bg-white/40 dark:bg-slate-900/40'}`}>
                                         <div
                                             className="absolute bottom-0 left-0 h-1 bg-gradient-to-r from-emerald-500 to-teal-600 transition-all duration-500"
                                             style={{ width: `${(count / auction.settings.max_players) * 100}%` }}
@@ -1785,8 +2145,8 @@ export default function VerifyAuctionPage({ params }: { params: Promise<{ id: st
 
                                         <div className="flex justify-between items-start mb-4">
                                             <div>
-                                                <h3 className="font-bold text-lg text-white mb-1">{team.name}</h3>
-                                                <p className="text-xs text-slate-500 uppercase tracking-wider">{team.manager}</p>
+                                                <h3 className="font-bold text-lg text-slate-800 dark:text-white mb-1">{team.name}</h3>
+                                                <p className="text-xs text-slate-500 dark:text-slate-500 uppercase tracking-wider">{team.manager}</p>
                                             </div>
                                             {isSatisfied ? (
                                                 <div className="h-8 w-8 rounded-full bg-emerald-500/20 flex items-center justify-center border border-emerald-500/30">
@@ -1801,15 +2161,15 @@ export default function VerifyAuctionPage({ params }: { params: Promise<{ id: st
 
                                         <div className="grid grid-cols-2 gap-4 mb-4 text-sm">
                                             <div className="space-y-1">
-                                                <span className="text-slate-500 text-xs block">Count</span>
+                                                <span className="text-slate-500 dark:text-slate-500 text-xs block">Count</span>
                                                 <div className="flex items-baseline gap-1">
                                                     <span className={`text-xl font-bold ${isSatisfied ? 'text-emerald-400' : 'text-amber-400'}`}>{count}</span>
                                                     <span className="text-slate-600">/ {auction.settings.max_players}</span>
                                                 </div>
                                             </div>
                                             <div className="space-y-1">
-                                                <span className="text-slate-500 text-xs block">Remaining Purse</span>
-                                                <p className="text-white font-mono font-medium">{formatPrice(team.purse_remaining)}</p>
+                                                <span className="text-slate-500 dark:text-slate-500 text-xs block">Remaining Purse</span>
+                                                <p className="text-slate-800 dark:text-white font-mono font-medium">{formatPrice(team.purse_remaining)}</p>
                                             </div>
                                         </div>
 
@@ -1824,7 +2184,7 @@ export default function VerifyAuctionPage({ params }: { params: Promise<{ id: st
                                             <Button
                                                 variant="secondary"
                                                 size="sm"
-                                                className="w-full h-8 text-xs bg-slate-800 hover:bg-slate-700 text-slate-300 border-slate-700"
+                                                className="w-full h-8 text-xs bg-slate-200 dark:bg-slate-800 hover:bg-slate-300 dark:hover:bg-slate-700 text-slate-600 dark:text-slate-300 border-slate-300 dark:border-slate-700"
                                                 onClick={() => router.push(`/admin/auction/${auctionId}/teams`)}
                                             >
                                                 View Roster
@@ -1840,33 +2200,33 @@ export default function VerifyAuctionPage({ params }: { params: Promise<{ id: st
                     <div className="space-y-6 lg:col-span-1">
                         <div className="flex flex-col gap-3">
                             <div className="flex items-center justify-between">
-                                <h2 className="text-sm font-semibold uppercase tracking-[0.2em] text-slate-500 flex items-center gap-2">
+                                <h2 className="text-sm font-semibold uppercase tracking-[0.2em] text-slate-500 dark:text-slate-500 flex items-center gap-2">
                                     <UserPlus className="h-4 w-4" /> Unsold Pool ({nonSoldPlayers.length})
                                 </h2>
                             </div>
-                            <div className="flex bg-slate-900 rounded-lg p-1 border border-slate-800 text-xs font-semibold">
+                            <div className="flex bg-white dark:bg-slate-900 rounded-lg p-1 border border-slate-200 dark:border-slate-800 text-xs font-semibold">
                                 <button
                                     onClick={() => setActiveTab("all")}
-                                    className={`flex-1 py-1.5 rounded-md transition-all ${activeTab === "all" ? "bg-emerald-600/20 text-emerald-400" : "text-slate-500 hover:text-slate-300"}`}
+                                    className={`flex-1 py-1.5 rounded-md transition-all ${activeTab === "all" ? "bg-emerald-600/20 text-emerald-600 dark:text-emerald-400" : "text-slate-500 hover:text-slate-700 dark:hover:text-slate-300"}`}
                                 >
                                     All
                                 </button>
                                 <button
                                     onClick={() => setActiveTab("unsold")}
-                                    className={`flex-1 py-1.5 rounded-md transition-all ${activeTab === "unsold" ? "bg-amber-500/20 text-amber-400" : "text-slate-500 hover:text-slate-300"}`}
+                                    className={`flex-1 py-1.5 rounded-md transition-all ${activeTab === "unsold" ? "bg-amber-500/20 text-amber-600 dark:text-amber-400" : "text-slate-500 hover:text-slate-700 dark:hover:text-slate-300"}`}
                                 >
                                     Unsold
                                 </button>
                                 <button
                                     onClick={() => setActiveTab("never_drawn")}
-                                    className={`flex-1 py-1.5 rounded-md transition-all ${activeTab === "never_drawn" ? "bg-blue-500/20 text-blue-400" : "text-slate-500 hover:text-slate-300"}`}
+                                    className={`flex-1 py-1.5 rounded-md transition-all ${activeTab === "never_drawn" ? "bg-blue-500/20 text-blue-600 dark:text-blue-400" : "text-slate-500 hover:text-slate-700 dark:hover:text-slate-300"}`}
                                 >
                                     Never Drawn
                                 </button>
                             </div>
                         </div>
 
-                        <Card className="border-slate-800 bg-slate-900/60 p-2 shadow-2xl overflow-hidden flex flex-col max-h-fit md:max-h-[calc(100vh-400px)]">
+                        <Card className="border-slate-200 dark:border-slate-800 bg-white/60 dark:bg-slate-900/60 p-2 shadow-2xl overflow-hidden flex flex-col max-h-fit md:max-h-[calc(100vh-400px)]">
                             <div className="overflow-y-auto pr-1 space-y-2 p-2 custom-scrollbar max-h-[600px]">
                                 {displayedPlayers.length === 0 ? (
                                     <div className="flex flex-col items-center justify-center py-12 text-center space-y-4">
@@ -1874,28 +2234,28 @@ export default function VerifyAuctionPage({ params }: { params: Promise<{ id: st
                                             <CheckCircle2 className="h-8 w-8 text-emerald-500/50" />
                                         </div>
                                         <div>
-                                            <h4 className="font-semibold text-slate-300">No Players Found</h4>
-                                            <p className="text-xs text-slate-500 mt-1">There are no players matching this category.</p>
+                                            <h4 className="font-semibold text-slate-600 dark:text-slate-300">No Players Found</h4>
+                                            <p className="text-xs text-slate-500 dark:text-slate-500 mt-1">There are no players matching this category.</p>
                                         </div>
                                     </div>
                                 ) : (
                                     <>
                                         {displayedPlayers.slice(0, expandUnsoldList ? displayedPlayers.length : UNSOLD_DISPLAY_LIMIT).map((player) => (
-                                            <div key={player.id} className="p-3 rounded-lg border border-slate-800 bg-slate-950/40 hover:bg-slate-800/40 transition-all duration-200">
+                                            <div key={player.id} className="p-3 rounded-lg border border-slate-200 dark:border-slate-800 bg-white/40 dark:bg-slate-950/40 hover:bg-slate-50/40 dark:hover:bg-slate-800/40 transition-all duration-200">
                                                 <div className="flex justify-between items-start gap-2 mb-3">
                                                     <div>
-                                                        <p className="font-bold text-white text-sm">{player.name}</p>
-                                                        <p className="text-[10px] uppercase tracking-wider text-slate-500">{player.role}</p>
+                                                        <p className="font-bold text-slate-800 dark:text-white text-sm">{player.name}</p>
+                                                        <p className="text-[10px] uppercase tracking-wider text-slate-500 dark:text-slate-500">{player.role}</p>
                                                     </div>
-                                                    <div className="px-2 py-0.5 rounded border border-slate-700 text-[9px] uppercase tracking-widest bg-slate-900 text-slate-400 h-5 flex items-center whitespace-nowrap">
+                                                    <div className="px-2 py-0.5 rounded border border-slate-300 dark:border-slate-700 text-[9px] uppercase tracking-widest bg-white dark:bg-slate-900 text-slate-500 dark:text-slate-400 h-5 flex items-center whitespace-nowrap">
                                                         {player.status.replace(/_/g, " ")}
                                                     </div>
                                                 </div>
 
                                                 <div className="space-y-2">
-                                                    <Label className="text-[10px] text-slate-500 uppercase tracking-widest font-bold">Quick Match to Team</Label>
+                                                    <Label className="text-[10px] text-slate-500 dark:text-slate-500 uppercase tracking-widest font-bold">Quick Match to Team</Label>
                                                     <select
-                                                        className="w-full bg-slate-900 border border-slate-700 rounded-md py-1.5 px-2 text-xs text-slate-300 outline-none focus:ring-1 focus:ring-emerald-500 transition-all"
+                                                        className="w-full bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 rounded-md py-1.5 px-2 text-xs text-slate-700 dark:text-slate-300 outline-none focus:ring-1 focus:ring-emerald-500 transition-all"
                                                         onChange={(e) => {
                                                             if (e.target.value) handleAssign(player.id, e.target.value);
                                                             e.target.value = "";
@@ -1922,7 +2282,7 @@ export default function VerifyAuctionPage({ params }: { params: Promise<{ id: st
                                 <Button
                                     variant="ghost"
                                     size="sm"
-                                    className="w-full mt-2 text-slate-400 hover:text-slate-200 hover:bg-slate-800/50 text-xs border-t border-slate-800"
+                                    className="w-full mt-2 text-slate-500 dark:text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 hover:bg-slate-100/50 dark:hover:bg-slate-800/50 text-xs border-t border-slate-200 dark:border-slate-800"
                                     onClick={() => setExpandUnsoldList(!expandUnsoldList)}
                                 >
                                     {expandUnsoldList ? (
@@ -1979,6 +2339,7 @@ import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { ThemeToggle } from "@/components/ThemeToggle";
 
 import { supabase } from "@/lib/supabase";
 
@@ -2023,15 +2384,18 @@ export default function AdminLoginPage() {
   };
 
   return (
-    <div className="flex min-h-screen items-center justify-center bg-gradient-to-br from-slate-950 via-slate-900 to-slate-950 px-4 py-8 text-slate-50">
-      <Card className="w-full max-w-sm border-slate-800 bg-slate-900/80 p-6 shadow-2xl shadow-black/60">
-        <h1 className="mb-1 text-xl text-white font-semibold tracking-tight">Admin Login</h1>
-        <p className="mb-5 text-sm text-slate-400">
+    <div className="flex min-h-screen items-center justify-center bg-gradient-to-br from-slate-100 via-slate-50 to-slate-100 dark:from-slate-950 dark:via-slate-900 dark:to-slate-950 px-4 py-8 text-on-surface">
+      <div className="absolute top-4 right-4">
+        <ThemeToggle />
+      </div>
+      <Card className="w-full max-w-sm border-slate-200 dark:border-slate-800 bg-white/80 dark:bg-slate-900/80 p-6 shadow-2xl shadow-slate-300/40 dark:shadow-black/60">
+        <h1 className="mb-1 text-xl font-semibold tracking-tight text-slate-900 dark:text-white">Admin Login</h1>
+        <p className="mb-5 text-sm text-slate-500 dark:text-slate-400">
           Sign in with your admin credentials to access auction control.
         </p>
         <form className="space-y-4" onSubmit={handleSubmit}>
-          <div className="space-y-1 text-slate-100">
-            <Label htmlFor="email" className="text-slate-100">
+          <div className="space-y-1">
+            <Label htmlFor="email" className="text-slate-700 dark:text-slate-100">
               Email
             </Label>
             <Input
@@ -2040,12 +2404,12 @@ export default function AdminLoginPage() {
               placeholder="admin@example.com"
               value={email}
               onChange={(e) => setEmail(e.target.value)}
-              className="bg-slate-950/80 text-slate-50 placeholder:text-slate-400"
+              className="bg-slate-50 dark:bg-slate-950/80 text-slate-900 dark:text-slate-50 placeholder:text-slate-400"
               required
             />
           </div>
-          <div className="space-y-1 text-slate-100">
-            <Label htmlFor="password" title="Password" className="text-slate-100">
+          <div className="space-y-1">
+            <Label htmlFor="password" title="Password" className="text-slate-700 dark:text-slate-100">
               Password
             </Label>
             <Input
@@ -2053,16 +2417,16 @@ export default function AdminLoginPage() {
               type="password"
               value={password}
               onChange={(e) => setPassword(e.target.value)}
-              className="bg-slate-950/80 text-slate-50 placeholder:text-slate-400"
+              className="bg-slate-50 dark:bg-slate-950/80 text-slate-900 dark:text-slate-50 placeholder:text-slate-400"
               required
             />
           </div>
-          {error && <p className="text-xs text-rose-400">{error}</p>}
+          {error && <p className="text-xs text-rose-500 dark:text-rose-400">{error}</p>}
           <Button type="submit" disabled={submitting} className="w-full">
             {submitting ? "Signing in..." : "Login as Admin"}
           </Button>
         </form>
-        <p className="mt-4 text-[11px] text-slate-500">
+        <p className="mt-4 text-[11px] text-slate-400 dark:text-slate-500">
           This is a simple hard-coded authentication layer to prevent casual access to admin pages.
         </p>
       </Card>
@@ -2079,10 +2443,12 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { supabase } from "@/lib/supabase";
+import { numberToIndianWords } from "@/lib/utils";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { ThemeToggle } from "@/components/ThemeToggle";
 
 type Auction = {
   id: string;
@@ -2094,8 +2460,13 @@ type Auction = {
     min_players: number;
     max_players: number;
     base_price: number;
-    increment: number;
+    increment?: number;
     captain_base_price?: number;
+    tier1_increment?: number;
+    tier1_threshold?: number;
+    tier2_increment?: number;
+    tier2_threshold?: number;
+    tier3_increment?: number;
   };
 };
 
@@ -2110,7 +2481,11 @@ export default function AdminDashboardPage() {
   const [maxPlayers, setMaxPlayers] = useState("11");
   const [basePrice, setBasePrice] = useState("10");
   const [captainBasePrice, setCaptainBasePrice] = useState("50");
-  const [increment, setIncrement] = useState("5");
+  const [tier1Increment, setTier1Increment] = useState("30");
+  const [tier1Threshold, setTier1Threshold] = useState("60");
+  const [tier2Increment, setTier2Increment] = useState("50");
+  const [tier2Threshold, setTier2Threshold] = useState("100");
+  const [tier3Increment, setTier3Increment] = useState("100");
   const [creating, setCreating] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const createSectionRef = useRef<HTMLDivElement | null>(null);
@@ -2206,7 +2581,11 @@ export default function AdminDashboardPage() {
     const maxVal = Number(maxPlayers);
     const baseVal = Number(basePrice);
     const captBaseVal = Number(captainBasePrice);
-    const incVal = Number(increment);
+    const t1Inc = Number(tier1Increment);
+    const t1Thresh = Number(tier1Threshold);
+    const t2Inc = Number(tier2Increment);
+    const t2Thresh = Number(tier2Threshold);
+    const t3Inc = Number(tier3Increment);
 
     if (!name.trim()) {
       setError("Auction name is required.");
@@ -2223,8 +2602,12 @@ export default function AdminDashboardPage() {
           min_players: minVal,
           max_players: maxVal,
           base_price: baseVal,
-          increment: incVal,
           captain_base_price: captBaseVal,
+          tier1_increment: t1Inc,
+          tier1_threshold: t1Thresh,
+          tier2_increment: t2Inc,
+          tier2_threshold: t2Thresh,
+          tier3_increment: t3Inc,
         },
       });
 
@@ -2269,20 +2652,21 @@ export default function AdminDashboardPage() {
   );
 
   if (checkingAuth) {
-    return <div className="p-6 text-slate-50">Checking admin access...</div>;
+    return <div className="p-6 text-slate-700 dark:text-slate-50">Checking admin access...</div>;
   }
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-slate-950 via-slate-900 to-slate-950 px-6 py-10 text-slate-50">
+    <div className="min-h-screen bg-gradient-to-br from-slate-100 via-slate-50 to-slate-100 dark:from-slate-950 dark:via-slate-900 dark:to-slate-950 px-4 sm:px-6 py-8 sm:py-10 text-slate-800 dark:text-slate-50">
       <div className="mx-auto flex max-w-5xl flex-col gap-6">
         <header className="flex items-center justify-between gap-3">
           <div>
             <h1 className="text-2xl font-semibold tracking-tight">Admin · Auctions</h1>
-            <p className="text-sm text-slate-300">
+            <p className="text-sm text-slate-500 dark:text-slate-300">
               Select an auction to open the live controller.
             </p>
           </div>
-          <div className="flex gap-2">
+          <div className="flex gap-2 items-center">
+            <ThemeToggle />
             <Button
               variant="default"
               size="sm"
@@ -2307,40 +2691,40 @@ export default function AdminDashboardPage() {
           {showCreateForm && (
             <Card
               ref={createSectionRef}
-              className="border-slate-800 bg-slate-900/70 p-5 shadow-xl shadow-black/60"
+              className="border-slate-200 dark:border-slate-800 bg-white/70 dark:bg-slate-900/70 p-5 shadow-xl shadow-slate-300/40 dark:shadow-black/60"
             >
-              <h2 className="mb-3 text-sm font-semibold uppercase tracking-[0.18em] text-slate-400">
+              <h2 className="mb-3 text-sm font-semibold uppercase tracking-[0.18em] text-slate-500 dark:text-slate-400">
                 Create Auction
               </h2>
               <form className="grid gap-3 text-sm md:grid-cols-2" onSubmit={handleCreateAuction}>
                 <div className="space-y-1 md:col-span-2">
-                  <Label htmlFor="auction-name" className="text-slate-100">
+                  <Label htmlFor="auction-name" className="text-slate-700 dark:text-slate-100">
                     Name
                   </Label>
                   <Input
                     id="auction-name"
                     value={name}
                     onChange={(e) => setName(e.target.value)}
-                    className="bg-slate-950/80 text-slate-50"
+                    className="bg-slate-50 dark:bg-slate-950/80 text-slate-900 dark:text-slate-50"
                     placeholder="Summer League Auction"
                   />
                 </div>
                 <div className="space-y-1">
-                  <Label htmlFor="sport" className="text-slate-100">
+                  <Label htmlFor="sport" className="text-slate-700 dark:text-slate-100">
                     Sport
                   </Label>
                   <select
                     id="sport"
                     value={sportType}
                     onChange={(e) => setSportType(e.target.value as "football" | "cricket")}
-                    className="w-full rounded-md border border-slate-700 bg-slate-950/80 px-3 py-2 text-sm text-slate-50 outline-none focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500"
+                    className="w-full rounded-md border border-slate-300 dark:border-slate-700 bg-slate-50 dark:bg-slate-950/80 px-3 py-2 text-sm text-slate-800 dark:text-slate-50 outline-none focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500"
                   >
                     <option value="football">Football</option>
                     <option value="cricket">Cricket</option>
                   </select>
                 </div>
                 <div className="space-y-1">
-                  <Label htmlFor="purse" className="text-slate-100">
+                  <Label htmlFor="purse" className="text-slate-700 dark:text-slate-100">
                     Purse per Team
                   </Label>
                   <Input
@@ -2348,8 +2732,9 @@ export default function AdminDashboardPage() {
                     type="number"
                     value={purse}
                     onChange={(e) => setPurse(e.target.value)}
-                    className="bg-slate-950/80 text-slate-50"
+                    className="bg-slate-50 dark:bg-slate-950/80 text-slate-900 dark:text-slate-50"
                   />
+                  {Number(purse) > 0 && <p className="text-[10px] text-emerald-500 dark:text-emerald-400 mt-0.5">₹{numberToIndianWords(Number(purse))}</p>}
                 </div>
                 <div className="space-y-1">
                   <Label htmlFor="minPlayers" className="text-slate-100">
@@ -2360,7 +2745,7 @@ export default function AdminDashboardPage() {
                     type="number"
                     value={minPlayers}
                     onChange={(e) => setMinPlayers(e.target.value)}
-                    className="bg-slate-950/80 text-slate-50"
+                    className="bg-slate-50 dark:bg-slate-950/80 text-slate-900 dark:text-slate-50"
                   />
                 </div>
                 <div className="space-y-1">
@@ -2372,11 +2757,11 @@ export default function AdminDashboardPage() {
                     type="number"
                     value={maxPlayers}
                     onChange={(e) => setMaxPlayers(e.target.value)}
-                    className="bg-slate-950/80 text-slate-50"
+                    className="bg-slate-50 dark:bg-slate-950/80 text-slate-900 dark:text-slate-50"
                   />
                 </div>
                 <div className="space-y-1">
-                  <Label htmlFor="basePrice" className="text-slate-100">
+                  <Label htmlFor="basePrice" className="text-slate-700 dark:text-slate-100">
                     Base Price
                   </Label>
                   <Input
@@ -2384,11 +2769,12 @@ export default function AdminDashboardPage() {
                     type="number"
                     value={basePrice}
                     onChange={(e) => setBasePrice(e.target.value)}
-                    className="bg-slate-950/80 text-slate-50"
+                    className="bg-slate-50 dark:bg-slate-950/80 text-slate-900 dark:text-slate-50"
                   />
+                  {Number(basePrice) > 0 && <p className="text-[10px] text-emerald-500 dark:text-emerald-400 mt-0.5">₹{numberToIndianWords(Number(basePrice))}</p>}
                 </div>
                 <div className="space-y-1">
-                  <Label htmlFor="captBasePrice" className="text-slate-100">
+                  <Label htmlFor="captBasePrice" className="text-slate-700 dark:text-slate-100">
                     Captain Base Price
                   </Label>
                   <Input
@@ -2396,20 +2782,76 @@ export default function AdminDashboardPage() {
                     type="number"
                     value={captainBasePrice}
                     onChange={(e) => setCaptainBasePrice(e.target.value)}
-                    className="bg-slate-950/80 text-slate-50"
+                    className="bg-slate-50 dark:bg-slate-950/80 text-slate-900 dark:text-slate-50"
                   />
+                  {Number(captainBasePrice) > 0 && <p className="text-[10px] text-emerald-500 dark:text-emerald-400 mt-0.5">₹{numberToIndianWords(Number(captainBasePrice))}</p>}
                 </div>
-                <div className="space-y-1">
-                  <Label htmlFor="increment" className="text-slate-100">
-                    Bid Increment
-                  </Label>
-                  <Input
-                    id="increment"
-                    type="number"
-                    value={increment}
-                    onChange={(e) => setIncrement(e.target.value)}
-                    className="bg-slate-950/80 text-slate-50"
-                  />
+                {/* Dynamic Bid Increment Tiers */}
+                <div className="md:col-span-2 border-t border-slate-200 dark:border-slate-800 pt-3 mt-1">
+                  <h3 className="text-xs font-semibold uppercase tracking-[0.15em] text-slate-500 dark:text-slate-400 mb-3">Dynamic Bid Increment Tiers</h3>
+                  <div className="flex flex-col gap-3">
+                    {/* Row 1 */}
+                    <div className="flex flex-wrap sm:flex-nowrap items-start gap-x-4 gap-y-2 text-sm bg-slate-100/60 dark:bg-slate-800/40 p-3 rounded-lg border border-slate-200 dark:border-slate-700/60">
+                      <div className="flex items-start gap-3 font-medium min-w-[200px]">
+                        <div className="flex flex-col items-end w-16">
+                           <span className="text-slate-400 text-right mt-1.5">₹{basePrice || '0'}</span>
+                           {Number(basePrice) > 0 && <span className="text-[9px] text-slate-400 italic text-right leading-tight break-words">{numberToIndianWords(Number(basePrice))}</span>}
+                        </div>
+                        <span className="text-slate-300 dark:text-slate-600 font-bold tracking-widest mt-1.5">→</span>
+                        <div className="flex flex-col w-24">
+                           <Input id="tier1Thresh" type="number" value={tier1Threshold} onChange={(e) => setTier1Threshold(e.target.value)} className="w-full bg-white dark:bg-slate-950 font-semibold h-8" placeholder="60" />
+                           {Number(tier1Threshold) > 0 && <span className="text-[9px] text-blue-500 dark:text-blue-400 italic mt-1 leading-tight break-words">{numberToIndianWords(Number(tier1Threshold))}</span>}
+                        </div>
+                      </div>
+                      <div className="flex items-start gap-3 flex-1 mt-1 sm:mt-0">
+                        <span className="text-slate-500 text-xs font-semibold uppercase tracking-wider mt-1.5">: Increment =</span>
+                        <div className="flex flex-col w-24">
+                           <Input id="tier1Inc" type="number" value={tier1Increment} onChange={(e) => setTier1Increment(e.target.value)} className="w-full bg-white dark:bg-slate-950 font-semibold text-blue-600 dark:text-blue-400 h-8" placeholder="30" />
+                           {Number(tier1Increment) > 0 && <span className="text-[9px] text-blue-500 dark:text-blue-400 italic mt-1 leading-tight break-words">{numberToIndianWords(Number(tier1Increment))}</span>}
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* Row 2 */}
+                    <div className="flex flex-wrap sm:flex-nowrap items-start gap-x-4 gap-y-2 text-sm bg-slate-100/60 dark:bg-slate-800/40 p-3 rounded-lg border border-slate-200 dark:border-slate-700/60">
+                      <div className="flex items-start gap-3 font-medium min-w-[200px]">
+                        <div className="flex flex-col items-end w-16">
+                           <span className="text-slate-400 text-right mt-1.5">₹{tier1Threshold || '0'}</span>
+                           {Number(tier1Threshold) > 0 && <span className="text-[9px] text-slate-400 italic text-right leading-tight break-words">{numberToIndianWords(Number(tier1Threshold))}</span>}
+                        </div>
+                        <span className="text-slate-300 dark:text-slate-600 font-bold tracking-widest mt-1.5">→</span>
+                        <div className="flex flex-col w-24">
+                           <Input id="tier2Thresh" type="number" value={tier2Threshold} onChange={(e) => setTier2Threshold(e.target.value)} className="w-full bg-white dark:bg-slate-950 font-semibold h-8" placeholder="100" />
+                           {Number(tier2Threshold) > 0 && <span className="text-[9px] text-blue-500 dark:text-blue-400 italic mt-1 leading-tight break-words">{numberToIndianWords(Number(tier2Threshold))}</span>}
+                        </div>
+                      </div>
+                      <div className="flex items-start gap-3 flex-1 mt-1 sm:mt-0">
+                        <span className="text-slate-500 text-xs font-semibold uppercase tracking-wider mt-1.5">: Increment =</span>
+                        <div className="flex flex-col w-24">
+                           <Input id="tier2Inc" type="number" value={tier2Increment} onChange={(e) => setTier2Increment(e.target.value)} className="w-full bg-white dark:bg-slate-950 font-semibold text-blue-600 dark:text-blue-400 h-8" placeholder="50" />
+                           {Number(tier2Increment) > 0 && <span className="text-[9px] text-blue-500 dark:text-blue-400 italic mt-1 leading-tight break-words">{numberToIndianWords(Number(tier2Increment))}</span>}
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* Row 3 */}
+                    <div className="flex flex-wrap sm:flex-nowrap items-start gap-x-4 gap-y-2 text-sm bg-slate-100/60 dark:bg-slate-800/40 p-3 rounded-lg border border-slate-200 dark:border-slate-700/60">
+                      <div className="flex items-start gap-3 font-medium min-w-[200px]">
+                        <div className="flex flex-col items-end w-16">
+                           <span className="text-slate-400 text-right mt-1.5">₹{tier2Threshold || '0'}</span>
+                           {Number(tier2Threshold) > 0 && <span className="text-[9px] text-slate-400 italic text-right leading-tight break-words">{numberToIndianWords(Number(tier2Threshold))}</span>}
+                        </div>
+                        <span className="text-slate-300 dark:text-slate-600 font-bold tracking-widest mt-1.5 w-24 text-center ml-3">+</span>
+                      </div>
+                      <div className="flex items-start gap-3 flex-1 mt-1 sm:mt-0">
+                        <span className="text-slate-500 text-xs font-semibold uppercase tracking-wider mt-1.5">: Increment =</span>
+                        <div className="flex flex-col w-24">
+                           <Input id="tier3Inc" type="number" value={tier3Increment} onChange={(e) => setTier3Increment(e.target.value)} className="w-full bg-white dark:bg-slate-950 font-semibold text-blue-600 dark:text-blue-400 h-8" placeholder="100" />
+                           {Number(tier3Increment) > 0 && <span className="text-[9px] text-blue-500 dark:text-blue-400 italic mt-1 leading-tight break-words">{numberToIndianWords(Number(tier3Increment))}</span>}
+                        </div>
+                      </div>
+                    </div>
+                  </div>
                 </div>
                 {error && (
                   <p className="md:col-span-2 text-xs text-rose-400">
@@ -2425,12 +2867,12 @@ export default function AdminDashboardPage() {
             </Card>
           )}
 
-          <Card className="border-slate-800 bg-slate-900/70 p-5 shadow-xl shadow-black/60">
-            <h2 className="mb-3 text-sm font-semibold uppercase tracking-[0.18em] text-slate-400">
+          <Card className="border-slate-200 dark:border-slate-800 bg-white/70 dark:bg-slate-900/70 p-5 shadow-xl shadow-slate-300/40 dark:shadow-black/60">
+            <h2 className="mb-3 text-sm font-semibold uppercase tracking-[0.18em] text-slate-500 dark:text-slate-400">
               Existing Auctions
             </h2>
             {formattedAuctions.length === 0 ? (
-              <p className="text-sm text-slate-400">
+              <p className="text-sm text-slate-500 dark:text-slate-400">
                 No auctions found. Create an auction to get started.
               </p>
             ) : (
@@ -2441,11 +2883,11 @@ export default function AdminDashboardPage() {
                   return (
                     <div
                       key={auction.id}
-                      className="flex items-center justify-between gap-3 rounded-lg border border-slate-800 bg-slate-950/60 px-3 py-2"
+                      className="flex items-center justify-between gap-3 rounded-lg border border-slate-200 dark:border-slate-800 bg-slate-50/60 dark:bg-slate-950/60 px-3 py-2"
                     >
                       <div>
                         <div className="font-semibold">{auction.name}</div>
-                        <div className="flex items-center gap-2 text-[11px] uppercase tracking-wide text-slate-400">
+                        <div className="flex items-center gap-2 text-[11px] uppercase tracking-wide text-slate-500 dark:text-slate-400">
                           <span>{auction.sportLabel}</span>
                           <span className="h-1 w-1 rounded-full bg-slate-500" />
                           <span
@@ -2530,6 +2972,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { ImageUploadField } from "@/components/ImageUploadField";
+import { ThemeToggle } from "@/components/ThemeToggle";
 
 type AuctionSettings = {
   purse: number;
@@ -2670,7 +3113,6 @@ export default function AuctionDetailPage({ params }: { params: Promise<{ id: st
 
       const playerId = crypto.randomUUID();
 
-      // Upload photo to player-photos bucket
       const fileExt = photoFile.name.split('.').pop();
       const fileName = `originals/player_${playerId}_${Date.now()}.${fileExt}`;
 
@@ -2683,7 +3125,6 @@ export default function AuctionDetailPage({ params }: { params: Promise<{ id: st
         return;
       }
 
-      // Get the public URL
       const { data: urlData } = supabase.storage
         .from("player-photos")
         .getPublicUrl(fileName);
@@ -2729,69 +3170,70 @@ export default function AuctionDetailPage({ params }: { params: Promise<{ id: st
   };
 
   if (!auction) {
-    return <div className="p-6 text-slate-50">Loading auction...</div>;
+    return <div className="p-6 text-on-surface">Loading auction...</div>;
   }
 
   const upcomingPlayers = players.filter((p) => p.status === "upcoming");
 
   return (
-    <div className="min-h-screen bg-[url('/CourtSide_landing.png')] bg-cover bg-center bg-fixed px-6 py-10 text-slate-50 relative">
+    <div className="min-h-screen bg-[url('/CourtSide_landing.png')] bg-cover bg-center bg-fixed px-4 sm:px-6 py-8 sm:py-10 relative bg-surface">
 
-      <div className="absolute inset-0 bg-black/50"></div>
+      <div className="absolute inset-0 bg-black/20 dark:bg-black/40 pointer-events-none"></div>
 
-      <div className="relative z-10 mx-auto flex max-w-6xl flex-col gap-6">
-        <div className="mb-2">
+      <div className="relative z-10 mx-auto flex max-w-6xl flex-col gap-4 sm:gap-6">
+        <div className="mb-2 flex items-center justify-between">
           <Button
             variant="ghost"
             size="sm"
-            className="text-slate-400 hover:text-slate-100 hover:bg-slate-800/50 -ml-2"
+            className="transition-all duration-300 -ml-2 text-on-surface hover:text-on-surface/80"
             onClick={() => router.push("/")}
           >
             ← Back to Home
           </Button>
+          <ThemeToggle />
         </div>
         <header className="flex flex-col justify-between gap-2 md:flex-row md:items-end">
           <div>
-            <div className="flex items-center gap-3">
-              <h1 className="text-2xl font-semibold tracking-tight md:text-3xl">
+            <div className="flex items-center gap-3 flex-wrap">
+              <h1 className="text-3xl font-bold tracking-wide md:text-4xl text-on-surface" style={{ fontFamily: '"Bebas Neue", sans-serif', letterSpacing: '0.05em' }}>
                 {auction.name}
               </h1>
               {auction.status === "live" && (
-                <span className="flex items-center gap-1.5 rounded-full bg-rose-500/20 px-3 py-1 text-xs font-bold uppercase tracking-wider text-rose-400 ring-1 ring-rose-500/30">
+                <span className="flex items-center gap-1.5 rounded-full px-3 py-1 text-xs font-bold uppercase tracking-wider animate-pulse bg-brand text-on-surface">
                   <span className="relative flex h-2 w-2">
-                    <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-rose-400 opacity-75"></span>
-                    <span className="relative inline-flex h-2 w-2 rounded-full bg-rose-500"></span>
+                    <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-on-surface opacity-75"></span>
+                    <span className="relative inline-flex h-2 w-2 rounded-full bg-on-surface"></span>
                   </span>
                   Live
                 </span>
               )}
               {auction.status === "completed" && (
-                <span className="bg-emerald-500/10 text-emerald-500 text-[10px] uppercase font-bold tracking-widest px-2 py-0.5 rounded border border-emerald-500/20">
+                <span className="text-xs uppercase font-bold tracking-widest px-3 py-1 rounded border-2 bg-on-surface-muted/20 text-on-surface-muted border-on-surface-muted">
                   Concluded
                 </span>
               )}
             </div>
-            <p className="text-sm text-slate-300">
+            <p className="text-sm mt-2 text-on-surface/80">
               Auction for {auction.sport_type === "football" ? "Football" : "Cricket"} players.
             </p>
           </div>
           {auction.status === "live" && (
             <Button
               onClick={() => router.push(`/live/${auctionId}`)}
-              className="bg-emerald-600 hover:bg-emerald-500 text-white shadow-lg shadow-emerald-900/20 animate-bounce"
+              className="animate-bounce transition-all duration-300 hover:shadow-lg hover:scale-105 font-bold uppercase tracking-wide bg-brand text-on-surface"
             >
-              JOIN LIVE AUCTION
+              Join Live Auction
             </Button>
           )}
         </header>
 
-        <div className="grid gap-6 md:grid-cols-[3fr,2fr]">
-          <Card className="border-slate-800 bg-slate-900/70 p-5 shadow-xl shadow-black/60">
-            <h2 className="mb-3 text-sm font-semibold uppercase tracking-[0.18em] text-slate-400">
+        <div className="grid gap-6 grid-cols-1 md:grid-cols-[3fr,2fr]">
+          <Card className="border-2 p-4 sm:p-5 shadow-2xl backdrop-blur-xl bg-surface-alt/80 dark:bg-surface-alt/80 border-border-ui">
+            <h2 className="mb-3 text-sm font-bold uppercase tracking-[0.25em] text-on-surface-muted">
               Registered Players
             </h2>
             {players.length === 0 ? (
-              <p className="text-sm text-slate-400">
+              <p className="text-sm text-on-surface">
                 No players have registered for this auction yet.
               </p>
             ) : (
@@ -2799,15 +3241,15 @@ export default function AuctionDetailPage({ params }: { params: Promise<{ id: st
                 {players.map((player) => (
                   <div
                     key={player.id}
-                    className="flex items-center justify-between gap-2 rounded-md border border-slate-800/70 bg-slate-950/60 px-3 py-2"
+                    className="flex items-center justify-between gap-2 rounded-md border-2 px-3 py-2 backdrop-blur-md transition-all duration-300 border-border-ui bg-surface-alt/60"
                   >
                     <div>
-                      <div className="font-medium">{player.name}</div>
-                      <div className="text-[11px] uppercase tracking-wide text-slate-400">
+                      <div className="font-medium text-on-surface">{player.name}</div>
+                      <div className="text-xs uppercase tracking-wide text-on-surface-muted">
                         {player.role}
                       </div>
                     </div>
-                    <div className="text-[11px] uppercase tracking-wide text-slate-400">
+                    <div className="text-xs uppercase tracking-wide px-2 py-1 rounded text-on-surface bg-brand/20">
                       {player.status}
                     </div>
                   </div>
@@ -2816,64 +3258,64 @@ export default function AuctionDetailPage({ params }: { params: Promise<{ id: st
             )}
           </Card>
 
-          <Card className="border-slate-800 bg-slate-900/70 p-5 shadow-xl shadow-black/60">
-            <h2 className="mb-3 text-sm font-semibold uppercase tracking-[0.18em] text-slate-400">
+          <Card className="border-2 p-4 sm:p-5 shadow-2xl backdrop-blur-xl bg-surface-alt/80 dark:bg-surface-alt/80 border-border-ui">
+            <h2 className="mb-3 text-sm font-bold uppercase tracking-[0.25em] text-on-surface-muted">
               Register for this Auction
             </h2>
             {auction.status === "completed" ? (
-              <div className="flex flex-col h-40 items-center justify-center rounded-lg border border-emerald-900/50 bg-emerald-900/10 px-4 text-center space-y-3">
-                <div className="text-sm font-medium text-emerald-400">This auction has concluded.</div>
+              <div className="flex flex-col h-40 items-center justify-center rounded-lg border-2 px-4 text-center space-y-3 border-on-surface-muted bg-on-surface-muted/20">
+                <div className="text-sm font-medium text-on-surface-muted">This auction has concluded.</div>
                 <Button
                   size="sm"
                   variant="outline"
-                  className="border-emerald-500/30 hover:bg-emerald-950/50 text-emerald-300"
+                  className="border-2 transition-all duration-300 border-on-surface-muted text-on-surface-muted"
                   onClick={() => router.push(`/live/${auctionId}`)}
                 >
                   View Final Rosters
                 </Button>
               </div>
             ) : hasRegistered ? (
-              <div className="flex h-32 items-center justify-center rounded-lg border border-emerald-900/50 bg-emerald-900/20 px-4 text-center text-sm font-medium text-emerald-400">
+              <div className="flex h-32 items-center justify-center rounded-lg border-2 px-4 text-center text-sm font-medium border-brand bg-brand/15 text-brand">
                 You have already submitted a registration for this auction.
               </div>
             ) : !auction.is_registration_open ? (
-              <div className="flex h-32 items-center justify-center rounded-lg border border-amber-900/50 bg-amber-900/20 px-4 text-center text-sm font-medium text-amber-400">
+              <div className="flex h-32 items-center justify-center rounded-lg border-2 px-4 text-center text-sm font-medium border-brand bg-brand/15 text-on-surface">
                 Registration is currently closed.
               </div>
             ) : (
               <form className="space-y-4" onSubmit={handleRegister}>
                 <div className="space-y-1">
-                  <Label htmlFor="name">Name</Label>
+                  <Label htmlFor="name" className="font-bold text-on-surface">Name</Label>
                   <Input
                     id="name"
                     value={name}
                     onChange={(e) => setName(e.target.value)}
                     placeholder="Enter your name"
-                    className="bg-slate-950/80"
+                    className="border-2 transition-all duration-300 focus:shadow-lg bg-surface-alt/60 border-border-ui text-on-surface"
                   />
                 </div>
                 <div className="space-y-1">
-                  <Label htmlFor="phoneNumber">Phone Number</Label>
+                  <Label htmlFor="phoneNumber" className="font-bold text-on-surface">Phone Number</Label>
                   <Input
                     id="phoneNumber"
                     type="tel"
                     value={phoneNumber}
                     onChange={(e) => setPhoneNumber(e.target.value)}
                     placeholder="Enter your phone number"
-                    className="bg-slate-950/80"
+                    className="border-2 transition-all duration-300 focus:shadow-lg bg-surface-alt/60 border-border-ui text-on-surface"
                   />
                 </div>
                 <div className="space-y-1">
-                  <Label htmlFor="role">Role</Label>
+                  <Label htmlFor="role" className="font-bold text-on-surface">Role</Label>
                   <select
                     id="role"
                     value={role}
                     onChange={(e) => setRole(e.target.value)}
-                    className="w-full rounded-md border border-slate-700 bg-slate-950/80 px-3 py-2 text-sm outline-none focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500"
+                    className="w-full rounded-md border-2 px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-brand transition-all duration-300 bg-surface-alt/60 border-border-ui text-on-surface"
                   >
-                    <option value="">Select role</option>
+                    <option value="" className="bg-surface-alt text-on-surface">Select role</option>
                     {roleOptions.map((r) => (
-                      <option key={r} value={r}>
+                      <option key={r} value={r} className="bg-surface-alt text-on-surface">
                         {r}
                       </option>
                     ))}
@@ -2888,22 +3330,22 @@ export default function AuctionDetailPage({ params }: { params: Promise<{ id: st
                   error={photoError}
                   required
                 />
-                <div className="text-xs text-slate-400">
+                <div className="text-xs text-on-surface-muted">
                   Upcoming players registered here will enter the{" "}
-                  <span className="font-medium text-slate-200">upcoming pool</span> for the auction.
+                  <span className="font-medium text-on-surface">upcoming pool</span> for the auction.
                 </div>
-                {error && <p className="text-xs text-rose-400">{error}</p>}
-                {success && <p className="text-xs text-emerald-400">{success}</p>}
-                <Button type="submit" disabled={submitting}>
+                {error && <p className="text-xs text-brand">{error}</p>}
+                {success && <p className="text-xs text-brand">{success}</p>}
+                <Button type="submit" disabled={submitting} className="w-full font-bold uppercase tracking-wide transition-all duration-300 hover:shadow-lg hover:scale-105 bg-brand text-on-surface">
                   {submitting ? "Submitting..." : "Register"}
                 </Button>
               </form>
             )}
 
             {upcomingPlayers.length > 0 && (
-              <p className="mt-4 text-xs text-slate-400">
+              <p className="mt-4 text-xs text-on-surface-muted">
                 Currently{" "}
-                <span className="font-semibold text-slate-200">
+                <span className="font-semibold text-on-surface">
                   {upcomingPlayers.length} upcoming player
                   {upcomingPlayers.length === 1 ? "" : "s"}
                 </span>{" "}
@@ -2969,6 +3411,14 @@ export default function AuctionDetailPage({ params }: { params: Promise<{ id: st
   --radius-3xl: calc(var(--radius) + 12px);
   --radius-4xl: calc(var(--radius) + 16px);
 
+  /* Semantic Surface Tokens */
+  --color-surface: var(--surface);
+  --color-surface-alt: var(--surface-alt);
+  --color-on-surface: var(--on-surface);
+  --color-on-surface-muted: var(--on-surface-muted);
+  --color-brand: var(--brand);
+  --color-border-ui: var(--border-ui);
+
   /* Fluid Typography Scale */
   --font-size-xs: clamp(0.65rem, 0.6rem + 0.25vw, 0.75rem);
   --font-size-sm: clamp(0.75rem, 0.7rem + 0.25vw, 0.875rem);
@@ -2990,7 +3440,24 @@ export default function AuctionDetailPage({ params }: { params: Promise<{ id: st
 }
 
 :root {
+  --bg-main: #C0D5CC;
+  --text-main: #252D33;
+
+  --card-bg: #3D4A57;
+  --card-text: #EAEBEC;
+
+  --accent: #E6A850;
+  --secondary: #5A6B7F;
+  --border: #7A8B9F;
   --radius: 0.625rem;
+
+  /* Semantic Surface Tokens — Light */
+  --surface: #ffffff;
+  --surface-alt: #f0f3f6;
+  --on-surface: #252D33;
+  --on-surface-muted: #5A6B7F;
+  --brand: #E6A850;
+  --border-ui: #7A8B9F;
   --background: oklch(1 0 0);
   --foreground: oklch(0.13 0.028 261.692);
   /* ... existing colors ... */
@@ -3037,6 +3504,14 @@ export default function AuctionDetailPage({ params }: { params: Promise<{ id: st
 }
 
 .dark {
+  /* Semantic Surface Tokens — Dark */
+  --surface: #0f172a;
+  --surface-alt: #1e293b;
+  --on-surface: #EAEBEC;
+  --on-surface-muted: #94a3b8;
+  --brand: #E6A850;
+  --border-ui: #334155;
+
   --background: oklch(0.13 0.028 261.692);
   --foreground: oklch(0.985 0.002 247.839);
   --card: oklch(0.21 0.034 264.665);
@@ -3073,6 +3548,15 @@ export default function AuctionDetailPage({ params }: { params: Promise<{ id: st
 @layer base {
   * {
     @apply border-border outline-ring/50;
+    scrollbar-width: none;
+    /* Firefox */
+    -ms-overflow-style: none;
+    /* IE/Edge */
+  }
+
+  *::-webkit-scrollbar {
+    display: none;
+    /* Chrome, Safari, Edge */
   }
 
   body {
@@ -3119,7 +3603,7 @@ export default function AuctionDetailPage({ params }: { params: Promise<{ id: st
 
   @media (min-width: 1280px) {
     .container-fluid {
-      max-width: 1440px;
+      max-width: 1280px;
     }
   }
 
@@ -3148,6 +3632,7 @@ export default function AuctionDetailPage({ params }: { params: Promise<{ id: st
 import type { Metadata } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
 import { Oswald } from "next/font/google";
+import { ThemeProvider } from "@/components/ThemeProvider";
 import "./globals.css";
 
 const geistSans = Geist({
@@ -3177,11 +3662,36 @@ export default function RootLayout({
   children: React.ReactNode;
 }>) {
   return (
-    <html lang="en" className="dark">
+    <html lang="en" suppressHydrationWarning>
+      <head>
+        {/* Inline script to prevent FOUC — runs before React hydration */}
+        <script
+          dangerouslySetInnerHTML={{
+            __html: `
+              (function() {
+                try {
+                  var stored = localStorage.getItem('theme');
+                  if (stored === 'light') {
+                    document.documentElement.classList.remove('dark');
+                  } else if (stored === 'dark') {
+                    document.documentElement.classList.add('dark');
+                  } else if (window.matchMedia('(prefers-color-scheme: light)').matches) {
+                    document.documentElement.classList.remove('dark');
+                  } else {
+                    document.documentElement.classList.add('dark');
+                  }
+                } catch (e) {
+                  document.documentElement.classList.add('dark');
+                }
+              })();
+            `,
+          }}
+        />
+      </head>
       <body
         className={`${geistSans.variable} ${geistMono.variable} ${oswald.variable} antialiased`}
       >
-        {children}
+        <ThemeProvider>{children}</ThemeProvider>
       </body>
     </html>
   );
@@ -3198,12 +3708,21 @@ import { motion, AnimatePresence } from "framer-motion";
 import { Team, Player, useAuctionState } from "@/lib/hooks/useAuctionState";
 import { PlayerAvatar } from "@/components/PlayerAvatar";
 import { TeamLogo } from "@/components/TeamLogo";
-import ConsolidatedTeamRoster from "@/components/ConsolidatedTeamRoster";
+import TeamRoster from "@/components/team/TeamRoster";
+import { ViewSquadsPanel } from "@/components/live/ViewSquadsPanel";
+import { RepositoryPanel } from "@/components/live/RepositoryPanel";
+import { PlayerRepository } from "@/components/live/PlayerRepository";
 import { BiddingPIP } from "@/components/live/BiddingPIP";
 import { SaleFeedback } from "@/components/live/SaleFeedback";
 import { UnsoldFeedback } from "@/components/live/UnsoldFeedback";
-import { Gavel, LayoutDashboard, PanelRightClose, PanelRightOpen, PanelRight, Users } from "lucide-react";
+import { Gavel, LayoutDashboard, ArrowLeft, Users, Shield, BookOpen } from "lucide-react";
 import AuctionHero from "@/components/live/AuctionHero";
+import CaptainCard from "@/components/live/TempCard";
+import CaptainDeck from "@/components/live/CaptainDeck";
+import BlindBidReveal from "@/components/live/BlindBidReveal";
+import { ThemeToggle } from "@/components/ThemeToggle";
+import { formatPriceCompact } from "@/lib/utils";
+
 import {
   getTeamPlayers,
   groupPlayersByRole,
@@ -3228,31 +3747,28 @@ export default function LiveAuctionPage({
     lastSale,
     loading,
   } = useAuctionState(auctionId);
+
+  // ─── View State ───
+  const [viewMode, setViewMode] = useState<"auction" | "squads" | "repository">("auction");
   const [selectedTeam, setSelectedTeam] = useState<Team | null>(null);
+
+  // ─── Feedback Animations ───
   const [showSoldAnimation, setShowSoldAnimation] = useState(false);
   const [lastSoldPlayer, setLastSoldPlayer] = useState<any>(null);
   const [lastSoldTeam, setLastSoldTeam] = useState<any>(null);
   const [lastSoldPrice, setLastSoldPrice] = useState<number | null>(null);
   const [showUnsoldAnimation, setShowUnsoldAnimation] = useState(false);
   const [lastUnsoldPlayer, setLastUnsoldPlayer] = useState<any>(null);
-  const [showPlayerRepository, setShowPlayerRepository] = useState(false);
-  const [isSquadPanelOpen, setIsSquadPanelOpen] = useState(false);
-
-  useEffect(() => {
-    // default to open on desktop
-    setIsSquadPanelOpen(window.innerWidth >= 1024);
-  }, []);
   const soldFeedbackStartTimeRef = useRef<number | null>(null);
   const unsoldFeedbackStartTimeRef = useRef<number | null>(null);
 
-  const currentView = selectedTeam ? "roster" : showPlayerRepository ? "repository" : "auction";
+  const currentView = selectedTeam ? "roster" : viewMode === "repository" ? "repository" : "auction";
 
   const pipPhase =
     state?.phase === "completed_sale" || (showSoldAnimation) ? "sold" :
       state?.phase === "completed_unsold" || (showUnsoldAnimation) ? "unsold" :
         "bidding";
 
-  // Use the explicitly captured sold/unsold items if the animation is actively running
   const pipPlayer =
     showSoldAnimation ? lastSoldPlayer :
       showUnsoldAnimation ? lastUnsoldPlayer :
@@ -3266,15 +3782,7 @@ export default function LiveAuctionPage({
     showSoldAnimation ? lastSoldPrice :
       lastSale?.price ?? state?.current_bid ?? null;
 
-  const getPlayerRepositoryCount = useMemo(() => {
-    if (typeof window === "undefined") return players.length;
-    const width = window.innerWidth;
-    if (width < 640) return Math.min(4, players.length);
-    if (width < 1024) return Math.min(8, players.length);
-    if (width < 1280) return Math.min(12, players.length);
-    return Math.min(20, players.length);
-  }, [players.length]);
-  // Handle sold feedback animation - show when phase is completed_sale
+  // Handle sold feedback
   useEffect(() => {
     if (state?.phase === "completed_sale") {
       const soldPlayer = players.find((p) => p.id === state.current_player_id);
@@ -3287,13 +3795,12 @@ export default function LiveAuctionPage({
         soldFeedbackStartTimeRef.current = Date.now();
       }
     } else if (showSoldAnimation) {
-      // Phase changed away from completed_sale - close animation
       setShowSoldAnimation(false);
       soldFeedbackStartTimeRef.current = null;
     }
   }, [state?.phase, state?.current_player_id, state?.leading_team_id, state?.current_bid, players, teams]);
 
-  // Handle unsold feedback animation - show when phase is completed_unsold
+  // Handle unsold feedback
   useEffect(() => {
     if (state?.phase === "completed_unsold") {
       const unsoldPlayer = players.find((p) => p.id === state.current_player_id);
@@ -3303,44 +3810,68 @@ export default function LiveAuctionPage({
         unsoldFeedbackStartTimeRef.current = Date.now();
       }
     } else if (showUnsoldAnimation) {
-      // Phase changed away from completed_unsold - close animation
       setShowUnsoldAnimation(false);
       unsoldFeedbackStartTimeRef.current = null;
     }
   }, [state?.phase, state?.current_player_id, players]);
+
+  // Redirect to recap on completion or slot filling
   useEffect(() => {
-    if (!loading && auction?.status === "completed") {
+    if (!loading && (auction?.status === "completed" || state?.phase === "slot_filling")) {
       router.replace(`/live/${auctionId}/recap`);
     }
-  }, [auction?.status, auctionId, loading, router]);
+  }, [auction?.status, state?.phase, auctionId, loading, router]);
+
   if (loading || !auction) {
     return (
-      <div className="min-h-screen bg-slate-950 flex flex-col items-center justify-center">
+      <div className="min-h-screen bg-slate-100 dark:bg-slate-950 flex flex-col items-center justify-center">
         <div className="h-12 w-12 border-4 border-emerald-500 border-t-transparent rounded-full animate-spin" />
-        <div className="mt-4 text-emerald-500 font-black uppercase tracking-widest text-xs">
+        <div className="mt-4 text-emerald-600 dark:text-emerald-500 font-black uppercase tracking-widest text-xs">
           Initialising Arena...
         </div>
       </div>
     );
   }
+
+  // ─── Handler: go back to auction view ───
+  const handleBackToAuction = () => {
+    setSelectedTeam(null);
+    setViewMode("auction");
+  };
+
   return (
-    <div className="h-screen bg-slate-950 text-slate-50 flex flex-col font-sans selection:bg-emerald-500 selection:text-slate-950 overflow-hidden">
+    <div className="h-screen bg-slate-100 dark:bg-slate-950 text-slate-900 dark:text-slate-50 flex flex-col font-sans selection:bg-emerald-500 selection:text-slate-950 overflow-hidden">
+      {/* Background Glow */}
       <div className="fixed inset-0 z-0 overflow-hidden pointer-events-none">
         <div className="absolute top-[-10%] left-[-10%] w-[40%] h-[40%] bg-emerald-500/10 blur-[120px] rounded-full animate-pulse" />
         <div className="absolute bottom-[-10%] right-[-10%] w-[40%] h-[40%] bg-blue-500/10 blur-[120px] rounded-full animate-pulse [animation-delay:2s]" />
       </div>
-      <nav className="relative z-50 border-b border-slate-800 bg-slate-900/40 backdrop-blur-xl py-fluid-sm flex-shrink-0">
+
+      {/* ═══ HEADER NAV ═══ */}
+      <nav className="relative z-50 border-b border-slate-300 dark:border-slate-800 bg-white/40 dark:bg-slate-900/40 backdrop-blur-xl py-fluid-sm flex-shrink-0">
         <div className="container-fluid flex items-center justify-between gap-fluid-md min-h-[50px]">
+          {/* Left: Back Button (when in squad/repo view) */}
           <div className="flex items-center gap-fluid-md min-w-0 flex-1">
+            {(selectedTeam || viewMode !== "auction") && (
+              <button
+                onClick={handleBackToAuction}
+                className="flex items-center gap-1.5 bg-slate-200/60 dark:bg-slate-800/60 backdrop-blur px-3 py-1.5 rounded-full text-slate-600 dark:text-slate-400 hover:text-emerald-500 dark:hover:text-emerald-400 font-bold text-xs uppercase tracking-widest transition-colors border border-slate-300 dark:border-slate-700 flex-shrink-0"
+              >
+                <ArrowLeft size={12} />
+                <span className="hidden sm:inline">Back</span>
+              </button>
+            )}
+
+            {/* Center: Logo + Auction Title */}
             <div
               className="flex items-center gap-2 sm:gap-3 cursor-pointer group flex-shrink-0"
-              onClick={() => setSelectedTeam(null)}
+              onClick={handleBackToAuction}
             >
               <div className="h-8 sm:h-10 w-8 sm:w-10 bg-emerald-500 rounded-lg sm:rounded-xl flex items-center justify-center shadow-lg shadow-emerald-900/40 group-hover:scale-110 transition-transform flex-shrink-0">
                 <Gavel className="text-slate-950" size={16} strokeWidth={3} />
               </div>
               <div className="hidden md:block min-w-0">
-                <h1 className="text-base md:text-lg lg:text-xl font-black italic tracking-tighter uppercase text-white leading-none truncate">
+                <h1 className="text-base md:text-lg lg:text-xl font-black italic tracking-tighter uppercase text-slate-800 dark:text-white leading-none truncate">
                   {auction.name}
                 </h1>
                 <div className="text-[7px] md:text-[9px] font-black text-slate-500 uppercase tracking-[0.15em] md:tracking-[0.3em] mt-0.5">
@@ -3348,250 +3879,78 @@ export default function LiveAuctionPage({
                 </div>
               </div>
             </div>
+
+            <div className="flex-shrink-0 ml-auto flex items-center gap-2">
+              <ThemeToggle />
+            </div>
           </div>
         </div>
       </nav>
-      <main className="relative z-10 flex-1 flex flex-col xl:flex-row overflow-y-auto xl:overflow-hidden w-full gap-[--spacing-auction-gap] p-[--spacing-auction-pad]">
-        <div className={`flex flex-col gap-[--spacing-auction-gap] overflow-hidden min-w-0 min-h-[60vh] xl:min-h-0 ${selectedTeam ? 'w-full' : 'flex-1'}`}>
+
+      {/* ═══ MAIN CONTENT ═══ */}
+      <main className="relative z-10 flex-1 flex flex-col xl:flex-row overflow-y-auto xl:overflow-hidden w-full gap-[--spacing-auction-gap] p-[--spacing-auction-pad] pb-20 xl:pb-[--spacing-auction-pad]">
+
+        {/* ─── LEFT: Primary Content Area ─── */}
+        <div className={`flex flex-col gap-[--spacing-auction-gap] overflow-hidden min-w-0 xl:min-h-0 ${selectedTeam || viewMode !== "auction" ? 'w-full' : 'flex-1'}`}>
+
+          {/* Squad View (TeamRoster) */}
           {selectedTeam ? (
-            <div className="flex-1 flex flex-col h-full bg-[var(--color-bg-panel)] rounded-2xl border border-slate-800 overflow-hidden relative" data-density="compact">
-              <div className="absolute top-4 left-4 z-50">
-                <button
-                  onClick={() => setSelectedTeam(null)}
-                  className="flex items-center gap-1.5 bg-slate-900/80 backdrop-blur px-3 py-1.5 rounded-full text-slate-400 hover:text-emerald-400 font-bold text-xs uppercase tracking-widest transition-colors border border-slate-700"
-                >
-                  <LayoutDashboard size={12} />
-                  Back to Auction
-                </button>
-              </div>
-              <div className="flex-1 flex flex-col h-full min-h-0 pt-14 p-2 sm:p-4">
-                <ConsolidatedTeamRoster
+            <div className="flex-1 flex flex-col h-full rounded-2xl border border-slate-300 dark:border-slate-800 overflow-hidden relative bg-white/40 dark:bg-slate-900/40" data-density="compact">
+              <div className="flex-1 flex flex-col h-full min-h-0 p-2 sm:p-4">
+                <TeamRoster
                   auction={auction as any}
                   teams={teams}
                   players={players}
+                  mode="live"
                 />
               </div>
             </div>
-          ) : showPlayerRepository ? (
-            <div className="flex-1 flex flex-col h-full bg-[var(--color-bg-panel)] rounded-2xl border border-slate-800 p-fluid-md overflow-hidden" data-density="compact">
-              <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-fluid-sm mb-fluid-md flex-shrink-0">
-                <button
-                  onClick={() => setShowPlayerRepository(false)}
-                  className="flex items-center gap-1.5 text-slate-500 hover:text-emerald-400 font-bold text-xs uppercase tracking-widest transition-colors"
-                >
-                  <LayoutDashboard size={10} />
-                  Back
-                </button>
-                <div className="text-[10px] font-bold text-slate-500 uppercase tracking-widest whitespace-nowrap">
-                  Showing all players • Scroll to browse
-                </div>
-              </div>
-              <div className="flex-1 overflow-hidden flex flex-col">
-                <div className="flex-1 overflow-y-auto pr-2 custom-scrollbar">
-                  <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-2 lg:grid-cols-3 gap-2 sm:gap-3 md:gap-4">
-                    {players
-                      .slice()
-                      .sort((a, b) => a.name.localeCompare(b.name))
-                      .map((player) => {
-                        const team = teams.find(
-                          (t) => t.id === player.sold_team_id,
-                        );
-                        return (
-                          <div
-                            key={player.id}
-                            className="p-2 sm:p-3 rounded-lg sm:rounded-xl border border-slate-800 bg-[var(--color-bg-card)] flex items-center gap-2 sm:gap-3 group hover:border-emerald-500/30 transition-all shadow-lg"
-                          >
-                            <div className="flex-shrink-0">
-                              <PlayerAvatar
-                                id={player.id}
-                                name={player.name}
-                                role={player.role}
-                                photoUrl={player.photo_url}
-                                size="sm"
-                                isCaptain={player.is_captain}
-                              />
-                            </div>
-                            <div className="flex-1 min-w-0 flex flex-col justify-between">
-                              <div>
-                                <div className="text-[9px] sm:text-xs font-bold text-white truncate">
-                                  {player.name}
-                                </div>
-                                <div className="text-[7px] md:text-[8px] font-black text-slate-500 uppercase tracking-tighter">
-                                  {player.role}
-                                </div>
-                              </div>
-                              {player.status === "sold" ? (
-                                team && (
-                                  <div className="mt-1 flex items-center gap-1 min-w-0">
-                                    <TeamLogo
-                                      name={team.name}
-                                      logoUrl={team.logo_url}
-                                      size="sm"
-                                    />
-                                    <div className="text-[7px] md:text-[8px] font-black text-emerald-400 uppercase truncate">
-                                      {team.name}
-                                    </div>
-                                  </div>
-                                )
-                              ) : (
-                                <div
-                                  className={`mt-1 text-[7px] md:text-[8px] font-black uppercase tracking-widest ${player.status === "live" ? "text-amber-500 animate-pulse" : "text-slate-600"}`}
-                                >
-                                  {player.status}
-                                </div>
-                              )}
-                            </div>
-                            {player.status === "sold" && (
-                              <div className="text-right flex-shrink-0 text-[8px] sm:text-xs font-mono font-bold text-slate-300">
-                                ₹{player.sold_price?.toLocaleString("en-IN")}
-                              </div>
-                            )}
-                          </div>
-                        );
-                      })}
-                  </div>
-                </div>
-              </div>
-            </div>
-          ) : (
-            <div className="flex-1 relative rounded-2xl bg-[var(--color-bg-panel)] border border-slate-800 overflow-hidden flex flex-col">
+
+          /* Repository View */
+          ) : viewMode === "repository" ? (
+            <PlayerRepository
+              players={players}
+              teams={teams}
+              onBack={handleBackToAuction}
+            />
+
+          /* Squads View (mobile - content rendered separately below) */
+          ) : viewMode === "squads" ? null : (
+            <div className="flex-1 relative rounded-2xl bg-white/40 dark:bg-slate-900/40 border border-slate-300 dark:border-slate-800 overflow-hidden flex flex-col">
               <div className="absolute inset-0 bg-[radial-gradient(circle_at_top,_#10b98111,_transparent_60%)] pointer-events-none" />
               <div className="flex-1 flex flex-col items-center justify-center p-fluid-lg relative z-10 text-center overflow-y-auto">
                 <AnimatePresence mode="wait">
                   {state?.phase === "captain_round" ? (
-                    <motion.div
-                      key="captain-phase"
-                      initial={{ opacity: 0, scale: 0.8 }}
-                      animate={{ opacity: 1, scale: 1 }}
-                      exit={{ opacity: 0 }}
-                      className="flex flex-col items-center w-full"
-                    >
-                      <div className="text-center mb-fluid-md">
-                        <h2 className="italic tracking-tighter text-amber-500 uppercase mb-fluid-sm animate-pulse">
-                          Captain Reveal
-                        </h2>
-                        <p className="max-w-md mx-auto text-sm text-slate-400 font-medium px-2">
-                          Franchises selecting leadership via Blind Bidding...
-                        </p>
-                      </div>
-                      <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-2 sm:gap-3 md:gap-4 lg:gap-6 w-full max-w-6xl overflow-y-auto custom-scrollbar pr-2">
-                        {players
-                          .filter((p) => p.is_captain)
-                          .map((captain) => {
-                            const matchedTeam = teams.find(
-                              (t) => t.captain_id === captain.id,
-                            );
-                            return (
-                              <motion.div
-                                key={captain.id}
-                                initial={{ opacity: 0, y: 20 }}
-                                animate={{ opacity: 1, y: 0 }}
-                                className={`relative p-2 sm:p-3 md:p-4 lg:p-6 rounded-lg sm:rounded-xl md:rounded-2xl lg:rounded-3xl border transition-all duration-500 flex flex-col items-center gap-1 md:gap-2 lg:gap-4 ${matchedTeam ? "bg-emerald-500/10 border-emerald-500 shadow-[0_0_40px_rgba(16,185,129,0.2)]" : "bg-slate-900/40 border-slate-800"}`}
-                              >
-                                <div className="absolute -top-1.5 -right-1.5 sm:-top-2 sm:-right-2 z-20">
-                                  {matchedTeam ? (
-                                    <div className="bg-emerald-500 text-slate-950 text-[7px] sm:text-[8px] font-black px-1.5 sm:px-2 py-px rounded-full shadow-lg animate-bounce">
-                                      ✓
-                                    </div>
-                                  ) : (
-                                    <div className="bg-amber-500/20 border border-amber-500/40 text-amber-500 text-[7px] sm:text-[8px] font-black px-1.5 sm:px-2 py-px rounded-full animate-pulse">
-                                      ?
-                                    </div>
-                                  )}
-                                </div>
-                                <div className="relative">
-                                  {matchedTeam && (
-                                    <div className="absolute inset-0 bg-emerald-500/20 blur-2xl rounded-full animate-pulse" />
-                                  )}
-                                  <PlayerAvatar
-                                    id={captain.id}
-                                    name={captain.name}
-                                    role={captain.role}
-                                    photoUrl={captain.photo_url}
-                                    size="md"
-                                    isCaptain={true}
-                                  />
-                                </div>
-                                <div className="text-center">
-                                  <h3 className="text-[8px] sm:text-xs md:text-sm lg:text-xl font-black italic text-white uppercase truncate px-1">
-                                    {captain.name}
-                                  </h3>
-                                  <div className="text-[6px] sm:text-[7px] md:text-[9px] lg:text-[10px] font-black text-slate-500 uppercase tracking-tighter mt-0.5">
-                                    {captain.role}
-                                  </div>
-                                </div>
-                                {matchedTeam ? (
-                                  <div className="mt-1 sm:mt-1.5 w-full pt-1 sm:pt-2 border-t border-slate-800/50 flex flex-col items-center gap-0.5 md:gap-1 lg:gap-3">
-                                    <div className="flex items-center gap-0.5 sm:gap-1">
-                                      <TeamLogo
-                                        name={matchedTeam.name}
-                                        logoUrl={matchedTeam.logo_url}
-                                        size="sm"
-                                      />
-                                      <div className="text-[7px] sm:text-[8px] md:text-xs lg:text-sm font-black text-white italic uppercase truncate">
-                                        {matchedTeam.name}
-                                      </div>
-                                    </div>
-                                    <div className="text-[6px] sm:text-[7px] md:text-[9px] font-mono font-black text-emerald-400">
-                                      ₹
-                                      {matchedTeam.captain_id
-                                        ? Math.round(
-                                          captain.sold_price! / 100000,
-                                        ) + "L"
-                                        : "0"}
-                                    </div>
-                                  </div>
-                                ) : (
-                                  <div className="mt-1 flex gap-0.5">
-                                    <div className="w-0.5 h-0.5 md:w-1 md:h-1 rounded-full bg-amber-500/40 animate-bounce [animation-delay:-0.3s]" />
-                                    <div className="w-0.5 h-0.5 md:w-1 md:h-1 rounded-full bg-amber-500/40 animate-bounce [animation-delay:-0.15s]" />
-                                    <div className="w-0.5 h-0.5 md:w-1 md:h-1 rounded-full bg-amber-500/40 animate-bounce" />
-                                  </div>
-                                )}
-                              </motion.div>
-                            );
-                          })}{" "}
-                      </div>
-                    </motion.div>
+                    <CaptainDeck players={players} teams={teams} />
+                  ) : state?.phase === "blind_bid_round" ? (
+                    <BlindBidReveal players={players} teams={teams} />
                   ) : currentPlayer && state?.current_bid !== null ? (
-                    <div className="h-full flex flex-col">
-
-                      <div className="flex-1 p-6">
-
+                    <div className="h-full w-full flex flex-col min-h-0">
+                      <div className="flex-1 p-4 sm:p-6 min-h-0 flex items-center justify-center w-full">
                         <AuctionHero
                           player={currentPlayer}
                           bid={state?.current_bid || auction.settings.base_price}
                           basePrice={auction.settings.base_price}
                           team={leadingTeam}
                         />
-
                       </div>
-
                     </div>
                   ) : currentPlayer && state?.current_bid === null ? (
-                    <motion.div
-                      initial={{ opacity: 0 }}
-                      animate={{ opacity: 1 }}
-                      className="text-slate-600 text-center"
-                    >
-                      <div className="h-12 sm:h-16 md:h-20 lg:h-24 w-12 sm:w-16 md:w-20 lg:w-24 bg-[var(--color-bg-card)] rounded-full flex items-center justify-center mb-3 md:mb-4 lg:mb-6 mx-auto border border-slate-800 animate-pulse">
+                    <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="text-slate-400 dark:text-slate-600 text-center">
+                      <div className="h-12 sm:h-16 md:h-20 lg:h-24 w-12 sm:w-16 md:w-20 lg:w-24 bg-slate-200 dark:bg-slate-900 rounded-full flex items-center justify-center mb-3 md:mb-4 lg:mb-6 mx-auto border border-slate-300 dark:border-slate-800 animate-pulse">
                         <Gavel size={24} className="text-amber-500" />
                       </div>
-                      <h3 className="text-base sm:text-lg md:text-xl lg:text-2xl font-black italic uppercase tracking-tighter text-amber-400">
+                      <h3 className="text-base sm:text-lg md:text-xl lg:text-2xl font-black italic uppercase tracking-tighter text-amber-500 dark:text-amber-400">
                         Ready for Bidding
                       </h3>
-                      <p className="text-[8px] sm:text-xs md:text-sm font-medium mt-1 text-amber-300">
+                      <p className="text-[8px] sm:text-xs md:text-sm font-medium mt-1 text-amber-600 dark:text-amber-300">
                         Awaiting admin to start bidding...
                       </p>
                     </motion.div>
                   ) : (
-                    <motion.div
-                      initial={{ opacity: 0 }}
-                      animate={{ opacity: 1 }}
-                      className="text-slate-600 text-center"
-                    >
-                      <div className="h-12 sm:h-16 md:h-20 lg:h-24 w-12 sm:w-16 md:w-20 lg:w-24 bg-slate-900 rounded-full flex items-center justify-center mb-3 md:mb-4 lg:mb-6 mx-auto border border-slate-800">
-                        <Gavel size={24} className="text-slate-700" />
+                    <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="text-slate-800 dark:text-slate-600 text-center">
+                      <div className="h-12 sm:h-16 md:h-20 lg:h-24 w-12 sm:w-16 md:w-20 lg:w-24 bg-slate-200 dark:bg-slate-900 rounded-full flex items-center justify-center mb-3 md:mb-4 lg:mb-6 mx-auto border border-slate-300 dark:border-slate-800">
+                        <Gavel size={24} className="text-slate-400 dark:text-slate-700" />
                       </div>
                       <h3 className="text-base sm:text-lg md:text-xl lg:text-2xl font-black italic uppercase tracking-tighter">
                         Arena Idle
@@ -3603,36 +3962,23 @@ export default function LiveAuctionPage({
                   )}
                 </AnimatePresence>
               </div>
-              <div className="h-12 sm:h-16 md:h-20 lg:h-24 bg-slate-950 border-t border-slate-800 flex items-center justify-around px-2 sm:px-4 md:px-6 lg:px-12 gap-1 flex-shrink-0 overflow-x-auto">
+
+              {/* Bottom Stats Bar */}
+              <div className="h-12 sm:h-14 md:h-16 bg-slate-50 dark:bg-slate-950 border-t border-slate-300 dark:border-slate-800 flex items-center justify-around px-2 sm:px-4 md:px-6 lg:px-12 gap-1 flex-shrink-0 overflow-x-auto">
                 <div className="text-center flex-shrink-0">
-                  <div className="text-[7px] md:text-[9px] lg:text-[10px] font-black text-slate-600 uppercase tracking-tighter md:tracking-widest">
-                    Sold
-                  </div>
-                  <div className="text-sm md:text-lg lg:text-2xl font-black text-white italic">
-                    {players.filter((p) => p.status === "sold").length}
-                  </div>
+                  <div className="text-[7px] md:text-[9px] lg:text-[10px] font-black text-slate-600 uppercase tracking-tighter md:tracking-widest">Sold</div>
+                  <div className="text-sm md:text-lg lg:text-2xl font-black text-slate-800 dark:text-white italic">{players.filter((p) => p.status === "sold").length}</div>
                 </div>
-                <div className="h-4 sm:h-6 md:h-8 w-[1px] bg-slate-800" />
+                <div className="h-4 sm:h-6 md:h-8 w-[1px] bg-slate-300 dark:bg-slate-800" />
                 <div className="text-center flex-shrink-0">
-                  <div className="text-[7px] md:text-[9px] lg:text-[10px] font-black text-slate-600 uppercase tracking-tighter md:tracking-widest">
-                    Upcoming
-                  </div>
-                  <div className="text-sm md:text-lg lg:text-2xl font-black text-white italic">
-                    {players.filter((p) => p.status === "upcoming").length}
-                  </div>
+                  <div className="text-[7px] md:text-[9px] lg:text-[10px] font-black text-slate-600 uppercase tracking-tighter md:tracking-widest">Upcoming</div>
+                  <div className="text-sm md:text-lg lg:text-2xl font-black text-slate-800 dark:text-white italic">{players.filter((p) => p.status === "upcoming").length}</div>
                 </div>
-                <div className="h-4 sm:h-6 md:h-8 w-[1px] bg-slate-800" />
+                <div className="h-4 sm:h-6 md:h-8 w-[1px] bg-slate-300 dark:bg-slate-800" />
                 <div className="text-center flex-shrink-0">
-                  <div className="text-[7px] md:text-[9px] lg:text-[10px] font-black text-slate-600 uppercase tracking-tighter md:tracking-widest">
-                    Total
-                  </div>
+                  <div className="text-[7px] md:text-[9px] lg:text-[10px] font-black text-slate-600 uppercase tracking-tighter md:tracking-widest">Total</div>
                   <div className="text-sm md:text-lg lg:text-2xl font-black text-emerald-500 italic">
-                    ₹
-                    {Math.round(
-                      players.reduce((sum, p) => sum + (p.sold_price || 0), 0) /
-                      100000,
-                    )}
-                    L
+                    {formatPriceCompact(players.reduce((sum, p) => sum + (p.sold_price || 0), 0))}
                   </div>
                 </div>
               </div>
@@ -3640,24 +3986,82 @@ export default function LiveAuctionPage({
           )}
         </div>
 
-        {/* Action Panel for opening Roster selection from Auction View */}
-        {!selectedTeam && (
-          <div className={`w-full xl:w-[30%] flex-shrink-0 flex-col h-auto xl:h-full min-h-[120px]`}>
-            <div className="h-full flex flex-col gap-4">
-              <button onClick={() => setSelectedTeam(teams[0] || null)} className="w-full flex-1 rounded-2xl border-2 border-dashed border-emerald-500/20 hover:border-emerald-500/50 hover:bg-emerald-500/5 transition-all flex flex-col items-center justify-center text-emerald-500/50 hover:text-emerald-500 group">
-                <LayoutDashboard className="mb-2 group-hover:scale-110 transition-transform" />
-                <span className="text-sm font-black uppercase tracking-widest leading-none">View Squads</span>
-              </button>
-              <button onClick={() => { setShowPlayerRepository(true); setSelectedTeam(null); }} className="w-full flex-1 rounded-2xl border-2 border-dashed border-sky-500/20 hover:border-sky-500/50 hover:bg-sky-500/5 transition-all flex flex-col items-center justify-center text-sky-500/50 hover:text-sky-500 group">
-                <Users className="mb-2 group-hover:scale-110 transition-transform" />
-                <span className="text-sm font-black uppercase tracking-widest leading-none">Repository</span>
-              </button>
+        {/* ─── RIGHT: Sidebar (desktop only) ─── */}
+        {!selectedTeam && viewMode === "auction" && (
+          <div className="hidden xl:flex w-80 2xl:w-96 flex-shrink-0 flex-col h-full gap-4">
+            {/* View Squads Panel */}
+            <div className="flex-1 rounded-2xl border border-slate-300 dark:border-slate-800 bg-white/40 dark:bg-slate-900/40 p-4 overflow-hidden flex flex-col">
+              <ViewSquadsPanel
+                auction={auction}
+                teams={teams}
+                players={players}
+                onTeamSelect={(team) => setSelectedTeam(team)}
+              />
+            </div>
+
+            {/* Repository Panel */}
+            <div className="flex-1 rounded-2xl border border-slate-300 dark:border-slate-800 bg-white/40 dark:bg-slate-900/40 p-4 overflow-hidden flex flex-col">
+              <RepositoryPanel
+                players={players}
+                onExpand={() => setViewMode("repository")}
+              />
             </div>
           </div>
         )}
+
+        {/* ─── Mobile: Squads Full View ─── */}
+        {!selectedTeam && viewMode === "squads" && (
+          <div className="xl:hidden flex-1 rounded-2xl border border-slate-300 dark:border-slate-800 bg-white/40 dark:bg-slate-900/40 p-4 overflow-hidden flex flex-col">
+            <ViewSquadsPanel
+              auction={auction}
+              teams={teams}
+              players={players}
+              onTeamSelect={(team) => setSelectedTeam(team)}
+            />
+          </div>
+        )}
       </main>
+
+      {/* ═══ MOBILE BOTTOM TAB BAR ═══ */}
+      <div className="xl:hidden fixed bottom-0 left-0 right-0 z-50 bg-white/90 dark:bg-slate-900/90 backdrop-blur-xl border-t border-slate-300 dark:border-slate-800 flex items-center justify-around h-14 px-2">
+        <button
+          onClick={() => { setViewMode("auction"); setSelectedTeam(null); }}
+          className={`flex flex-col items-center gap-0.5 px-4 py-1.5 rounded-xl transition-colors ${
+            viewMode === "auction" && !selectedTeam
+              ? "text-emerald-500"
+              : "text-slate-400 dark:text-slate-500"
+          }`}
+        >
+          <Gavel size={18} strokeWidth={2.5} />
+          <span className="text-[9px] font-black uppercase tracking-wider">Auction</span>
+        </button>
+        <button
+          onClick={() => { setViewMode("squads"); setSelectedTeam(null); }}
+          className={`flex flex-col items-center gap-0.5 px-4 py-1.5 rounded-xl transition-colors ${
+            viewMode === "squads" || selectedTeam
+              ? "text-emerald-500"
+              : "text-slate-400 dark:text-slate-500"
+          }`}
+        >
+          <Shield size={18} strokeWidth={2.5} />
+          <span className="text-[9px] font-black uppercase tracking-wider">Squads</span>
+        </button>
+        <button
+          onClick={() => { setViewMode("repository"); setSelectedTeam(null); }}
+          className={`flex flex-col items-center gap-0.5 px-4 py-1.5 rounded-xl transition-colors ${
+            viewMode === "repository"
+              ? "text-emerald-500"
+              : "text-slate-400 dark:text-slate-500"
+          }`}
+        >
+          <BookOpen size={18} strokeWidth={2.5} />
+          <span className="text-[9px] font-black uppercase tracking-wider">Players</span>
+        </button>
+      </div>
+
+      {/* ═══ OVERLAYS ═══ */}
       <AnimatePresence>
-        {(selectedTeam || showPlayerRepository) && (
+        {(selectedTeam || viewMode !== "auction") && (
           <BiddingPIP
             player={pipPlayer}
             leadingTeam={pipTeam}
@@ -3691,10 +4095,11 @@ import { use } from "react";
 import { useRouter } from "next/navigation";
 import { useAuctionState } from "@/lib/hooks/useAuctionState";
 import { RecapStats } from "@/components/live/RecapStats";
-import ConsolidatedTeamRoster from "@/components/ConsolidatedTeamRoster";
+import TeamRoster from "@/components/team/TeamRoster";
 import { Button } from "@/components/ui/button";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Trophy, Users, BarChart3, ArrowLeft } from "lucide-react";
+import { ThemeToggle } from "@/components/ThemeToggle";
 
 export default function AuctionRecapPage({ params }: { params: Promise<{ id: string }> }) {
     const router = useRouter();
@@ -3709,9 +4114,9 @@ export default function AuctionRecapPage({ params }: { params: Promise<{ id: str
 
     if (loading || !auction) {
         return (
-            <div className="min-h-screen bg-slate-950 flex flex-col items-center justify-center">
+            <div className="min-h-screen bg-slate-100 dark:bg-slate-950 flex flex-col items-center justify-center">
                 <div className="h-12 w-12 border-4 border-amber-500 border-t-transparent rounded-full animate-spin" />
-                <div className="mt-4 text-amber-500 font-black uppercase tracking-widest text-xs">
+                <div className="mt-4 text-amber-600 dark:text-amber-500 font-black uppercase tracking-widest text-xs">
                     Calculating Results...
                 </div>
             </div>
@@ -3719,7 +4124,7 @@ export default function AuctionRecapPage({ params }: { params: Promise<{ id: str
     }
 
     return (
-        <div className="min-h-screen bg-slate-950 text-slate-50 flex flex-col font-sans">
+        <div className="min-h-screen bg-slate-100 dark:bg-slate-950 text-slate-900 dark:text-slate-50 flex flex-col font-sans">
             {/* Background Decor */}
             <div className="fixed inset-0 z-0 overflow-hidden pointer-events-none">
                 <div className="absolute top-[-10%] right-[-10%] w-[50%] h-[50%] bg-amber-500/5 blur-[120px] rounded-full" />
@@ -3727,38 +4132,41 @@ export default function AuctionRecapPage({ params }: { params: Promise<{ id: str
             </div>
 
             {/* Header */}
-            <header className="relative z-50 border-b border-slate-800 bg-slate-900/40 backdrop-blur-xl px-6 py-6">
+            <header className="relative z-50 border-b border-slate-300 dark:border-slate-800 bg-white/40 dark:bg-slate-900/40 backdrop-blur-xl px-6 py-6">
                 <div className="max-w-7xl mx-auto flex items-center justify-between">
                     <div>
-                        <div className="flex items-center gap-3 text-amber-500 font-black text-xs uppercase tracking-[0.4em] mb-1">
+                        <div className="flex items-center gap-3 text-amber-600 dark:text-amber-500 font-black text-xs uppercase tracking-[0.4em] mb-1">
                             <Trophy size={14} />
                             Auction Concluded
                         </div>
-                        <h1 className="text-4xl font-black italic tracking-tighter uppercase text-white leading-none">
+                        <h1 className="text-4xl font-black italic tracking-tighter uppercase text-slate-800 dark:text-white leading-none">
                             {auction.name} <span className="text-slate-500 ml-4 font-normal">Recap</span>
                         </h1>
                     </div>
 
-                    <Button
-                        variant="outline"
-                        onClick={() => router.push("/")}
-                        className="border-slate-800 bg-slate-900 hover:bg-slate-800 text-slate-300 gap-2 rounded-xl"
-                    >
-                        <ArrowLeft size={16} />
-                        Back to Home
-                    </Button>
+                    <div className="flex items-center gap-4">
+                        <ThemeToggle />
+                        <Button
+                            variant="outline"
+                            onClick={() => router.push("/")}
+                            className="border-slate-300 dark:border-slate-800 bg-white dark:bg-slate-900 hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-600 dark:text-slate-300 gap-2 rounded-xl"
+                        >
+                            <ArrowLeft size={16} />
+                            Back to Home
+                        </Button>
+                    </div>
                 </div>
             </header>
 
             <main className="relative z-10 flex-1 max-w-7xl mx-auto w-full p-8 overflow-y-auto">
                 <Tabs defaultValue="highlights" className="space-y-12">
                     <div className="flex justify-center">
-                        <TabsList className="bg-slate-900/80 border border-slate-800 p-1 h-14 rounded-2xl">
-                            <TabsTrigger value="highlights" className="rounded-xl h-full px-8 gap-2 data-[state=active]:bg-amber-500 data-[state=active]:text-slate-950">
+                        <TabsList className="bg-slate-200/80 dark:bg-slate-900/80 border border-slate-300 dark:border-slate-800 p-1 h-14 rounded-2xl">
+                            <TabsTrigger value="highlights" className="rounded-xl h-full px-8 gap-2 text-slate-600 dark:text-slate-400 data-[state=active]:bg-amber-500 data-[state=active]:text-slate-950">
                                 <BarChart3 size={18} />
                                 Highlights
                             </TabsTrigger>
-                            <TabsTrigger value="rosters" className="rounded-xl h-full px-8 gap-2 data-[state=active]:bg-emerald-500 data-[state=active]:text-slate-950">
+                            <TabsTrigger value="rosters" className="rounded-xl h-full px-8 gap-2 text-slate-600 dark:text-slate-400 data-[state=active]:bg-emerald-500 data-[state=active]:text-slate-950">
                                 <Users size={18} />
                                 Final Rosters
                             </TabsTrigger>
@@ -3770,10 +4178,50 @@ export default function AuctionRecapPage({ params }: { params: Promise<{ id: str
                     </TabsContent>
 
                     <TabsContent value="rosters" className="mt-0 focus-visible:ring-0">
-                        <ConsolidatedTeamRoster auction={auction} teams={teams} players={players} />
+                        <TeamRoster auction={auction} teams={teams} players={players} mode="recap" />
                     </TabsContent>
                 </Tabs>
             </main>
+        </div>
+    );
+}
+````
+
+## File: app/live/[id]/repository/page.tsx
+````typescript
+"use client";
+
+import { use } from "react";
+import { useRouter } from "next/navigation";
+import { useAuctionState } from "@/lib/hooks/useAuctionState";
+import { PlayerRepository } from "@/components/live/PlayerRepository";
+import { ArrowLeft } from "lucide-react";
+
+export default function RepositoryPage({ params }: { params: Promise<{ id: string }> }) {
+    const router = useRouter();
+    const { id: auctionId } = use(params);
+    const { auction, teams, players, loading } = useAuctionState(auctionId);
+
+    if (loading || !auction) {
+        return (
+            <div className="min-h-screen bg-slate-100 dark:bg-slate-950 flex flex-col items-center justify-center">
+                <div className="h-12 w-12 border-4 border-emerald-500 border-t-transparent rounded-full animate-spin" />
+                <div className="mt-4 text-emerald-600 dark:text-emerald-500 font-black uppercase tracking-widest text-xs">
+                    Loading Repository...
+                </div>
+            </div>
+        );
+    }
+
+    return (
+        <div className="min-h-screen bg-slate-100 dark:bg-slate-950 text-slate-900 dark:text-slate-50 flex flex-col font-sans">
+            <div className="flex-1 max-w-7xl mx-auto w-full p-4 sm:p-6 md:p-8">
+                <PlayerRepository
+                    players={players}
+                    teams={teams}
+                    onBack={() => router.push(`/live/${auctionId}`)}
+                />
+            </div>
         </div>
     );
 }
@@ -3788,6 +4236,7 @@ import Link from "next/link";
 import { supabase } from "@/lib/supabase";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
+import { ThemeToggle } from "@/components/ThemeToggle";
 
 type AuctionSettings = {
   purse: number;
@@ -3867,7 +4316,6 @@ export default function Home() {
   }, []);
 
   const liveAuctionIds = useMemo(() => {
-    // If auction.status is 'live', it should be treated as live regardless of phase
     return new Set(
       auctions
         .filter((a) => a.status === "live")
@@ -3878,139 +4326,149 @@ export default function Home() {
   const hasLiveAuctions = liveAuctionIds.size > 0;
 
   return (
-    <div className="min-h-screen bg-[url('/CourtSide_landing.png')] bg-cover bg-center bg-fixed px-6 py-10 text-slate-50 relative">
-      <div className="absolute inset-0 bg-black/10 pointer-events-none"></div>
-      <div className="container-fluid flex flex-col gap-fluid-lg relative z-10">
-        <header className="flex flex-col items-start justify-between gap-fluid-md md:flex-row md:items-center">
-          <div className="max-w-(--breakpoint-md)">
-            <h1 className="tracking-tight text-indigo-800">
-              BidStack
+    <div className="min-h-screen bg-[url('/CourtSide_landing.png')] bg-cover bg-center bg-fixed relative bg-surface">
+      <div className="absolute inset-0 bg-black/20 dark:bg-black/40 pointer-events-none"></div>
+      <div className="relative z-10 mx-auto w-full max-w-7xl px-4 py-8 sm:px-6 md:px-8 lg:px-12 lg:py-12">
+        <header className="mb-8 md:mb-12 flex flex-col items-start justify-between gap-4 md:gap-6 md:flex-row md:items-center">
+          <div className="max-w-md">
+            <h1 className="tracking-tight text-4xl sm:text-5xl font-bold text-on-surface" style={{ fontFamily: '"Bebas Neue", sans-serif', letterSpacing: '0.05em' }}>
+              BIDSTACK
             </h1>
-            <p className="mt-fluid-sm text-l text-indigo-800">
+            <p className="mt-2 sm:mt-3 text-base sm:text-lg leading-relaxed text-on-surface/80">
               Official Auction platform for MCA Premier League 2026.
             </p>
           </div>
-          <div className="flex flex-wrap gap-3">
+          <div className="flex flex-wrap gap-3 items-center">
+            <ThemeToggle />
             <Link href="/admin/login">
-              <Button variant="outline" className="text-black" color="black" size="sm">
+              <Button variant="outline" size="lg" className="border-2 border-brand text-on-surface hover:bg-brand/10 font-bold uppercase transition-all duration-300">
                 Admin Login
               </Button>
             </Link>
           </div>
         </header>
 
-        <section className="fluid-grid">
-          <Card className="col-span-12 md:col-span-5 border-slate-800 bg-slate-900/60 shadow-xl shadow-black/50">
-            <div className="mb-fluid-sm flex items-center justify-center px-fluid pt-fluid">
-              <h2 className="text-xs font-semibold uppercase tracking-[0.28em] text-slate-400">
-                Live Auctions
-              </h2>
-              {hasLiveAuctions && (
-                <span className="rounded-full bg-emerald-500/20 px-6 py-0.5 text-xs font-medium text-emerald-300">
-                  Live now
-                </span>
+        <section className="grid gap-6 md:gap-8 grid-cols-1 md:grid-cols-5">
+          <Card className="col-span-1 md:col-span-2 border-2 shadow-2xl backdrop-blur-xl overflow-hidden transition-all duration-300 hover:shadow-3xl bg-surface-alt/75 dark:bg-surface-alt/75 border-border-ui">
+            <div className="border-b-2 px-4 sm:px-6 py-4 sm:py-5 border-border-ui/30">
+              <div className="flex items-center justify-between gap-3">
+                <h2 className="text-sm font-bold uppercase tracking-[0.25em] text-on-surface-muted">
+                  Live Auctions
+                </h2>
+                {hasLiveAuctions && (
+                  <span className="rounded-full px-3 py-1 text-xs font-bold uppercase tracking-wider animate-pulse whitespace-nowrap bg-brand text-on-surface">
+                    Live now
+                  </span>
+                )}
+              </div>
+            </div>
+            <div className="px-4 sm:px-6 py-4 sm:py-5">
+              {auctions.filter((a) => (a.status ?? "upcoming") === "live" && liveAuctionIds.has(a.id))
+                .length === 0 ? (
+                <p className="text-sm text-center py-8 text-on-surface dark:text-on-surface">
+                  No auctions are live right now. Check the upcoming auctions below.
+                </p>
+              ) : (
+                <div className="space-y-3">
+                  {auctions
+                    .filter((a) => (a.status ?? "upcoming") === "live" && liveAuctionIds.has(a.id))
+                    .map((auction) => (
+                      <div
+                        key={auction.id}
+                        className="flex flex-col gap-3 rounded-lg border-2 px-4 py-3 backdrop-blur-md transition-all duration-300 hover:shadow-lg hover:scale-105 border-brand bg-brand/15 shadow-[0_0_20px_rgba(230,168,80,0.2)]"
+                      >
+                        <div>
+                          <div className="text-sm font-semibold text-on-surface">{auction.name}</div>
+                          <div className="text-xs uppercase tracking-[0.18em] mt-1 text-brand">
+                            {auction.sport_type.toUpperCase()} · Live Auction
+                          </div>
+                        </div>
+                        <div className="flex gap-2 flex-wrap">
+                          <Link href={`/live/${auction.id}`} className="flex-1">
+                            <Button size="sm" className="w-full transition-all duration-300 hover:shadow-lg bg-brand text-on-surface font-bold">
+                              View Live
+                            </Button>
+                          </Link>
+                          <Link href={`/auction/${auction.id}`} className="flex-1">
+                            <Button size="sm" variant="outline" className="w-full border-2 transition-all duration-300 hover:shadow-lg border-border-ui text-on-surface">
+                              Details
+                            </Button>
+                          </Link>
+                        </div>
+                      </div>
+                    ))}
+                </div>
               )}
             </div>
-            {auctions.filter((a) => (a.status ?? "upcoming") === "live" && liveAuctionIds.has(a.id))
-              .length === 0 ? (
-              <p className="text-sm text-slate-400">
-                No auctions are live right now. Check the upcoming auctions below.
-              </p>
-            ) : (
-              <div className="space-y-3">
-                {auctions
-                  .filter((a) => (a.status ?? "upcoming") === "live" && liveAuctionIds.has(a.id))
-                  .map((auction) => (
-                    <div
-                      key={auction.id}
-                      className="flex items-center justify-between gap-3 rounded-lg border border-emerald-500/40 bg-emerald-500/5 px-3 py-3"
-                    >
-                      <div>
-                        <div className="text-sm font-semibold">{auction.name}</div>
-                        <div className="text-xs uppercase tracking-[0.18em] text-emerald-300">
-                          {auction.sport_type.toUpperCase()} · Live Auction
-                        </div>
-                      </div>
-                      <div className="flex gap-2">
-                        <Link href={`/live/${auction.id}`}>
-                          <Button size="sm" variant="default">
-                            View Live
-                          </Button>
-                        </Link>
-                        <Link href={`/auction/${auction.id}`}>
-                          <Button size="sm" variant="outline">
-                            Details &amp; Register
-                          </Button>
-                        </Link>
-                      </div>
-                    </div>
-                  ))}
-              </div>
-            )}
           </Card>
 
-          <Card className="col-span-12 md:col-span-7 border-slate-800 bg-slate-900/70 shadow-xl shadow-black/60">
-            <div className="mb-fluid-sm flex items-center justify-between px-fluid pt-fluid">
-              <h2 className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-400">
-                All Auctions
-              </h2>
-              <span className="text-xs text-slate-400">
-                {auctions.length} {auctions.length === 1 ? "auction" : "auctions"}
-              </span>
+          <Card className="col-span-1 md:col-span-3 border-2 shadow-2xl backdrop-blur-xl overflow-hidden transition-all duration-300 hover:shadow-3xl bg-surface-alt/75 dark:bg-surface-alt/75 border-border-ui">
+            <div className="border-b-2 px-4 sm:px-6 py-4 sm:py-5 border-border-ui/30">
+              <div className="flex items-center justify-between">
+                <h2 className="text-sm font-bold uppercase tracking-[0.25em] text-on-surface-muted">
+                  All Auctions
+                </h2>
+                <span className="text-xs font-semibold px-3 py-1 rounded-full bg-brand/20 text-on-surface-muted">
+                  {auctions.length} {auctions.length === 1 ? "auction" : "auctions"}
+                </span>
+              </div>
             </div>
-            {auctions.length === 0 ? (
-              <p className="text-sm text-slate-400">
-                No auctions have been created yet. Once an admin creates an auction, it will appear
-                here.
-              </p>
-            ) : (
-              <div className="space-y-3">
-                {auctions.map((auction) => {
-                  const status = auction.status ?? "upcoming";
-                  const isLive = status === "live" && liveAuctionIds.has(auction.id);
-                  return (
-                    <div
-                      key={auction.id}
-                      className="flex items-center justify-between gap-3 rounded-lg border border-slate-800 bg-slate-950/60 px-3 py-3"
-                    >
-                      <div>
-                        <div className="text-sm font-semibold">{auction.name}</div>
-                        <div className="text-xs uppercase tracking-[0.18em] text-slate-400">
-                          {auction.sport_type.toUpperCase()}
-                          {status === "live" ? " · Live" : status === "completed" ? " · Completed" : " · Upcoming / Scheduled"}
+            <div className="px-4 sm:px-6 py-4 sm:py-5">
+              {auctions.length === 0 ? (
+                <p className="text-sm text-center py-8 text-on-surface">
+                  No auctions have been created yet. Once an admin creates an auction, it will appear here.
+                </p>
+              ) : (
+                <div className="space-y-3 max-h-96 overflow-y-auto">
+                  {auctions.map((auction) => {
+                    const status = auction.status ?? "upcoming";
+                    const isLive = status === "live" && liveAuctionIds.has(auction.id);
+                    return (
+                      <div
+                        key={auction.id}
+                        className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 rounded-lg border-2 px-4 py-3 backdrop-blur-md transition-all duration-300 border-border-ui bg-surface-alt/50"
+                      >
+                        <div className="flex-1">
+                          <div className="text-sm font-semibold text-on-surface">{auction.name}</div>
+                          <div className="text-xs uppercase tracking-[0.18em] mt-1 text-on-surface-muted">
+                            {auction.sport_type.toUpperCase()}
+                            <span className={`ml-2 ${status === "live" ? "text-brand" : "text-on-surface-muted"}`}>
+                              • {status === "live" ? "LIVE" : status === "completed" ? "COMPLETED" : "UPCOMING"}
+                            </span>
+                          </div>
+                        </div>
+                        <div className="flex gap-2 w-full sm:w-auto flex-wrap">
+                          {status === "completed" ? (
+                            <Link href={`/live/${auction.id}`} className="flex-1 sm:flex-none">
+                              <Button size="sm" className="w-full sm:w-auto transition-all duration-300 hover:shadow-lg bg-brand text-on-surface font-bold">
+                                View Squads
+                              </Button>
+                            </Link>
+                          ) : (
+                            <Link href={`/auction/${auction.id}`} className="flex-1 sm:flex-none">
+                              <Button size="sm" variant="outline" className="w-full sm:w-auto border-2 transition-all duration-300 border-border-ui text-on-surface">
+                                View &amp; Register
+                              </Button>
+                            </Link>
+                          )}
+                          {isLive && (
+                            <Link href={`/live/${auction.id}`} className="flex-1 sm:flex-none">
+                              <Button size="sm" variant="ghost" className="w-full sm:w-auto transition-all duration-300 text-brand">
+                                Watch
+                              </Button>
+                            </Link>
+                          )}
                         </div>
                       </div>
-                      <div className="flex gap-2">
-                        {status === "completed" ? (
-                          <Link href={`/live/${auction.id}`}>
-                            <Button size="sm" variant="default" className="bg-amber-600 hover:bg-amber-500 text-amber-50">
-                              View Squads
-                            </Button>
-                          </Link>
-                        ) : (
-                          <Link href={`/auction/${auction.id}`}>
-                            <Button size="sm" variant="outline">
-                              View &amp; Register
-                            </Button>
-                          </Link>
-                        )}
-                        {isLive && (
-                          <Link href={`/live/${auction.id}`}>
-                            <Button size="sm" variant="ghost">
-                              Watch
-                            </Button>
-                          </Link>
-                        )}
-                      </div>
-                    </div>
-                  );
-                })}
-              </div>
-            )}
+                    );
+                  })}
+                </div>
+              )}
+            </div>
           </Card>
         </section>
       </div>
-    </div >
+    </div>
   );
 }
 ````
@@ -4039,309 +4497,6 @@ export default function Home() {
     "hooks": "@/hooks"
   },
   "registries": {}
-}
-````
-
-## File: components/ConsolidatedTeamRoster.tsx
-````typescript
-"use client";
-
-import { useState, useEffect, useMemo } from "react";
-import { motion, AnimatePresence } from "framer-motion";
-import { Card } from "@/components/ui/card";
-import { TeamLogo } from "@/components/TeamLogo";
-import { UserCheck, Wallet, TrendingUp, Users, PanelRightClose, PanelRightOpen, PanelRight } from "lucide-react";
-import { formatPrice } from "@/lib/utils";
-import { Player, Team } from "@/lib/hooks/useAuctionState";
-import {
-    getTeamPlayers,
-    groupPlayersByRole,
-    getCaptain,
-    getMVP,
-    computeTeamStats,
-} from "@/lib/shared/playerUtils";
-import { TeamFormation } from "@/components/live/TeamFormation";
-import { TeamRosterPanel } from "@/components/live/TeamRosterPanel";
-
-interface Auction {
-    id: string;
-    name: string;
-    status: string;
-    sport_type: string;
-}
-
-interface ConsolidatedTeamRosterProps {
-    auction: Auction;
-    teams: Team[];
-    players: Player[];
-}
-
-export default function ConsolidatedTeamRoster({
-    auction,
-    teams,
-    players,
-}: ConsolidatedTeamRosterProps) {
-    const [selectedTeamId, setSelectedTeamId] = useState<string | null>(null);
-    const [isSquadPanelOpen, setIsSquadPanelOpen] = useState(false);
-    const [activeTab, setActiveTab] = useState<"highlights" | "rosters">("highlights");
-
-    useEffect(() => {
-        // default to open on desktop
-        setIsSquadPanelOpen(window.innerWidth >= 1024);
-    }, []);
-
-    useEffect(() => {
-        if (teams.length > 0 && !selectedTeamId) {
-            setSelectedTeamId(teams[0].id);
-        }
-    }, [teams, selectedTeamId]);
-
-    const selectedTeam = teams.find((t) => t.id === selectedTeamId) || null;
-
-    // ─── Computed data using shared utilities ───
-    const teamPlayers = useMemo(
-        () => (selectedTeamId ? getTeamPlayers(players, selectedTeamId) : []),
-        [players, selectedTeamId],
-    );
-
-    const groupedPlayers = useMemo(
-        () => groupPlayersByRole(teamPlayers, auction.sport_type),
-        [teamPlayers, auction.sport_type],
-    );
-
-    const captain = useMemo(() => getCaptain(teamPlayers), [teamPlayers]);
-    const mvp = useMemo(() => getMVP(teamPlayers), [teamPlayers]);
-    const stats = useMemo(
-        () =>
-            selectedTeam
-                ? computeTeamStats(selectedTeam, teamPlayers)
-                : { totalSpend: 0, avgPerPlayer: 0, signings: 0 },
-        [selectedTeam, teamPlayers],
-    );
-
-    return (
-        <div className="flex flex-col gap-6">
-            {/* Team Selector Pills (Horizontal) */}
-            <div className="flex overflow-x-auto pb-4 -mx-4 px-4 sm:mx-0 sm:px-0 custom-scrollbar gap-3 snap-x">
-                {teams.map((team) => {
-                    const count = getTeamPlayers(players, team.id).length;
-                    const isActive = selectedTeamId === team.id;
-                    return (
-                        <button
-                            key={team.id}
-                            onClick={() => setSelectedTeamId(team.id)}
-                            className={`flex-shrink-0 flex items-center gap-3 px-4 py-3 rounded-xl transition-all border snap-center whitespace-nowrap ${isActive
-                                ? "bg-emerald-500 border-emerald-400 shadow-lg shadow-emerald-500/20"
-                                : "bg-slate-900/40 border-slate-700 hover:border-slate-500"
-                                }`}
-                        >
-                            <TeamLogo name={team.name} logoUrl={team.logo_url} size="sm" />
-                            <div className="text-left">
-                                <div className={`font-bold text-sm ${isActive ? "text-slate-950" : "text-white"}`}>
-                                    {team.name}
-                                </div>
-                                <div className={`text-[10px] font-black uppercase tracking-widest flex gap-2 mt-0.5 ${isActive ? "text-emerald-950/70" : "text-slate-500"}`}>
-                                    <span>{count} players</span>
-                                    <span>•</span>
-                                    <span className={isActive ? "text-emerald-950 font-mono" : "text-emerald-500 font-mono"}>
-                                        {formatPrice(team.purse_remaining)} left
-                                    </span>
-                                </div>
-                            </div>
-                        </button>
-                    );
-                })}
-            </div>
-
-            {/* Tab Toggle Bar */}
-            <div className="flex justify-center">
-                <div className="bg-slate-900 border border-slate-800 p-1 rounded-full flex items-center">
-                    <button
-                        onClick={() => setActiveTab("highlights")}
-                        className={`px-6 py-2 rounded-full text-xs font-bold uppercase tracking-widest transition-colors ${activeTab === "highlights"
-                            ? "bg-emerald-500 text-slate-950"
-                            : "text-slate-400 hover:text-slate-200"
-                            }`}
-                    >
-                        Highlights
-                    </button>
-                    <button
-                        onClick={() => setActiveTab("rosters")}
-                        className={`px-6 py-2 rounded-full text-xs font-bold uppercase tracking-widest transition-colors ${activeTab === "rosters"
-                            ? "bg-emerald-500 text-slate-950"
-                            : "text-slate-400 hover:text-slate-200"
-                            }`}
-                    >
-                        Final Rosters
-                    </button>
-                </div>
-            </div>
-
-            {/* Main Content Area */}
-            <div className="w-full">
-                <Card className="bg-slate-900/40 border-slate-800 rounded-3xl min-h-[600px] backdrop-blur-xl overflow-hidden">
-                    {selectedTeam ? (
-                        <div className="flex flex-col h-full min-h-0">
-                            {/* Team Header */}
-                            <div className="flex flex-col sm:flex-row items-center justify-between bg-slate-900/60 backdrop-blur-md p-5 sm:p-6 border-b border-slate-800 gap-4 flex-shrink-0">
-                                <div className="flex items-center gap-5">
-                                    <motion.div
-                                        initial={{ scale: 0.8, opacity: 0 }}
-                                        animate={{ scale: 1, opacity: 1 }}
-                                        transition={{ type: "spring", bounce: 0.5 }}
-                                    >
-                                        <TeamLogo
-                                            name={selectedTeam.name}
-                                            logoUrl={selectedTeam.logo_url}
-                                            size="lg"
-                                        />
-                                    </motion.div>
-                                    <div>
-                                        <h2 className="text-2xl sm:text-3xl font-heading font-bold text-white uppercase tracking-tighter">
-                                            {selectedTeam.name}
-                                        </h2>
-                                        <div className="flex items-center gap-3 mt-1">
-                                            <span className="text-amber-400 font-bold text-sm tracking-widest uppercase">
-                                                {selectedTeam.manager}
-                                            </span>
-                                            <div className="h-1 w-1 rounded-full bg-slate-700" />
-                                            <div className="flex items-center gap-1.5 text-slate-400 text-xs font-bold uppercase tracking-wider">
-                                                <UserCheck size={14} className="text-emerald-500" />
-                                                {stats.signings} Signings
-                                            </div>
-                                        </div>
-                                    </div>
-                                </div>
-
-                                <div className="grid grid-cols-2 gap-3">
-                                    <div className="bg-slate-950/60 rounded-xl p-3 border border-slate-800/50 min-w-[130px]">
-                                        <div className="flex items-center gap-1.5 text-[10px] font-black text-slate-500 uppercase tracking-widest mb-1">
-                                            <Wallet size={12} className="text-emerald-500" />
-                                            Remaining
-                                        </div>
-                                        <div className="text-lg sm:text-xl font-mono font-bold text-emerald-400">
-                                            {formatPrice(selectedTeam.purse_remaining)}
-                                        </div>
-                                    </div>
-                                    <div className="relative bg-slate-950/60 rounded-xl p-3 border border-slate-800/50 min-w-[130px]">
-                                        <div className="flex items-center gap-1.5 text-[10px] font-black text-slate-500 uppercase tracking-widest mb-1">
-                                            <TrendingUp size={12} className="text-amber-500" />
-                                            Total Spend
-                                        </div>
-                                        <div className="text-lg sm:text-xl font-mono font-bold text-amber-400">
-                                            {formatPrice(stats.totalSpend)}
-                                        </div>
-
-                                        {/* Toggle Button for Squad Panel positioned inside header or next to it */}
-                                        <button
-                                            onClick={() => setIsSquadPanelOpen(!isSquadPanelOpen)}
-                                            className={`absolute -bottom-10 right-0 sm:top-1/2 sm:-translate-y-1/2 sm:-right-24 md:-right-28 sm:bottom-auto flex items-center gap-1.5 font-bold text-xs uppercase tracking-widest transition-colors ${isSquadPanelOpen ? "text-emerald-400" : "text-slate-500 hover:text-slate-300"
-                                                }`}
-                                        >
-                                            {isSquadPanelOpen ? <PanelRightClose size={14} /> : <PanelRightOpen size={14} />}
-                                            <span className="hidden sm:inline">Squad</span>
-                                        </button>
-                                    </div>
-                                </div>
-                            </div>
-
-                            {/* Conditional Content Based on Active Tab */}
-                            {activeTab === "highlights" ? (
-                                <div className="flex-1 flex flex-col lg:flex-row gap-4 p-4 sm:p-6 overflow-hidden min-h-0">
-                                    {/* Formation — hero area */}
-                                    <div className="flex-1 min-h-[500px] lg:min-h-0 flex flex-col overflow-y-auto lg:overflow-hidden rounded-2xl bg-slate-950">
-                                        <div className="flex items-center justify-end p-2 lg:hidden">
-                                            <button
-                                                onClick={() => setIsSquadPanelOpen(!isSquadPanelOpen)}
-                                                className={`flex items-center gap-1.5 font-bold text-xs uppercase tracking-widest transition-colors ${isSquadPanelOpen ? "text-emerald-400" : "text-slate-500 hover:text-slate-300"
-                                                    }`}
-                                            >
-                                                {isSquadPanelOpen ? <PanelRightClose size={14} /> : <PanelRightOpen size={14} />}
-                                                <span className="inline">Squad</span>
-                                            </button>
-                                        </div>
-                                        <TeamFormation
-                                            groupedPlayers={groupedPlayers}
-                                            captain={captain}
-                                            sportType={auction.sport_type}
-                                        />
-                                    </div>
-
-                                    {/* Captain and MVP Highlights directly here on desktop, or side panel space */}
-                                    <AnimatePresence mode="wait">
-                                        {isSquadPanelOpen && (
-                                            <motion.div
-                                                initial={{ width: 0, opacity: 0, scale: 0.95 }}
-                                                animate={{ width: "auto", opacity: 1, scale: 1 }}
-                                                exit={{ width: 0, opacity: 0, scale: 0.95 }}
-                                                transition={{ type: "spring", stiffness: 300, damping: 30 }}
-                                                className="lg:w-[340px] xl:w-[380px] flex-shrink-0 overflow-y-auto origin-right custom-scrollbar"
-                                            >
-                                                <div className="w-full h-full min-w-[300px] space-y-4">
-                                                    <div className="text-sm font-black text-slate-500 uppercase tracking-widest mt-2 px-2">
-                                                        Team Star Players
-                                                    </div>
-                                                    <TeamRosterPanel
-                                                        captain={captain}
-                                                        mvp={mvp}
-                                                        teamPlayers={[]} // Specifically only highlight captain and MVP here
-                                                    />
-                                                </div>
-                                            </motion.div>
-                                        )}
-                                    </AnimatePresence>
-                                </div>
-                            ) : (
-                                <div className="flex-1 p-4 sm:p-6 overflow-y-auto">
-                                    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
-                                        {teamPlayers.map(player => (
-                                            <div key={player.id} className="bg-slate-900 border border-slate-800 rounded-xl p-3 flex items-center gap-3">
-                                                <div className="w-12 h-12 rounded-lg bg-slate-800 overflow-hidden flex-shrink-0">
-                                                    {player.photo_url ? (
-                                                        <img src={player.photo_url} alt={player.name} className="w-full h-full object-cover object-top" />
-                                                    ) : (
-                                                        <div className="w-full h-full flex items-center justify-center font-heading font-bold text-slate-500">
-                                                            {player.name.charAt(0)}
-                                                        </div>
-                                                    )}
-                                                </div>
-                                                <div className="flex-1 min-w-0">
-                                                    <div className="font-bold text-sm text-white truncate uppercase tracking-tight font-heading">
-                                                        {player.name}
-                                                    </div>
-                                                    <div className="text-[10px] font-black text-slate-500 uppercase tracking-widest mt-0.5">
-                                                        {player.role}
-                                                    </div>
-                                                    <div className="text-xs font-mono font-bold text-emerald-500 mt-1">
-                                                        {formatPrice(player.sold_price)}
-                                                    </div>
-                                                </div>
-                                                {player.is_captain && (
-                                                    <div className="bg-amber-500 text-amber-950 text-[10px] font-black px-2 py-0.5 rounded-sm uppercase">C</div>
-                                                )}
-                                            </div>
-                                        ))}
-                                        {teamPlayers.length === 0 && (
-                                            <div className="col-span-full py-12 text-center text-slate-500 italic uppercase font-bold tracking-widest text-sm">
-                                                No players signed yet.
-                                            </div>
-                                        )}
-                                    </div>
-                                </div>
-                            )}
-                        </div>
-                    ) : (
-                        <div className="w-full h-full flex flex-col items-center justify-center text-slate-500 p-12">
-                            <Users size={48} className="opacity-10 mb-4" />
-                            <p className="text-sm italic font-bold uppercase tracking-widest">
-                                Select a team to view their final roster
-                            </p>
-                        </div>
-                    )}
-                </Card>
-            </div>
-        </div>
-    );
 }
 ````
 
@@ -4604,6 +4759,7 @@ export function ImageViewerModal({
 "use client"
 
 import { motion } from "framer-motion"
+import { formatPriceCompact } from "@/lib/utils"
 
 export default function AuctionHero({
     player,
@@ -4613,7 +4769,7 @@ export default function AuctionHero({
 }: any) {
 
     return (
-        <div className="relative w-full h-full grid grid-cols-1 md:grid-cols-2 overflow-hidden rounded-2xl bg-[#03070a]">
+        <div className="relative w-full h-full grid grid-cols-1 md:grid-cols-2 overflow-hidden rounded-2xl bg-white dark:bg-[#03070a] shadow-lg border border-slate-200 dark:border-slate-800">
 
             {/* LEFT SIDE — PLAYER IMAGE */}
             <div className="relative h-full min-h-[200px] md:min-h-0 w-full overflow-hidden">
@@ -4621,12 +4777,12 @@ export default function AuctionHero({
                 <img
                     src={player.photo_url}
                     alt={player.name}
-                    className="absolute inset-0 w-full h-full object-cover object-top"
+                    className="absolute inset-0 w-full h-full object-contain object-top"
                 />
 
                 {/* gradient fade — bottom on mobile, right on desktop */}
-                <div className="absolute inset-0 bg-gradient-to-b md:bg-gradient-to-r from-transparent via-transparent to-[#03070a]" />
-                <div className="absolute inset-0 bg-gradient-to-r from-black/40 via-transparent to-transparent hidden md:block" />
+                <div className="absolute inset-0 bg-gradient-to-b md:bg-gradient-to-r from-transparent via-transparent to-white dark:to-[#03070a]" />
+                <div className="absolute inset-0 bg-gradient-to-r from-white/40 dark:from-black/40 via-transparent to-transparent hidden md:block" />
 
             </div>
 
@@ -4642,17 +4798,17 @@ export default function AuctionHero({
 
 
                 {/* PLAYER NAME */}
-                <h1 className="text-[clamp(2rem,1.5rem+3vw,4.5rem)] font-extrabold italic text-white leading-[0.9] tracking-tight">
+                <h1 className="text-[clamp(2rem,1.5rem+3vw,4.5rem)] font-extrabold italic text-slate-900 dark:text-white leading-[0.9] tracking-tight">
                     {player.name}
                 </h1>
 
 
                 {/* BASE PRICE */}
-                <div className="flex items-center gap-4 text-sm text-slate-400 tracking-widest">
+                <div className="flex items-center gap-4 text-sm text-slate-500 dark:text-slate-400 tracking-widest">
 
                     BASE PRICE
 
-                    <div className="h-[1px] w-16 md:w-24 bg-slate-700" />
+                    <div className="h-[1px] w-16 md:w-24 bg-slate-300 dark:bg-slate-700" />
 
                     ₹{basePrice.toLocaleString("en-IN")}
 
@@ -4677,8 +4833,13 @@ export default function AuctionHero({
                             CURRENT BID
                         </div>
 
-                        <div className="text-[clamp(1.75rem,1.5rem+2vw,3rem)] font-black italic text-black tracking-tight">
-                            ₹{bid.toLocaleString("en-IN")}
+                        <div className="flex flex-col justify-end mt-1">
+                            <div className="text-[clamp(1.75rem,1.5rem+2vw,3rem)] font-black italic text-black tracking-tight leading-none">
+                                ₹{bid.toLocaleString("en-IN")}
+                            </div>
+                            <div className="text-sm font-bold text-black/60 italic tracking-wider mt-1">
+                                {formatPriceCompact(bid)}
+                            </div>
                         </div>
 
 
@@ -4741,7 +4902,11 @@ export function BiddingPIP({ player, leadingTeam, currentBid, phase = "bidding" 
             initial={{ x: 100, opacity: 0 }}
             animate={{ x: 0, opacity: 1 }}
             exit={{ x: 100, opacity: 0 }}
-            className={`fixed top-6 right-6 z-[100] w-64 h-24 bg-slate-900/80 backdrop-blur-xl border rounded-2xl shadow-2xl overflow-hidden transition-colors duration-500 
+            drag
+            dragMomentum={false}
+            dragElastic={0.1}
+            whileDrag={{ scale: 1.05, cursor: "grabbing" }}
+            className={`fixed top-28 right-6 md:right-10 z-[100] w-64 h-24 bg-white/90 dark:bg-slate-900/80 backdrop-blur-xl border rounded-2xl shadow-2xl overflow-hidden transition-colors duration-500 cursor-grab touch-none select-none
                 ${phase === "sold" ? "border-emerald-500 shadow-emerald-500/40" :
                     phase === "unsold" ? "border-rose-500 shadow-rose-500/40" :
                         "border-emerald-500/50 shadow-emerald-900/40"}`}
@@ -4760,7 +4925,7 @@ export function BiddingPIP({ player, leadingTeam, currentBid, phase = "bidding" 
                         photoUrl={player.photo_url}
                         size="md"
                     />
-                    <div className="absolute -bottom-1 -right-1 bg-emerald-500 text-slate-950 p-1 rounded-full shadow-lg">
+                    <div className="absolute -bottom-1 -right-1 bg-emerald-500 text-white dark:text-slate-950 p-1 rounded-full shadow-lg">
                         <Gavel size={10} strokeWidth={3} />
                     </div>
                 </div>
@@ -4772,7 +4937,7 @@ export function BiddingPIP({ player, leadingTeam, currentBid, phase = "bidding" 
                                 <TrendingUp size={10} />
                                 Live Bid
                             </div>
-                            <div className="text-sm font-black text-white truncate italic uppercase tracking-tighter">
+                            <div className="text-sm font-black text-slate-900 dark:text-white truncate italic uppercase tracking-tighter">
                                 {player.name}
                             </div>
                             <div className="flex items-center justify-between mt-1">
@@ -4789,7 +4954,7 @@ export function BiddingPIP({ player, leadingTeam, currentBid, phase = "bidding" 
                                 <Trophy size={10} />
                                 Sold To {leadingTeam?.name}
                             </div>
-                            <div className="text-sm font-black text-white truncate italic uppercase tracking-tighter">
+                            <div className="text-sm font-black text-slate-900 dark:text-white truncate italic uppercase tracking-tighter">
                                 {player.name}
                             </div>
                             <div className="flex items-center justify-between mt-1">
@@ -4817,7 +4982,7 @@ export function BiddingPIP({ player, leadingTeam, currentBid, phase = "bidding" 
             {/* Leading Team Bar */}
             {phase === "bidding" && (
                 <div className="absolute bottom-0 left-0 right-0 h-4 bg-emerald-500 flex items-center px-3">
-                    <span className="text-[8px] font-black text-slate-950 uppercase tracking-[0.2em] truncate">
+                    <span className="text-[8px] font-black text-white dark:text-slate-950 uppercase tracking-[0.2em] truncate">
                         {leadingTeam ? `Leading: ${leadingTeam.name}` : "Awaiting Bids"}
                     </span>
                 </div>
@@ -4835,193 +5000,571 @@ export function BiddingPIP({ player, leadingTeam, currentBid, phase = "bidding" 
 }
 ````
 
-## File: components/live/LiveSidebar.tsx
+## File: components/live/BlindBidReveal.tsx
+````typescript
+"use client";
+
+import { useMemo, useState, useEffect } from "react";
+import { motion, AnimatePresence } from "framer-motion";
+import { Player, Team } from "@/lib/hooks/useAuctionState";
+import { formatPriceCompact } from "@/lib/utils";
+
+interface BlindBidRevealProps {
+  players: Player[];
+  teams: Team[];
+}
+
+/**
+ * BlindBidReveal: Cinematic card flip animation for blind bid player reveals.
+ *
+ * Animation sequence:
+ * 1. Cards start face-down in a grid
+ * 2. All cards flip sequentially shortly after mount (reveal who is in the blind pool)
+ * 3. When admin matches a player to a team, that card gets a glowing highlight animation
+ *
+ * Uses CSS perspective + Framer Motion rotateY for the 3D card flip.
+ * Only uses transform + opacity for guaranteed 60 FPS GPU rendering.
+ */
+export default function BlindBidReveal({ players, teams }: BlindBidRevealProps) {
+  const blindPlayers = useMemo(
+    () =>
+      players.filter(
+        (p) => p.is_blind_bid === true
+      ),
+    [players]
+  );
+
+  // Sequential auto-flip: reveal all cards one by one shortly after mount
+  const [flippedCount, setFlippedCount] = useState(0);
+
+  useEffect(() => {
+    if (flippedCount >= blindPlayers.length) return;
+
+    const timer = setTimeout(
+      () => setFlippedCount((prev) => prev + 1),
+      flippedCount === 0 ? 800 : 400 // Initial delay, then 400ms per card
+    );
+    return () => clearTimeout(timer);
+  }, [flippedCount, blindPlayers.length]);
+
+  return (
+    <motion.section
+      key="blind-bid-reveal"
+      initial={{ opacity: 0 }}
+      animate={{ opacity: 1 }}
+      exit={{ opacity: 0 }}
+      transition={{ duration: 0.4 }}
+      className="w-full flex flex-col items-center justify-center py-8 sm:py-12 px-4 sm:px-6"
+    >
+      {/* Title */}
+      <motion.div
+        initial={{ opacity: 0, y: -20 }}
+        animate={{ opacity: 1, y: 0 }}
+        transition={{ duration: 0.5, delay: 0.2 }}
+        className="text-center mb-8 sm:mb-12"
+      >
+        <h2 className="italic tracking-tighter text-blue-500 uppercase mb-3 animate-pulse text-2xl sm:text-3xl md:text-4xl font-black">
+          Blind Bid Reveal
+        </h2>
+        <p className="max-w-md mx-auto text-sm md:text-base text-slate-600 dark:text-slate-400 font-medium">
+          Concealed signings about to be unveiled...
+        </p>
+      </motion.div>
+
+      {/* Cards Grid */}
+      <div
+        className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-4 sm:gap-6 w-full max-w-screen-2xl"
+        style={{ perspective: "1200px" }}
+      >
+        {blindPlayers.map((player, index) => {
+          const isFlipped = index < flippedCount;
+          const assignedTeam = player.sold_team_id
+            ? teams.find((t) => t.id === player.sold_team_id)
+            : null;
+          const isMatched = !!assignedTeam;
+
+          return (
+            <FlipCard
+              key={player.id}
+              player={player}
+              team={assignedTeam ?? null}
+              isFlipped={isFlipped}
+              isMatched={isMatched}
+              index={index}
+            />
+          );
+        })}
+      </div>
+    </motion.section>
+  );
+}
+
+function FlipCard({
+  player,
+  team,
+  isFlipped,
+  isMatched,
+  index,
+}: {
+  player: Player;
+  team: Team | null;
+  isFlipped: boolean;
+  isMatched: boolean;
+  index: number;
+}) {
+  return (
+    <motion.div
+      className="w-full"
+      initial={{ opacity: 0, y: 30 }}
+      animate={{ opacity: 1, y: 0 }}
+      transition={{ delay: 0.1 + index * 0.04, duration: 0.4 }}
+      style={{ perspective: "1000px" }}
+    >
+      <motion.div
+        className="relative w-full"
+        style={{ transformStyle: "preserve-3d" }}
+        animate={{ rotateY: isFlipped ? 180 : 0 }}
+        transition={{
+          duration: 0.8,
+          type: "spring",
+          stiffness: 60,
+          damping: 15,
+        }}
+      >
+        {/* Front: Card Back */}
+        <div
+          className="w-full rounded-2xl overflow-hidden border-2 border-blue-500/40 bg-gradient-to-br from-blue-900 via-blue-800 to-blue-950 aspect-[3/4] flex items-center justify-center shadow-xl"
+          style={{ backfaceVisibility: "hidden" }}
+        >
+          <motion.div
+            className="text-blue-400/50 text-5xl font-black italic"
+            animate={{ scale: [1, 1.1, 1] }}
+            transition={{ repeat: Infinity, duration: 2 }}
+          >
+            ?
+          </motion.div>
+        </div>
+
+        {/* Back: Player Card (rotated 180deg to be readable when flipped) */}
+        <div
+          className={`absolute inset-0 w-full rounded-2xl overflow-hidden shadow-xl transition-all duration-500 ${
+            isMatched
+              ? "border-2 border-emerald-400 ring-4 ring-emerald-400/30 shadow-emerald-500/30"
+              : "border-2 border-blue-400/60"
+          }`}
+          style={{
+            backfaceVisibility: "hidden",
+            transform: "rotateY(180deg)",
+          }}
+        >
+          <div className="flex flex-col h-full bg-card">
+            {/* Player photo */}
+            <div className="relative flex-1 overflow-hidden bg-slate-200 dark:bg-slate-800">
+              <img
+                src={player.photo_url || "/placeholder-player.png"}
+                alt={player.name}
+                className="w-full h-full object-cover object-top"
+              />
+              <div className="absolute inset-0 bg-gradient-to-t from-black/70 via-transparent to-transparent" />
+
+              {/* Matched Glow Overlay */}
+              {isMatched && (
+                <motion.div
+                  className="absolute inset-0 bg-emerald-500/10"
+                  initial={{ opacity: 0 }}
+                  animate={{ opacity: [0, 0.3, 0] }}
+                  transition={{ duration: 1.5, repeat: 2 }}
+                />
+              )}
+            </div>
+
+            {/* Info */}
+            <div className="p-3 text-center bg-card border-t border-border">
+              <div className="font-bold text-sm text-foreground truncate">
+                {player.name}
+              </div>
+              <div className="text-[10px] uppercase tracking-[0.2em] text-muted-foreground mt-0.5">
+                {player.role}
+              </div>
+              {isMatched && team ? (
+                <motion.div
+                  initial={{ opacity: 0, scale: 0.5 }}
+                  animate={{ opacity: 1, scale: 1 }}
+                  transition={{
+                    type: "spring",
+                    stiffness: 200,
+                    damping: 15,
+                  }}
+                  className="mt-2 bg-emerald-500/10 border border-emerald-400/30 rounded-md py-1 px-2 inline-block"
+                >
+                  <span className="text-[10px] font-bold text-emerald-500">
+                    {team.name}
+                  </span>
+                  {player.sold_price && (
+                    <span className="text-[10px] font-bold text-amber-500 ml-1.5">
+                      {formatPriceCompact(player.sold_price)}
+                    </span>
+                  )}
+                </motion.div>
+              ) : (
+                <div className="mt-2">
+                  <motion.div
+                    className="flex justify-center gap-1"
+                    animate={{ opacity: [0.4, 1, 0.4] }}
+                    transition={{ repeat: Infinity, duration: 1.5 }}
+                  >
+                    <span className="text-[9px] text-blue-400 font-medium tracking-wider">
+                      AWAITING MATCH
+                    </span>
+                  </motion.div>
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+      </motion.div>
+    </motion.div>
+  );
+}
+````
+
+## File: components/live/CaptainDeck.tsx
+````typescript
+"use client";
+
+import { useMemo, useState, useEffect } from "react";
+import { motion, AnimatePresence } from "framer-motion";
+import { Player, Team } from "@/lib/hooks/useAuctionState";
+import CaptainCard from "@/components/live/TempCard";
+
+interface CaptainDeckProps {
+  players: Player[];
+  teams: Team[];
+}
+
+/**
+ * CaptainDeck: Cinematic card stack explosion animation for captain reveal.
+ *
+ * Animation sequence:
+ * 1. All captain cards start stacked in the center (position: absolute overlay)
+ * 2. Cards shuffle (slight rotateZ oscillation)
+ * 3. One by one, each card "launches" upward (translateY + scale), spotlights for 2s,
+ *    then flies to its final grid position
+ *
+ * Cards that are already matched (sold) skip the shuffle and jump directly to
+ * their revealed position with a quick fade-in. This provides resilience to page
+ * refreshes mid-animation.
+ */
+export default function CaptainDeck({ players, teams }: CaptainDeckProps) {
+  const captains = useMemo(() => players.filter((p) => p.is_captain), [players]);
+
+  // Track which captains have been "revealed" in the animation sequence
+  const [revealedIndex, setRevealedIndex] = useState(-1);
+  const [shuffleComplete, setShuffle] = useState(false);
+
+  // Count how many are already matched (for resilience on refresh)
+  const alreadyMatched = useMemo(
+    () => captains.filter((c) => c.status === "sold").length,
+    [captains]
+  );
+
+  // Start the shuffle after mount
+  useEffect(() => {
+    const shuffleTimer = setTimeout(() => setShuffle(true), 800);
+    return () => clearTimeout(shuffleTimer);
+  }, []);
+
+  // After shuffle, reveal captains one by one
+  useEffect(() => {
+    if (!shuffleComplete) return;
+
+    // Quick-reveal already matched captains
+    if (revealedIndex < alreadyMatched - 1) {
+      setRevealedIndex(alreadyMatched - 1);
+      return;
+    }
+
+    if (revealedIndex >= captains.length - 1) return;
+
+    const timer = setTimeout(
+      () => setRevealedIndex((prev) => prev + 1),
+      revealedIndex < alreadyMatched ? 300 : 2500 // Fast for pre-matched, slow for live reveals
+    );
+    return () => clearTimeout(timer);
+  }, [shuffleComplete, revealedIndex, captains.length, alreadyMatched]);
+
+  return (
+    <motion.section
+      key="captain-deck"
+      initial={{ opacity: 0 }}
+      animate={{ opacity: 1 }}
+      exit={{ opacity: 0 }}
+      transition={{ duration: 0.4 }}
+      className="w-full flex flex-col items-center justify-center py-8 sm:py-12 px-4 sm:px-6"
+    >
+      {/* Title */}
+      <motion.div
+        initial={{ opacity: 0, y: -20 }}
+        animate={{ opacity: 1, y: 0 }}
+        transition={{ duration: 0.5, delay: 0.2 }}
+        className="text-center mb-8 sm:mb-12"
+      >
+        <h2 className="italic tracking-tighter text-amber-500 uppercase mb-3 animate-pulse text-2xl sm:text-3xl md:text-4xl font-black">
+          Captain Reveal
+        </h2>
+        <p className="max-w-md mx-auto text-sm md:text-base text-slate-600 dark:text-slate-400 font-medium">
+          Franchises selecting leadership via Blind Bidding...
+        </p>
+      </motion.div>
+
+      {/* Deck Area */}
+      <div className="relative w-full max-w-screen-2xl" style={{ minHeight: "400px" }}>
+        {/* Stacked pile (before shuffle) */}
+        <AnimatePresence>
+          {!shuffleComplete && (
+            <motion.div
+              className="absolute inset-0 flex items-center justify-center"
+              exit={{ opacity: 0 }}
+              transition={{ duration: 0.3 }}
+            >
+              {captains.map((captain, i) => (
+                <motion.div
+                  key={`stack-${captain.id}`}
+                  className="absolute w-48 sm:w-56"
+                  initial={{ scale: 0.8, opacity: 0 }}
+                  animate={{
+                    scale: 1,
+                    opacity: 1,
+                    rotateZ: (i - captains.length / 2) * 5,
+                    x: (i - captains.length / 2) * 8,
+                    y: (i - captains.length / 2) * -3,
+                  }}
+                  transition={{
+                    delay: i * 0.1,
+                    duration: 0.4,
+                    type: "spring",
+                    stiffness: 120,
+                  }}
+                >
+                  {/* Card back face */}
+                  <div className="rounded-2xl overflow-hidden border-2 border-amber-500/50 bg-gradient-to-br from-amber-900 via-amber-800 to-amber-950 aspect-[3/4] flex items-center justify-center shadow-2xl">
+                    <div className="text-amber-400/60 text-5xl font-black italic">?</div>
+                  </div>
+                </motion.div>
+              ))}
+            </motion.div>
+          )}
+        </AnimatePresence>
+
+        {/* Revealed cards grid */}
+        {shuffleComplete && (
+          <div className="flex flex-wrap justify-center place-items-center gap-4 sm:gap-6 w-full max-w-[1400px] mx-auto">
+            {captains.map((captain, index) => {
+              const matchedTeam = teams.find((t) => t.captain_id === captain.id);
+              const isRevealed = index <= revealedIndex;
+
+              return (
+                <motion.div
+                  key={captain.id}
+                  className="flex justify-center shrink-0 w-[140px] sm:w-[180px] lg:w-[220px]"
+                  initial={{ opacity: 0, scale: 0.3, y: -100 }}
+                  animate={
+                    isRevealed
+                      ? { opacity: 1, scale: 1, y: 0 }
+                      : { opacity: 0.15, scale: 0.85, y: 0 }
+                  }
+                  transition={{
+                    duration: isRevealed ? 0.6 : 0.3,
+                    type: "spring",
+                    stiffness: 100,
+                    damping: 15,
+                  }}
+                >
+                  {isRevealed ? (
+                    <div className="w-full max-w-xs sm:max-w-sm">
+                      <CaptainCard
+                        index={index}
+                        name={captain.name}
+                        role={captain.role}
+                        image={captain.photo_url || "/placeholder-player.png"}
+                        teamColor="#22c55e"
+                        teamName={matchedTeam?.name}
+                        price={
+                          matchedTeam && captain.sold_price
+                            ? Math.round(captain.sold_price / 100000)
+                            : undefined
+                        }
+                        isSold={!!matchedTeam}
+                      />
+                    </div>
+                  ) : (
+                    /* Unrevealed card back */
+                    <div className="w-full max-w-xs sm:max-w-sm">
+                      <div className="rounded-2xl overflow-hidden border-2 border-amber-500/30 bg-gradient-to-br from-amber-900 via-amber-800 to-amber-950 aspect-[3/4] flex items-center justify-center shadow-lg">
+                        <motion.div
+                          className="text-amber-400/40 text-4xl font-black italic"
+                          animate={{ rotateZ: [-3, 3, -3] }}
+                          transition={{ repeat: Infinity, duration: 1.5 }}
+                        >
+                          ?
+                        </motion.div>
+                      </div>
+                    </div>
+                  )}
+                </motion.div>
+              );
+            })}
+          </div>
+        )}
+      </div>
+    </motion.section>
+  );
+}
+````
+
+## File: components/live/PlayerRepository.tsx
 ````typescript
 "use client";
 
 import { useState, useMemo } from "react";
-import { Card } from "@/components/ui/card";
-import { Input } from "@/components/ui/input";
-import { Search, Filter, Users, Shield, TrendingUp } from "lucide-react";
-import { Team, Player } from "@/lib/hooks/useAuctionState";
+import { Player, Team } from "@/lib/hooks/useAuctionState";
+import { PlayerAvatar } from "@/components/PlayerAvatar";
 import { TeamLogo } from "@/components/TeamLogo";
+import { Search, ArrowLeft } from "lucide-react";
+import { Input } from "@/components/ui/input";
 
-interface LiveSidebarProps {
-    teams: Team[];
+type FilterStatus = "all" | "upcoming" | "sold" | "unsold";
+
+interface PlayerRepositoryProps {
     players: Player[];
-    onTeamClick: (team: Team) => void;
-    onExpandPlayers?: () => void;
-    maxPlayers: number;
+    teams: Team[];
+    onBack: () => void;
 }
 
-export function LiveSidebar({ teams, players, onTeamClick, onExpandPlayers, maxPlayers }: LiveSidebarProps) {
+export function PlayerRepository({ players, teams, onBack }: PlayerRepositoryProps) {
     const [search, setSearch] = useState("");
-    const [filter, setFilter] = useState<Player["status"] | "all">("all");
-    const [expandSidebarPlayers, setExpandSidebarPlayers] = useState(false);
-    const SIDEBAR_PLAYER_LIMIT = 5;
+    const [filter, setFilter] = useState<FilterStatus>("all");
 
     const filteredPlayers = useMemo(() => {
-        return players.filter((p) => {
-            const matchesSearch = p.name.toLowerCase().includes(search.toLowerCase());
-            const matchesFilter = filter === "all" ? true : p.status === filter;
-            return matchesSearch && matchesFilter;
-        });
-    }, [players, search, filter]);
+        return players
+            .filter((p) => {
+                if (filter === "all") return true;
+                if (filter === "sold") return p.status === "sold" || p.sold_team_id !== null;
+                if (filter === "unsold") return p.status === "unsold" || p.status === "unsold_final";
+                if (filter === "upcoming") return p.status === "upcoming" || p.status === "upcoming_phase2" || p.status === "blind_reserved";
+                return p.status === filter;
+            })
+            .filter((p) => p.name.toLowerCase().includes(search.toLowerCase()))
+            .sort((a, b) => a.name.localeCompare(b.name));
+    }, [players, filter, search]);
 
-    const soldPlayers = useMemo(() => players.filter(p => p.status === 'sold'), [players]);
+    const filterPills: { label: string; value: FilterStatus }[] = [
+        { label: "All", value: "all" },
+        { label: "Upcoming", value: "upcoming" },
+        { label: "Sold", value: "sold" },
+        { label: "Unsold", value: "unsold" },
+    ];
 
     return (
-        <div className="flex flex-col h-full gap-fluid">
-            {/* Teams Overview */}
-            <Card className="border-slate-800 bg-slate-900/50 backdrop-blur-md p-fluid flex flex-col gap-fluid-sm">
-                <div className="flex items-center gap-2 text-emerald-400 font-bold text-xs uppercase tracking-widest">
-                    <Shield size={14} />
-                    Franchises
-                </div>
-                <div className="grid grid-cols-1 gap-2 overflow-y-auto max-h-[300px] pr-2 custom-scrollbar">
-                    {teams.map((team) => (
-                        <button
-                            key={team.id}
-                            onClick={() => onTeamClick(team)}
-                            className="flex items-center justify-between p-3 rounded-xl border border-slate-800 bg-slate-950/40 hover:bg-slate-800/60 hover:border-emerald-500/50 transition-all group text-left"
-                        >
-                            <div className="flex items-center gap-3">
-                                <TeamLogo name={team.name} logoUrl={team.logo_url} size="sm" />
-                                <div>
-                                    <div className="text-sm font-bold text-slate-100 group-hover:text-emerald-400 transition-colors">
-                                        {team.name}
-                                    </div>
-                                    <div className="text-[10px] text-slate-500 uppercase font-medium">
-                                        {team.manager}
-                                    </div>
-                                </div>
-                            </div>
-                            <div className="text-right">
-                                <div className="text-xs font-mono text-emerald-500">
-                                    ₹{team.purse_remaining.toLocaleString("en-IN")}
-                                </div>
-                                <div className="text-[10px] text-slate-400">
-                                    {maxPlayers - team.slots_remaining} / {maxPlayers} Slots
-                                </div>
-                            </div>
-                        </button>
-                    ))}
-                </div>
-            </Card>
-
-            {/* Player List */}
-            <Card className="flex-1 border-slate-800 bg-slate-900/50 backdrop-blur-md p-fluid flex flex-col gap-fluid-sm overflow-hidden" data-density="compact">
+        <div className="flex-1 flex flex-col h-full bg-white/60 dark:bg-slate-900/40 rounded-2xl border border-slate-300 dark:border-slate-800 overflow-hidden" data-density="compact">
+            {/* Header */}
+            <div className="flex flex-col gap-3 p-4 sm:p-5 border-b border-slate-300 dark:border-slate-800 flex-shrink-0">
                 <div className="flex items-center justify-between">
-                    <div className="flex items-center gap-2 text-amber-500 font-bold text-xs uppercase tracking-widest">
-                        <Users size={14} />
-                        Player Repository
+                    {/* <button
+                        onClick={onBack}
+                        className="flex items-center gap-1.5 text-slate-400 hover:text-emerald-400 font-bold text-xs uppercase tracking-widest transition-colors"
+                    >
+                        <ArrowLeft size={14} />
+                        Back to Auction
+                    </button> */}
+                    <div className="text-[10px] font-bold text-slate-600 dark:text-slate-500 uppercase tracking-widest">
+                        {filteredPlayers.length} Players
                     </div>
-                    {onExpandPlayers && (
-                        <button
-                            onClick={onExpandPlayers}
-                            className="text-[10px] text-emerald-500 hover:text-emerald-400 font-black uppercase tracking-widest transition-colors flex items-center gap-1"
-                        >
-                            <TrendingUp size={12} />
-                            Expand
-                        </button>
-                    )}
                 </div>
 
+                {/* Search */}
                 <div className="relative">
-                    <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-500" size={14} />
+                    <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 dark:text-slate-500" size={14} />
                     <Input
                         placeholder="Search players..."
                         value={search}
                         onChange={(e) => setSearch(e.target.value)}
-                        className="pl-9 bg-slate-950/50 border-slate-800 text-sm h-9 ring-offset-slate-950 focus-visible:ring-emerald-500"
+                        className="pl-9 bg-slate-100/50 dark:bg-slate-950/50 border-slate-300 dark:border-slate-800 text-sm h-9"
                     />
                 </div>
 
-                <div className="flex gap-2 overflow-x-auto pb-2 custom-scrollbar">
-                    {(["all", "upcoming", "live", "sold"] as const).map((f) => (
+                {/* Filter Pills */}
+                <div className="flex gap-2 overflow-x-auto">
+                    {filterPills.map((pill) => (
                         <button
-                            key={f}
-                            onClick={() => setFilter(f)}
-                            className={`px-3 py-1 rounded-full text-[10px] font-bold uppercase tracking-wider transition-all whitespace-nowrap border ${filter === f
-                                ? "bg-emerald-500/20 border-emerald-500 text-emerald-400"
-                                : "bg-slate-950/40 border-slate-800 text-slate-500 hover:border-slate-700"
+                            key={pill.value}
+                            onClick={() => setFilter(pill.value)}
+                            className={`px-3 py-1 rounded-full text-[10px] font-bold uppercase tracking-wider transition-all whitespace-nowrap border ${filter === pill.value
+                                ? "bg-emerald-500/20 border-emerald-500 text-emerald-600 dark:text-emerald-400"
+                                : "bg-slate-100/40 dark:bg-slate-950/40 border-slate-300 dark:border-slate-800 text-slate-600 dark:text-slate-500 hover:border-slate-400 dark:hover:border-slate-700"
                                 }`}
                         >
-                            {f}
+                            {pill.label}
                         </button>
                     ))}
                 </div>
+            </div>
 
-                <div className="flex-1 overflow-y-auto pr-2 custom-scrollbar space-y-2">
-                    {filteredPlayers
-                        .slice(0, expandSidebarPlayers ? filteredPlayers.length : SIDEBAR_PLAYER_LIMIT)
-                        .map((player) => {
-                            const team = teams.find(t => t.id === player.sold_team_id);
-                            return (
-                                <div
-                                    key={player.id}
-                                    className="p-3 rounded-xl border border-slate-800/50 bg-slate-950/20 flex items-center justify-between group hover:border-slate-700 transition-all"
-                                >
-                                    <div>
-                                        <div className="text-sm font-semibold text-slate-200 group-hover:text-white transition-colors">
-                                            {player.name}
-                                        </div>
-                                        <div className="text-[10px] text-slate-500 uppercase tracking-tight">
-                                            {player.role} {player.is_captain && "• Captain"}
-                                        </div>
-                                    </div>
-                                    <div className="text-right">
-                                        {player.status === 'sold' && team ? (
-                                            <>
-                                                <div className="text-[10px] font-black text-emerald-500 uppercase">
-                                                    {team.name}
-                                                </div>
-                                                <div className="text-[10px] font-mono text-slate-400">
-                                                    ₹{player.sold_price?.toLocaleString("en-IN")}
-                                                </div>
-                                            </>
-                                        ) : (
-                                            <div className={`text-[10px] font-bold uppercase ${player.status === 'live' ? "text-amber-500 animate-pulse" :
-                                                player.status === 'upcoming' ? "text-rose-500" : "text-slate-600"
-                                                }`}>
-                                                {player.status}
-                                            </div>
-                                        )}
-                                    </div>
+            {/* Player Grid */}
+            <div className="flex-1 overflow-y-auto p-4 sm:p-5">
+                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2 sm:gap-3">
+                    {filteredPlayers.map((player) => {
+                        const team = teams.find((t) => t.id === player.sold_team_id);
+                        return (
+                            <div
+                                key={player.id}
+                                className="p-2.5 sm:p-3 rounded-xl border border-slate-300 dark:border-slate-800 bg-slate-50 dark:bg-slate-950/30 flex items-center gap-2.5 sm:gap-3 group hover:border-emerald-500/30 transition-all"
+                            >
+                                <div className="flex-shrink-0">
+                                    <PlayerAvatar
+                                        id={player.id}
+                                        name={player.name}
+                                        role={player.role}
+                                        photoUrl={player.photo_url}
+                                        size="sm"
+                                        isCaptain={player.is_captain}
+                                    />
                                 </div>
-                            );
-                        })}
+                                <div className="flex-1 min-w-0">
+                                    <div className="text-xs font-bold text-slate-900 dark:text-white truncate">{player.name}</div>
+                                    <div className="text-[8px] font-black text-slate-400 dark:text-slate-500 uppercase tracking-wider">
+                                        {player.role}
+                                    </div>
+                                    {player.status === "sold" && team ? (
+                                        <div className="mt-1 flex items-center gap-1 min-w-0">
+                                            <TeamLogo name={team.name} logoUrl={team.logo_url} size="sm" />
+                                            <div className="text-[8px] font-black text-emerald-600 dark:text-emerald-400 uppercase truncate">
+                                                {team.name}
+                                            </div>
+                                        </div>
+                                    ) : (
+                                        <div
+                                            className={`mt-1 text-[8px] font-black uppercase tracking-widest ${player.status === "live" ? "text-amber-600 dark:text-amber-500 animate-pulse" : "text-slate-500 dark:text-slate-600"}`}
+                                        >
+                                            {player.status}
+                                        </div>
+                                    )}
+                                </div>
+                                {player.status === "sold" && (
+                                    <div className="text-right flex-shrink-0 text-[9px] sm:text-xs font-mono font-bold text-slate-700 dark:text-slate-300">
+                                        ₹{player.sold_price?.toLocaleString("en-IN")}
+                                    </div>
+                                )}
+                            </div>
+                        );
+                    })}
                 </div>
-                {/* {filteredPlayers.length > SIDEBAR_PLAYER_LIMIT && (
-                    // <button
-                    //     onClick={() => setExpandSidebarPlayers(!expandSidebarPlayers)}
-                    //     className="w-full py-2 px-3 text-[10px] font-bold text-slate-400 hover:text-slate-200 bg-slate-950/40 hover:bg-slate-800/50 border border-slate-800 hover:border-slate-700 rounded-lg transition-all uppercase tracking-widest"
-                    // >
-                    //     {expandSidebarPlayers ? (
-                    //         <>↑ Show Less ({SIDEBAR_PLAYER_LIMIT})</>
-                    //     ) : (
-                    //         <>↓ Show More ({filteredPlayers.length - SIDEBAR_PLAYER_LIMIT})</>
-                    //     )}
-                    // </button>
-                )} */}
-            </Card>
-
-            <style jsx global>{`
-        .custom-scrollbar::-webkit-scrollbar {
-          width: 4px;
-          height: 4px;
-        }
-        .custom-scrollbar::-webkit-scrollbar-track {
-          background: transparent;
-        }
-        .custom-scrollbar::-webkit-scrollbar-thumb {
-          background: #1e293b;
-          border-radius: 10px;
-        }
-        .custom-scrollbar::-webkit-scrollbar-thumb:hover {
-          background: #334155;
-        }
-      `}</style>
+                {filteredPlayers.length === 0 && (
+                    <div className="py-12 text-center text-slate-400 dark:text-slate-500 italic uppercase font-bold tracking-widest text-sm">
+                        No players match your filters.
+                    </div>
+                )}
+            </div>
         </div>
     );
 }
@@ -5105,7 +5648,7 @@ export function RecapStats({ teams, players, sportType }: RecapStatsProps) {
                         <Trophy size={18} strokeWidth={3} />
                         Auction MVP
                     </div>
-                    <h2 className="text-3xl sm:text-4xl md:text-5xl font-black text-white italic tracking-tighter uppercase mb-4">The Golden Signing</h2>
+                    <h2 className="text-3xl sm:text-4xl md:text-5xl font-black text-slate-800 dark:text-white italic tracking-tighter uppercase mb-4">The Golden Signing</h2>
                 </motion.div>
 
                 {mvp && (
@@ -5114,39 +5657,43 @@ export function RecapStats({ teams, players, sportType }: RecapStatsProps) {
                         className="relative group cursor-pointer"
                     >
                         <div className="absolute inset-0 bg-amber-500/20 blur-3xl rounded-full group-hover:bg-amber-500/40 transition-all duration-500" />
-                        <Card className="relative bg-slate-900/40 backdrop-blur-xl border-2 border-amber-500/50 p-6 sm:p-8 rounded-[30px] shadow-2xl flex flex-col items-center">
-                            <PlayerAvatar
-                                id={mvp.id}
-                                name={mvp.name}
-                                role={mvp.role}
-                                photoUrl={mvp.photo_url}
-                                size="lg"
-                            />
-                            <div className="mt-4 sm:mt-6 text-center">
-                                <h3 className="text-2xl sm:text-3xl md:text-4xl font-black text-white italic uppercase tracking-tighter">{mvp.name}</h3>
-                                <div className="text-amber-500 font-bold uppercase tracking-widest text-xs sm:text-sm mt-1">{mvp.role}</div>
-
-                                <div className="mt-4 sm:mt-6 flex items-center justify-center gap-2 sm:gap-4">
-                                    <div className="h-0.5 w-8 sm:w-12 bg-slate-800" />
-                                    <div className="text-xl sm:text-2xl md:text-3xl font-mono font-black text-white">
-                                        {formatPrice(mvp.sold_price)}
-                                    </div>
-                                    <div className="h-0.5 w-8 sm:w-12 bg-slate-800" />
+                        <Card className="relative bg-white dark:bg-slate-900 border-2 border-emerald-500/30 dark:border-emerald-500/50 rounded-[30px] shadow-2xl flex flex-col items-center overflow-hidden min-h-[400px] sm:min-h-[450px]">
+                            {/* Team Stamp */}
+                            {mvp.sold_team_id && (
+                                <div className="absolute top-4 right-4 z-20 flex items-center justify-center bg-white/80 dark:bg-slate-900/80 backdrop-blur-md p-1.5 rounded-full border border-slate-200 dark:border-slate-800 shadow-lg">
+                                    <TeamLogo
+                                        name={teams.find(t => t.id === mvp.sold_team_id)?.name || ""}
+                                        logoUrl={teams.find(t => t.id === mvp.sold_team_id)?.logo_url}
+                                        size="sm"
+                                    />
                                 </div>
+                            )}
 
-                                {mvp.sold_team_id && (
-                                    <div className="mt-4 sm:mt-6 flex items-center gap-2 justify-center bg-slate-950/60 px-3 py-1.5 sm:px-4 sm:py-2 rounded-full border border-slate-800 w-fit mx-auto">
-                                        <span className="text-[8px] sm:text-[10px] font-black text-slate-500 uppercase tracking-widest hidden sm:inline">Signed By</span>
-                                        <TeamLogo
-                                            name={teams.find(t => t.id === mvp.sold_team_id)?.name || ""}
-                                            logoUrl={teams.find(t => t.id === mvp.sold_team_id)?.logo_url}
-                                            size="sm"
-                                        />
-                                        <span className="text-xs sm:text-sm font-bold text-slate-200">
-                                            {teams.find(t => t.id === mvp.sold_team_id)?.name}
-                                        </span>
+                            {/* Full Height Player Image Background */}
+                            <div className="absolute inset-0 pointer-events-none">
+                                {mvp.photo_url ? (
+                                    <img src={mvp.photo_url} alt={mvp.name} className="w-full h-[85%] object-contain object-bottom opacity-60 sm:opacity-80 mix-blend-luminosity dark:mix-blend-lighten" />
+                                ) : (
+                                    <div className="w-full h-[85%] flex items-center justify-center font-heading font-black text-slate-300 dark:text-slate-800 text-[10rem] opacity-70">
+                                        {mvp.name.charAt(0)}
                                     </div>
                                 )}
+                                <div className="absolute inset-0 bg-gradient-to-t from-white via-white/60 dark:from-slate-900 dark:via-slate-900/60 to-transparent" />
+                            </div>
+
+                            {/* Content overlay */}
+                            <div className="relative z-10 w-full flex flex-col items-center p-6 sm:p-8 flex-1 justify-end">
+                                <div className="mt-auto flex items-center justify-center gap-2 sm:gap-4 bg-white/60 dark:bg-slate-900/60 backdrop-blur-md rounded-2xl p-4 border border-slate-200 dark:border-slate-800 shadow-xl w-full max-w-[80%] mx-auto">
+                                    <div className="flex flex-col items-center gap-1">
+                                        <div className="text-2xl sm:text-3xl md:text-4xl font-mono font-black text-emerald-600 dark:text-emerald-400 leading-none">
+                                            {formatPrice(mvp.sold_price)}
+                                        </div>
+                                        <div className="text-xs sm:text-sm font-bold text-slate-500 tracking-wider italic">
+                                            ({formatPriceCompact(mvp.sold_price)})
+                                        </div>
+                                    </div>
+                                </div>
+
                             </div>
                         </Card>
                     </motion.div>
@@ -5157,20 +5704,47 @@ export function RecapStats({ teams, players, sportType }: RecapStatsProps) {
             <section className="grid grid-cols-2 md:grid-cols-4 gap-3 sm:gap-4 md:gap-6">
                 {roleMvps.map(({ role, player }) => (
                     <motion.div key={role} variants={item}>
-                        <Card className="bg-slate-900/40 border-slate-800 p-4 sm:p-6 rounded-[20px] sm:rounded-3xl flex flex-col items-center text-center hover:border-emerald-500/50 transition-colors group h-full">
-                            <div className="text-[8px] sm:text-[10px] font-black text-slate-500 uppercase tracking-widest mb-4 sm:mb-6 group-hover:text-emerald-500 transition-colors">
-                                Best {role}
+                        <Card className="relative bg-white dark:bg-slate-900 border-slate-200 dark:border-slate-800 rounded-[20px] sm:rounded-3xl flex flex-col items-center text-center hover:border-emerald-500/50 transition-colors group h-full overflow-visible min-h-[250px] sm:min-h-[300px] mb-4">
+                            {/* Team Stamp */}
+                            {player.sold_team_id && (
+                                <div className="absolute top-3 right-3 z-30 flex items-center justify-center bg-white/80 dark:bg-slate-900/80 backdrop-blur-md p-1 rounded-full border border-slate-200 dark:border-slate-800 shadow-md scale-90 sm:scale-100">
+                                    <TeamLogo
+                                        name={teams.find(t => t.id === player.sold_team_id)?.name || ""}
+                                        logoUrl={teams.find(t => t.id === player.sold_team_id)?.logo_url}
+                                        size="sm"
+                                    />
+                                </div>
+                            )}
+
+                            {/* Full Height Player Image Background */}
+                            <div className="absolute inset-0 pointer-events-none rounded-[inherit] overflow-hidden">
+                                {player.photo_url ? (
+                                    <img src={player.photo_url} alt={player.name} className="w-full h-[85%] object-contain object-bottom opacity-15 sm:opacity-85 mix-blend-luminosity dark:mix-blend-lighten" />
+                                ) : (
+                                    <div className="w-full h-[85%] flex items-center justify-center font-heading font-black text-slate-300 dark:text-slate-800 text-[6rem] opacity-20">
+                                        {player.name.charAt(0)}
+                                    </div>
+                                )}
+                                <div className="absolute inset-0 bg-gradient-to-t from-white via-white/60 dark:from-slate-900 dark:via-slate-900/60 to-transparent" />
                             </div>
-                            <PlayerAvatar
-                                id={player.id}
-                                name={player.name}
-                                role={player.role}
-                                photoUrl={player.photo_url}
-                                size="md"
-                            />
-                            <h4 className="mt-3 sm:mt-4 text-sm sm:text-base md:text-lg font-bold text-white uppercase italic truncate w-full px-2">{player.name}</h4>
-                            <div className="mt-1 sm:mt-2 text-xs sm:text-sm font-mono text-emerald-500 font-bold">
-                                {formatPrice(player.sold_price)}
+
+                            {/* Content overlay */}
+                            <div className="relative z-10 w-full flex flex-col items-center p-4 sm:p-6 flex-1 justify-end pb-8">
+                                <div className="mt-auto w-full flex flex-col items-center gap-2">
+                                    <div className="text-xs sm:text-sm font-mono text-emerald-600 dark:text-emerald-400 font-bold bg-white/80 dark:bg-slate-950/80 px-2 sm:px-3 py-1 sm:py-1.5 rounded-lg border border-slate-200 dark:border-slate-800 shadow-sm w-full">
+                                        <div className="flex flex-col items-center gap-0.5">
+                                            <span>{formatPrice(player.sold_price)}</span>
+                                            <span className="text-[9px] text-slate-500 dark:text-slate-400 font-medium italic">
+                                                ({formatPriceCompact(player.sold_price)})
+                                            </span>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                            
+                            {/* Bottom Title Pill */}
+                            <div className="absolute bottom-0 translate-y-1/2 z-20 text-[8px] sm:text-[10px] font-black text-emerald-600 dark:text-emerald-500 uppercase tracking-widest group-hover:scale-110 transition-transform bg-white dark:bg-slate-900 px-3 py-1 rounded-full shadow-md border border-slate-200 dark:border-slate-700 w-auto whitespace-nowrap">
+                                Best {role}
                             </div>
                         </Card>
                     </motion.div>
@@ -5188,42 +5762,141 @@ export function RecapStats({ teams, players, sportType }: RecapStatsProps) {
                 </motion.div>
 
                 <motion.div variants={item} className="h-full">
-                    <Card className="h-full bg-slate-900 border-slate-800 p-4 sm:p-6 rounded-[24px] sm:rounded-[32px] flex flex-col justify-center items-center text-center border-2">
+                    <Card className="h-full bg-white dark:bg-slate-900 border-slate-200 dark:border-slate-800 p-4 sm:p-6 rounded-[24px] sm:rounded-[32px] flex flex-col justify-center items-center text-center border-2">
                         <Target size={24} strokeWidth={2.5} className="mb-2 sm:mb-4 text-emerald-500" />
                         <div className="text-[8px] sm:text-[10px] font-black uppercase tracking-widest text-slate-500">Gross Expenditure</div>
-                        <div className="text-3xl sm:text-4xl font-black mt-1 text-white font-mono leading-none">
+                        <div className="text-3xl sm:text-4xl font-black mt-1 text-slate-900 dark:text-white font-mono leading-none">
                             {formatPriceCompact(soldPlayers.reduce((s, p) => s + (p.sold_price || 0), 0))}
                         </div>
                     </Card>
                 </motion.div>
 
                 <motion.div variants={item} className="h-full">
-                    <Card className="h-full bg-blue-600 text-white p-4 sm:p-6 rounded-[24px] sm:rounded-[32px] flex flex-col justify-center items-center text-center shadow-lg shadow-blue-900/20">
-                        <Star size={24} strokeWidth={2.5} className="mb-2 sm:mb-4" />
-                        <div className="text-[8px] sm:text-[10px] font-black uppercase tracking-widest opacity-80">Top Captain Pick</div>
-                        {mostValuableCaptain ? (
-                            <>
-                                <div className="mt-2 sm:mt-4 mb-2">
-                                    <PlayerAvatar
-                                        id={mostValuableCaptain.id}
-                                        name={mostValuableCaptain.name}
-                                        role={mostValuableCaptain.role}
-                                        photoUrl={mostValuableCaptain.photo_url}
-                                        size="md"
-                                    />
-                                </div>
-                                <div className="text-xl sm:text-2xl font-black mt-1 uppercase italic tracking-tighter truncate w-full px-2">
-                                    {mostValuableCaptain.name}
-                                </div>
-                                <div className="text-xs sm:text-sm font-bold opacity-90 mt-1">{formatPrice(mostValuableCaptain.sold_price)}</div>
-                            </>
-                        ) : (
-                            <div className="text-xl sm:text-2xl font-black mt-1 uppercase italic tracking-tighter">N/A</div>
+                    <Card className="relative h-full bg-blue-200 border border-blue-200 text-white rounded-[24px] sm:rounded-[32px] flex flex-col items-center text-center shadow-lg shadow-blue-500/80 overflow-visible min-h-[300px] mb-4">
+                        {/* Team Stamp */}
+                        {mostValuableCaptain?.sold_team_id && (
+                            <div className="absolute top-4 right-4 z-30 flex items-center justify-center bg-white/80 dark:bg-blue-900/80 backdrop-blur-md p-1.5 rounded-full border border-white/50 shadow-lg">
+                                <TeamLogo
+                                    name={teams.find(t => t.id === mostValuableCaptain.sold_team_id)?.name || ""}
+                                    logoUrl={teams.find(t => t.id === mostValuableCaptain.sold_team_id)?.logo_url}
+                                    size="sm"
+                                />
+                            </div>
                         )}
+
+                        <div className="absolute inset-0 pointer-events-none rounded-[inherit] overflow-hidden">
+                            {mostValuableCaptain?.photo_url ? (
+                                <img src={mostValuableCaptain.photo_url} alt={mostValuableCaptain.name} className="w-full h-[85%] object-contain object-bottom opacity-90 mix-blend-luminosity" />
+                            ) : null}
+                            <div className="absolute inset-0 bg-gradient-to-t from-blue-800/60 via-blue-600/20 to-transparent" />
+                        </div>
+
+                        <div className="relative z-10 w-full flex flex-col items-center p-4 sm:p-6 flex-1 justify-end h-full pb-8">
+                            {mostValuableCaptain ? (
+                                <div className="mt-auto w-full flex flex-col items-center gap-2">
+                                    <div className="bg-blue-950/60 backdrop-blur-md border border-white/20 rounded-xl p-2 w-full flex flex-col items-center gap-0.5 shadow-xl">
+                                        <span className="text-sm sm:text-base font-bold text-white drop-shadow-sm">{formatPrice(mostValuableCaptain.sold_price)}</span>
+                                        <span className="text-[10px] text-blue-100 font-medium italic drop-shadow-sm">({formatPriceCompact(mostValuableCaptain.sold_price)})</span>
+                                    </div>
+                                </div>
+                            ) : (
+                                <div className="mt-auto flex flex-col items-center gap-2">
+                                    <div className="text-xl sm:text-2xl font-black text-blue-900 uppercase italic tracking-tighter">N/A</div>
+                                </div>
+                            )}
+                        </div>
+                        
+                        {/* Bottom Title Pill */}
+                        <div className="absolute bottom-0 translate-y-1/2 z-20 flex items-center gap-1.5 bg-blue-100 border border-blue-300 shadow-md px-3 py-1 rounded-full whitespace-nowrap">
+                            <Star size={12} strokeWidth={2.5} className="text-amber-500 drop-shadow-sm" />
+                            <div className="text-[8px] sm:text-[10px] font-black uppercase tracking-widest text-blue-900">Top Captain Pick</div>
+                        </div>
                     </Card>
                 </motion.div>
             </section>
         </motion.div>
+    );
+}
+````
+
+## File: components/live/RepositoryPanel.tsx
+````typescript
+"use client";
+
+import { Player } from "@/lib/hooks/useAuctionState";
+import { PlayerAvatar } from "@/components/PlayerAvatar";
+import { Users, ChevronRight } from "lucide-react";
+
+interface RepositoryPanelProps {
+    players: Player[];
+    onExpand: () => void;
+}
+
+export function RepositoryPanel({ players, onExpand }: RepositoryPanelProps) {
+    const upcomingPlayers = players
+        .filter((p) => p.status === "upcoming")
+        .slice(0, 4);
+
+    const soldCount = players.filter((p) => p.status === "sold").length;
+    const upcomingCount = players.filter((p) => p.status === "upcoming").length;
+
+    return (
+        <div className="flex flex-col gap-3 h-full">
+            <div className="flex items-center gap-2 text-sky-600 dark:text-sky-500 font-bold text-xs uppercase tracking-widest px-1">
+                <Users size={14} />
+                Repository
+            </div>
+
+            {/* Stats Row */}
+            <div className="grid grid-cols-2 gap-2">
+                <div className="bg-slate-100/60 dark:bg-slate-950/60 rounded-lg p-2 border border-slate-300/50 dark:border-slate-800/50 text-center">
+                    <div className="text-lg font-black text-emerald-600 dark:text-emerald-500">{soldCount}</div>
+                    <div className="text-[9px] font-black text-slate-600 dark:text-slate-500 uppercase tracking-widest">Sold</div>
+                </div>
+                <div className="bg-slate-100/60 dark:bg-slate-950/60 rounded-lg p-2 border border-slate-300/50 dark:border-slate-800/50 text-center">
+                    <div className="text-lg font-black text-amber-600 dark:text-amber-500">{upcomingCount}</div>
+                    <div className="text-[9px] font-black text-slate-600 dark:text-slate-500 uppercase tracking-widest">Upcoming</div>
+                </div>
+            </div>
+
+            {/* Expand Button */}
+            <button
+                onClick={onExpand}
+                className="w-full flex items-center justify-center gap-1.5 py-2.5 rounded-xl border border-sky-300 dark:border-sky-500/30 text-sky-600 dark:text-sky-400 hover:bg-sky-500/10 hover:border-sky-400 dark:hover:border-sky-500/50 transition-all text-xs font-black uppercase tracking-widest"
+            >
+                Expand Repository
+                <ChevronRight size={12} />
+            </button>
+
+            {/* Upcoming Players Preview */}
+            {upcomingPlayers.length > 0 && (
+                <div className="space-y-1.5 mt-auto">
+                    <div className="text-[10px] font-black text-slate-600 dark:text-slate-500 uppercase tracking-widest px-1">
+                        PLayer List
+                    </div>
+                    {upcomingPlayers.map((player) => (
+                        <div
+                            key={player.id}
+                            className="flex items-center gap-2.5 p-2 rounded-lg border border-slate-300/50 dark:border-slate-800/50 bg-slate-100/30 dark:bg-slate-950/30"
+                        >
+                            <PlayerAvatar
+                                id={player.id}
+                                name={player.name}
+                                role={player.role}
+                                photoUrl={player.photo_url}
+                                size="sm"
+                            />
+                            <div className="flex-1 min-w-0">
+                                <div className="text-xs font-bold text-slate-900 dark:text-white truncate">{player.name}</div>
+                                <div className="text-[9px] font-black text-slate-400 dark:text-slate-500 uppercase tracking-wider">
+                                    {player.role}
+                                </div>
+                            </div>
+                        </div>
+                    ))}
+                </div>
+            )}
+        </div>
     );
 }
 ````
@@ -5235,7 +5908,7 @@ export function RecapStats({ teams, players, sportType }: RecapStatsProps) {
 import { useEffect, useState } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { Player, Team } from "@/lib/hooks/useAuctionState";
-import { formatPrice } from "@/lib/utils";
+import { formatPrice, formatPriceCompact } from "@/lib/utils";
 import { Gavel } from "lucide-react";
 
 interface SaleFeedbackProps {
@@ -5271,8 +5944,8 @@ export function SaleFeedback({ player, team, price, isVisible, currentView = "au
                     onClick={() => setIsDismissed(true)}
                     className="fixed inset-0 z-[200] flex flex-col items-center justify-center px-4 py-6 md:px-12 md:py-10 sm:px-8 sm:py-8 cursor-pointer overflow-hidden"
                 >
-                    {/* Dark Navy Overlay with Blur */}
-                    <div className="absolute inset-0 bg-slate-950/90 backdrop-blur-xl" />
+                    {/* Overlay with Blur */}
+                    <div className="absolute inset-0 bg-slate-50/90 dark:bg-slate-950/90 backdrop-blur-xl" />
 
                     {/* Radial Green Glow */}
                     <motion.div
@@ -5302,14 +5975,14 @@ export function SaleFeedback({ player, team, price, isVisible, currentView = "au
                     </div>
 
                     {/* Content Container */}
-                    <div className="relative z-10 flex flex-col items-center text-center max-w-4xl w-full">
+                    <div className="relative z-10 flex flex-col items-center justify-center text-center max-w-4xl w-full max-h-[85vh]">
 
                         {/* 1. Photo Card Drop */}
                         <motion.div
                             initial={{ scale: 0.3, rotateX: 45, opacity: 0, y: -50 }}
                             animate={{ scale: 1, rotateX: 0, opacity: 1, y: 0 }}
                             transition={{ type: "spring", stiffness: 200, damping: 20, delay: 0.1 }}
-                            className="relative w-[200px] h-[250px] sm:w-[256px] sm:h-[320px] rounded-2xl overflow-hidden border-2 border-emerald-500/60 shadow-[0_0_30px_rgba(16,185,129,0.4)] bg-slate-900 flex-shrink-0"
+                            className="relative w-[180px] sm:w-[256px] aspect-[4/5] rounded-2xl overflow-hidden border-2 border-emerald-500/60 shadow-[0_0_30px_rgba(16,185,129,0.4)] bg-slate-100 dark:bg-slate-900 flex-shrink-0"
                         >
                             {/* Pulsing Emerald Shadow Animation over the card */}
                             <motion.div
@@ -5320,10 +5993,10 @@ export function SaleFeedback({ player, team, price, isVisible, currentView = "au
 
                             {/* Photo */}
                             {player.photo_url ? (
-                                <img src={player.photo_url} alt={player.name} className="absolute inset-0 w-full h-full object-cover object-top" />
+                                <img src={player.photo_url} alt={player.name} className="absolute inset-0 w-full h-full object-contain object-top" />
                             ) : (
-                                <div className="absolute inset-0 flex items-center justify-center bg-gradient-to-br from-slate-800 to-slate-900">
-                                    <span className="text-6xl font-heading font-bold text-slate-700 uppercase">{player.name.charAt(0)}</span>
+                                <div className="absolute inset-0 flex items-center justify-center bg-gradient-to-br from-slate-200 to-slate-300 dark:from-slate-800 dark:to-slate-900">
+                                    <span className="text-6xl font-heading font-bold text-slate-400 dark:text-slate-700 uppercase">{player.name.charAt(0)}</span>
                                 </div>
                             )}
 
@@ -5350,7 +6023,7 @@ export function SaleFeedback({ player, team, price, isVisible, currentView = "au
                             initial={{ y: 30, opacity: 0, scale: 0.9 }}
                             animate={{ y: 0, opacity: 1, scale: 1 }}
                             transition={{ type: "spring", stiffness: 300, damping: 25, delay: 0.25 }}
-                            className="text-3xl sm:text-4xl md:text-5xl font-heading font-black text-white uppercase tracking-tighter mt-6 md:mt-8 drop-shadow-[0_0_15px_rgba(16,185,129,0.5)]"
+                            className="text-3xl sm:text-4xl md:text-5xl font-heading font-black text-slate-900 dark:text-white uppercase tracking-tighter mt-6 md:mt-8 drop-shadow-[0_0_15px_rgba(16,185,129,0.5)]"
                         >
                             {player.name}
                         </motion.h1>
@@ -5365,7 +6038,8 @@ export function SaleFeedback({ player, team, price, isVisible, currentView = "au
                             <motion.div
                                 animate={{ textShadow: ["0 0 20px rgba(16,185,129,0.4)", "0 0 60px rgba(16,185,129,0.9)", "0 0 20px rgba(16,185,129,0.4)"] }}
                                 transition={{ repeat: Infinity, duration: 2, ease: "easeInOut" }}
-                                className="text-6xl sm:text-7xl md:text-9xl font-black italic tracking-tighter text-white uppercase leading-none"
+                                className="font-black italic tracking-tighter text-emerald-600 dark:text-white uppercase leading-none"
+                                style={{ fontSize: "clamp(4rem, 15vw, 8rem)" }}
                             >
                                 SOLD!
                             </motion.div>
@@ -5383,7 +6057,7 @@ export function SaleFeedback({ player, team, price, isVisible, currentView = "au
                                 <div className="text-emerald-400 font-bold uppercase tracking-[0.3em] text-[10px] sm:text-xs">
                                     New Signing For
                                 </div>
-                                <div className="text-2xl sm:text-3xl font-black text-white uppercase tracking-tight mt-1 px-4 text-center">
+                                <div className="text-2xl sm:text-3xl font-black text-slate-900 dark:text-white uppercase tracking-tight mt-1 px-4 text-center">
                                     {team.name}
                                 </div>
                             </div>
@@ -5402,8 +6076,11 @@ export function SaleFeedback({ player, team, price, isVisible, currentView = "au
                                         <Gavel size={14} />
                                         Final Hammer Price
                                     </div>
-                                    <div className="text-4xl sm:text-5xl font-mono font-black text-slate-950 tracking-tight">
+                                    <div className="text-4xl sm:text-5xl font-mono font-black text-slate-950 tracking-tight text-center">
                                         {formatPrice(price)}
+                                        <div className="text-lg sm:text-xl text-slate-800/80 -mt-1 font-sans italic tracking-wider">
+                                            ({formatPriceCompact(price)})
+                                        </div>
                                     </div>
                                 </div>
                             </div>
@@ -5414,7 +6091,7 @@ export function SaleFeedback({ player, team, price, isVisible, currentView = "au
                             initial={{ opacity: 0 }}
                             animate={{ opacity: 0.5 }}
                             transition={{ delay: 1.5, duration: 1 }}
-                            className="absolute -bottom-12 sm:-bottom-16 text-white text-xs sm:text-sm font-medium tracking-widest uppercase italic"
+                            className="absolute -bottom-12 sm:-bottom-16 text-slate-800 dark:text-white text-xs sm:text-sm font-medium tracking-widest uppercase italic"
                         >
                             Tap anywhere to dismiss
                         </motion.div>
@@ -5560,12 +6237,12 @@ function FootballFormation({
             <div
                 className="absolute inset-0"
                 style={{
-                    background: "linear-gradient(160deg, #0a1a0f 0%, #071210 40%, #030a08 100%)",
+                    background: "linear-gradient(160deg, #164726ff 0%, #277039ff 40%, #164726ff 100%)",
                 }}
             />
 
             {/* Field markings — faint gold */}
-            <svg className="absolute inset-0 w-full h-full opacity-[0.2] stroke-amber-500/40 text-amber-500/40" preserveAspectRatio="none" viewBox="0 0 100 100">
+            <svg className="absolute inset-0 w-full h-full opacity-[1] stroke-amber-500/50 text-amber-200/50" preserveAspectRatio="none" viewBox="0 0 100 100">
                 {/* Center line */}
                 <line x1="0" y1="50" x2="100" y2="50" strokeWidth="0.3" />
                 {/* Center circle */}
@@ -5664,118 +6341,168 @@ function CricketFormation({
     groupedPlayers: Record<string, Player[]>;
     captain: Player | null;
 }) {
-    // Flatten all players for the grid, star goes to the featured slot
-    const allPlayers = useMemo(() => {
-        const roles = ["Batsman", "Wicketkeeper", "Allrounder", "Bowler"];
-        return roles.flatMap((role) => groupedPlayers[role] || []);
-    }, [groupedPlayers]);
-
-    // Featured player = captain, or highest-priced
-    const featured = useMemo(() => {
-        if (captain) return captain;
-        if (allPlayers.length === 0) return null;
-        return [...allPlayers].sort((a, b) => (b.sold_price || 0) - (a.sold_price || 0))[0];
-    }, [captain, allPlayers]);
-
-    const gridPlayers = allPlayers.filter((p) => p.id !== featured?.id);
-    let playerIndex = 0;
+    const roleOrder = [
+        { key: "Wicketkeeper", label: "WICKET-KEEPERS" },
+        { key: "Batsman", label: "BATTERS" },
+        { key: "Allrounder", label: "ALL-ROUNDERS" },
+        { key: "Bowler", label: "BOWLERS" },
+    ];
 
     return (
         <div className="relative w-full h-full min-h-[500px] rounded-2xl overflow-hidden">
-            {/* Background — dark pitch */}
+
+            {/* Background */}
             <div
                 className="absolute inset-0"
                 style={{
-                    background: "linear-gradient(160deg, #0a1a0f 0%, #071210 40%, #030a08 100%)",
+                    background: "linear-gradient(180deg, #6bc96b 0%, #329143ff 40%, #1b5e20ff 100%)",
                 }}
             />
 
-            {/* Field markings — faint gold (unifying cricket and football look for auction phase) */}
-            <svg className="absolute inset-0 w-full h-full opacity-[0.2] stroke-amber-500/40 text-amber-500/40" preserveAspectRatio="none" viewBox="0 0 100 100">
-                {/* Center line */}
-                <line x1="0" y1="50" x2="100" y2="50" strokeWidth="0.3" />
-                {/* Center circle */}
-                <circle cx="50" cy="50" r="12" fill="none" strokeWidth="0.3" />
-                <circle cx="50" cy="50" r="0.8" fill="currentColor" stroke="none" />
+            <svg
+                className="absolute inset-0 w-full h-full"
+                viewBox="0 0 100 100"
+                preserveAspectRatio="none"
+            >
+
+                <defs>
+
+                    {/* Linear grass gradient */}
+                    <linearGradient id="grassGradient" x1="0%" y1="0%" x2="0%" y2="100%">
+                        <stop offset="0%" stopColor="#599c51ff" />
+                        <stop offset="40%" stopColor="#4eac50ff" />
+                        <stop offset="100%" stopColor="#3ea64f" />
+                    </linearGradient>
+
+                    {/* Grass mowing stripes */}
+                    <pattern
+                        id="grassStripes"
+                        patternUnits="userSpaceOnUse"
+                        width="20"
+                        height="100"
+                    >
+                        <rect width="20" height="100" fill="transparent" />
+                        <rect width="10" height="100" fill="white" opacity="0.08" />
+                    </pattern>
+
+                </defs>
+
+                {/* Ground */}
+                <rect x="0" y="0" width="200" height="100" fill="url(#grassGradient)" />
+
+                {/* Grass stripes overlay */}
+                <rect x="0" y="0" width="200" height="100" fill="url(#grassStripes)" />
+
+                Outer Boundary
+                <circle
+                    cx="50"
+                    cy="50"
+                    r="45"
+                    fill="none"
+                    stroke="yellow"
+                    strokeOpacity="0.35"
+                    strokeWidth="0.4"
+                />
+
+                {/* Inner Circle (30 yard) */}
+                <circle
+                    cx="50"
+                    cy="50"
+                    r="25"
+                    fill="none"
+                    stroke="yellow"
+                    strokeOpacity="0.35"
+                    strokeWidth="0.35"
+                />
+
+                {/* Center Pitch */}
+                <rect
+                    x="47"
+                    y="30"
+                    width="6"
+                    height="40"
+                    rx="1"
+                    fill="#c9a66b"
+                    opacity="0.95"
+                />
+
+                {/* Creases */}
+                <line
+                    x1="45"
+                    y1="35"
+                    x2="55"
+                    y2="35"
+                    stroke="white"
+                    strokeOpacity="0.5"
+                    strokeWidth="0.35"
+                />
+
+                <line
+                    x1="45"
+                    y1="65"
+                    x2="55"
+                    y2="65"
+                    stroke="white"
+                    strokeOpacity="0.5"
+                    strokeWidth="0.35"
+                />
+
             </svg>
 
-            {/* Floating particles */}
-            <div className="absolute inset-0 overflow-hidden pointer-events-none">
-                {[...Array(6)].map((_, i) => (
-                    <div
-                        key={i}
-                        className="absolute w-1 h-1 bg-amber-500/20 rounded-full animate-pulse"
-                        style={{
-                            top: `${15 + i * 15}%`,
-                            left: `${10 + i * 14}%`,
-                            animationDelay: `${i * 0.7}s`,
-                            animationDuration: `${2 + i * 0.5}s`,
-                        }}
-                    />
-                ))}
-            </div>
-
-            {/* Gradient overlays */}
+            {/* Overlay */}
             <div className="absolute inset-0 bg-gradient-to-t from-black/50 via-transparent to-black/30" />
 
-            {/* Header label */}
+            {/* Header */}
             <div className="absolute top-4 left-1/2 -translate-x-1/2 text-[10px] sm:text-xs font-heading font-bold text-amber-500/40 uppercase tracking-[0.5em] z-10">
                 🏏 Squad XI
             </div>
 
-            {/* Content layout — featured left, grid right */}
-            <div className="relative z-10 h-full flex flex-col md:flex-row items-center md:items-stretch gap-4 sm:gap-6 p-6 sm:p-8 md:p-10 pt-10 sm:pt-12">
-                {/* Featured Star Card */}
-                {featured && (
-                    <motion.div
-                        initial={{ opacity: 0, x: -30 }}
-                        animate={{ opacity: 1, x: 0 }}
-                        transition={{ type: "spring", stiffness: 200, damping: 20 }}
-                        className="flex-shrink-0 flex items-center justify-center"
-                    >
-                        <PlayerCard
-                            player={featured}
-                            isCaptain={captain?.id === featured.id}
-                            accentColor="rose"
-                            size="featured"
-                            sportType="cricket"
-                        />
-                    </motion.div>
-                )}
+            {/* Formation */}
+            <div className="relative z-10 h-full flex flex-col justify-center gap-6 sm:gap-8 md:gap-10 px-4 sm:px-6 md:px-10 py-10">
 
-                {/* Grid of remaining players */}
-                <div className="flex-1 flex items-center justify-center">
-                    <div className="grid grid-cols-3 gap-3 sm:gap-4 md:gap-5">
-                        <AnimatePresence mode="popLayout">
-                            {gridPlayers.map((player) => {
-                                const idx = playerIndex++;
-                                return (
-                                    <motion.div
-                                        key={player.id}
-                                        custom={idx}
-                                        variants={cardVariants}
-                                        initial="hidden"
-                                        animate="visible"
-                                        exit="exit"
-                                        layout
-                                    >
-                                        <PlayerCard
-                                            player={player}
-                                            isCaptain={captain?.id === player.id}
-                                            accentColor="rose"
-                                            sportType="cricket"
-                                        />
-                                    </motion.div>
-                                );
-                            })}
-                        </AnimatePresence>
-                    </div>
-                </div>
+                {roleOrder.map((role) => {
+                    const players = groupedPlayers[role.key] || [];
+
+                    if (players.length === 0) return null;
+
+                    return (
+                        <div key={role.key} className="flex flex-col items-center">
+
+                            {/* Role Title */}
+                            <div className="text-[10px] sm:text-xs text-white/50 uppercase tracking-widest mb-2">
+                                {role.label}
+                            </div>
+
+                            {/* Player Row */}
+                            <div className="flex items-center justify-center gap-3 sm:gap-4 md:gap-6 flex-wrap">
+                                <AnimatePresence mode="popLayout">
+                                    {players.map((player, idx) => (
+                                        <motion.div
+                                            key={player.id}
+                                            custom={idx}
+                                            variants={cardVariants}
+                                            initial="hidden"
+                                            animate="visible"
+                                            exit="exit"
+                                            layout
+                                        >
+                                            <PlayerCard
+                                                player={player}
+                                                isCaptain={captain?.id === player.id}
+                                                accentColor="rose"
+                                                sportType="cricket"
+                                            />
+                                        </motion.div>
+                                    ))}
+                                </AnimatePresence>
+                            </div>
+                        </div>
+                    );
+                })}
             </div>
         </div>
     );
 }
-
 // ═══════════════════════════════════════════════════════════════════
 // MAIN EXPORT — delegates to football or cricket mode
 // ═══════════════════════════════════════════════════════════════════
@@ -5788,158 +6515,195 @@ export function TeamFormation({ groupedPlayers, captain, sportType }: TeamFormat
 }
 ````
 
-## File: components/live/TeamRosterPanel.tsx
+## File: components/live/TeamListCard.tsx
 ````typescript
 "use client";
 
-import { AnimatePresence, motion } from "framer-motion";
-import { Player } from "@/lib/hooks/useAuctionState";
-import { PlayerAvatar } from "@/components/PlayerAvatar";
-import { Card } from "@/components/ui/card";
-import { Crown, Sparkles, Star } from "lucide-react";
-import { formatPrice } from "@/lib/utils";
+import { Team, Player, Auction } from "@/lib/hooks/useAuctionState";
+import { TeamLogo } from "@/components/TeamLogo";
+import { getTeamPlayers } from "@/lib/shared/playerUtils";
+import { Users, ChevronRight } from "lucide-react";
 
-interface TeamRosterPanelProps {
-    captain: Player | null;
-    mvp: Player | null;
-    teamPlayers: Player[];
+interface TeamListCardProps {
+    team: Team;
+    players: Player[];
+    minPlayers: number;
+    onClick: () => void;
 }
 
-export function TeamRosterPanel({ captain, mvp, teamPlayers }: TeamRosterPanelProps) {
+export function TeamListCard({ team, players, minPlayers, onClick }: TeamListCardProps) {
+    const teamPlayers = getTeamPlayers(players, team.id);
+    const soldCount = teamPlayers.length;
+    const requiredPlayers = Math.max(0, minPlayers - soldCount);
+
     return (
-        <div className="flex flex-col gap-3 sm:gap-4 h-full">
-            {/* Captain & MVP Cards */}
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-                {/* Captain Card */}
-                <div className="relative rounded-2xl border-2 border-amber-500/30 bg-gradient-to-br from-amber-950/20 to-slate-900/40 p-6 flex flex-col items-center justify-center text-center overflow-hidden">
-                    <div className="absolute top-0 right-0 w-28 h-28 bg-amber-500/5 blur-[60px] rounded-full" />
-
-                    {/* Top Label */}
-                    <div className="flex items-center gap-2 text-amber-500 font-black text-[9px] uppercase tracking-[0.3em] mb-4">
-                        <Crown size={11} fill="currentColor" />
-                        Captain
-                    </div>
-
-                    {captain ? (
-                        <>
-                            {/* Player Avatar */}
-                            <div className="relative flex-shrink-0 mb-3">
-                                <div className="absolute inset-0 bg-amber-500/20 blur-2xl rounded-full" />
-                                <PlayerAvatar
-                                    id={captain.id}
-                                    name={captain.name}
-                                    role={captain.role}
-                                    photoUrl={captain.photo_url}
-                                    size="lg"
-                                    isCaptain={true}
-                                />
-                            </div>
-
-                            {/* Player Details */}
-                            <div className="w-full min-w-0">
-                                <h4 className="text-base sm:text-lg font-heading font-bold text-white uppercase tracking-tighter truncate w-full">
-                                    {captain.name}
-                                </h4>
-                                <div className="text-[10px] text-amber-500 font-bold uppercase tracking-[0.2em] mt-1 mb-3 truncate w-full">
-                                    {captain.role}
-                                </div>
-                                <div className="px-3 py-1 rounded-full bg-slate-950/80 border border-amber-500/40 text-amber-400 font-mono font-bold text-sm inline-block max-w-full">
-                                    <span className="truncate block">{formatPrice(captain.sold_price)}</span>
-                                </div>
-                            </div>
-                        </>
-                    ) : (
-                        <div className="flex-1 flex flex-col items-center justify-center py-6 text-slate-600 text-sm italic">
-                            No captain assigned
-                        </div>
-                    )}
+        <button
+            onClick={onClick}
+            className="w-full flex items-center gap-3 p-3 rounded-xl border border-slate-300 dark:border-slate-800 bg-slate-100/60 dark:bg-slate-950/40 hover:bg-slate-200/60 dark:hover:bg-slate-800/60 hover:border-emerald-500/50 transition-all group text-left"
+        >
+            <TeamLogo name={team.name} logoUrl={team.logo_url} size="sm" />
+            <div className="flex-1 min-w-0">
+                <div className="text-sm font-bold text-slate-900 dark:text-white group-hover:text-emerald-600 dark:group-hover:text-emerald-400 transition-colors truncate">
+                    {team.name}
                 </div>
-
-                {/* MVP Card */}
-                <div className="relative rounded-2xl border-2 border-emerald-500/30 bg-gradient-to-br from-emerald-950/20 to-slate-900/40 p-6 flex flex-col items-center justify-center text-center overflow-hidden">
-                    <div className="absolute top-0 right-0 w-28 h-28 bg-emerald-500/5 blur-[60px] rounded-full" />
-
-                    {/* Top Label */}
-                    <div className="flex items-center gap-2 text-emerald-500 font-black text-[9px] uppercase tracking-[0.3em] mb-4">
-                        <Sparkles size={11} fill="currentColor" />
-                        Most Valuable
+                <div className="flex items-center gap-3 mt-0.5">
+                    <div className="text-[10px] text-slate-500 dark:text-slate-400 font-black uppercase tracking-wider">
+                        <span className="text-emerald-600 dark:text-emerald-500">{soldCount}</span> Sold
                     </div>
-
-                    {mvp ? (
-                        <>
-                            {/* Player Avatar */}
-                            <div className="relative flex-shrink-0 mb-3">
-                                <div className="absolute inset-0 bg-emerald-500/20 blur-2xl rounded-full" />
-                                <PlayerAvatar
-                                    id={mvp.id}
-                                    name={mvp.name}
-                                    role={mvp.role}
-                                    photoUrl={mvp.photo_url}
-                                    size="lg"
-                                />
-                            </div>
-
-                            {/* Player Details */}
-                            <div className="w-full min-w-0">
-                                <h4 className="text-base sm:text-lg font-heading font-bold text-white uppercase tracking-tighter truncate w-full">
-                                    {mvp.name}
-                                </h4>
-                                <div className="text-[10px] text-emerald-500 font-bold uppercase tracking-[0.2em] mt-1 mb-3 truncate w-full">
-                                    {mvp.role}
-                                </div>
-                                <div className="px-3 py-1 rounded-full bg-slate-950/80 border border-emerald-500/40 text-emerald-400 font-mono font-bold text-sm inline-block max-w-full">
-                                    <span className="truncate block">{formatPrice(mvp.sold_price)}</span>
-                                </div>
-                            </div>
-                        </>
-                    ) : (
-                        <div className="flex-1 flex flex-col items-center justify-center py-6 text-slate-600 text-sm italic">
-                            No non-captain signings
+                    {requiredPlayers > 0 && (
+                        <div className="text-[10px] text-amber-600 dark:text-amber-500 font-black uppercase tracking-wider">
+                            {requiredPlayers} Required
                         </div>
                     )}
                 </div>
             </div>
-
-            {/* Roster Feed */}
-            <Card className="flex-1 border-slate-800 bg-slate-900/50 backdrop-blur-md p-4 sm:p-5 overflow-hidden flex flex-col">
-                <div className="text-[9px] sm:text-[10px] font-black text-slate-500 uppercase tracking-widest mb-3">
-                    Roster Feed
-                </div>
-                <div className="flex-1 overflow-y-auto pr-2 custom-scrollbar space-y-2">
-                    {[...teamPlayers].reverse().map((p) => (
-                        <div
-                            key={p.id}
-                            className="flex items-center justify-between border-l-2 border-emerald-500 bg-slate-950/40 p-2.5 sm:p-3 rounded-r-xl"
-                        >
-                            <div>
-                                <div className="text-xs sm:text-sm font-bold text-slate-200">{p.name}</div>
-                                <div className="text-[9px] sm:text-[10px] text-slate-500 uppercase font-black">
-                                    {p.role}
-                                    {p.is_captain && " • Captain"}
-                                </div>
-                            </div>
-                            <div className="text-right font-mono text-emerald-500 font-bold text-xs sm:text-sm">
-                                {formatPrice(p.sold_price)}
-                            </div>
-                        </div>
-                    ))}
-                    {teamPlayers.length === 0 && (
-                        <div className="h-full flex items-center justify-center text-slate-600 text-[10px] uppercase font-bold tracking-widest italic">
-                            Feed Empty
-                        </div>
-                    )}
-                </div>
-            </Card>
-
-            <style dangerouslySetInnerHTML={{
-                __html: `
-          .custom-scrollbar::-webkit-scrollbar { width: 4px; }
-          .custom-scrollbar::-webkit-scrollbar-thumb { background: #334155; border-radius: 10px; }
-        `,
-            }} />
-        </div>
+            <ChevronRight size={14} className="text-slate-500 dark:text-slate-600 group-hover:text-emerald-600 dark:group-hover:text-emerald-400 transition-colors flex-shrink-0" />
+        </button>
     );
 }
+````
+
+## File: components/live/TempCard.tsx
+````typescript
+import { motion } from "framer-motion";
+import { Crown } from "lucide-react";
+import { formatPriceCompact } from "@/lib/utils";
+
+interface CaptainCardProps {
+  name: string;
+  role: string;
+  image: string;
+  teamColor: string;
+  index: number;
+  teamName?: string;
+  price?: number;
+  isSold?: boolean;
+}
+
+const CaptainCard = ({ name, role, image, teamColor, index, teamName, price, isSold }: CaptainCardProps) => {
+  return (
+    <motion.div
+      initial={{ opacity: 0, y: 100, scale: 0.5, rotateY: 90 }}
+      animate={{ opacity: 1, y: 0, scale: 1, rotateY: 0 }}
+      transition={{
+        delay: 1.5 + index * 0.4,
+        duration: 0.8,
+        type: "spring",
+        stiffness: 80,
+        damping: 15,
+      }}
+      whileHover={{
+        scale: 1.08,
+        y: -16,
+        transition: { duration: 0.3 },
+      }}
+      className="relative group cursor-pointer"
+    >
+      {/* Glow behind card */}
+      <motion.div
+        className="absolute -inset-3 rounded-2xl opacity-0 group-hover:opacity-100 transition-opacity duration-500 blur-xl"
+        style={{ background: `linear-gradient(135deg, ${teamColor}, transparent)` }}
+        animate={{ opacity: [0.1, 0.3, 0.1] }}
+        transition={{ duration: 2, repeat: Infinity }}
+      />
+
+      <div className="relative bg-card border border-border rounded-2xl overflow-hidden w-full box-glow-primary group-hover:box-glow-accent transition-shadow duration-500">
+        {/* Captain badge */}
+        <motion.div
+          initial={{ scale: 0, rotate: -180 }}
+          animate={{ scale: 1, rotate: 0 }}
+          transition={{ delay: 2 + index * 0.4, type: "spring", stiffness: 200 }}
+          className="absolute top-3 right-3 z-20"
+        >
+          <div className="bg-accent rounded-full p-2 box-glow-accent">
+            <Crown className="w-5 h-5 text-accent-foreground" />
+          </div>
+        </motion.div>
+
+        {/* Player image */}
+        <div className="relative aspect-[4/5] overflow-hidden">
+          <motion.div
+            className="absolute inset-0 z-10"
+            style={{
+              background: `linear-gradient(to top, hsl(var(--card)) 0%, transparent 50%, ${teamColor}22 100%)`,
+            }}
+          />
+          <motion.img
+            src={image}
+            alt={name}
+            className="w-full h-full object-contain object-top"
+            whileHover={{ scale: 1.1 }}
+            transition={{ duration: 0.5 }}
+          />
+          {/* Animated border line */}
+          <motion.div
+            className="absolute bottom-0 left-0 right-0 h-1"
+            style={{ background: teamColor }}
+            initial={{ scaleX: 0 }}
+            animate={{ scaleX: 1 }}
+            transition={{ delay: 2.2 + index * 0.4, duration: 0.6 }}
+          />
+        </div>
+
+        {/* Info */}
+        <div className="p-5 text-center relative">
+          <motion.div
+            className="absolute inset-0 opacity-20"
+            style={{
+              background: `radial-gradient(circle at center bottom, ${teamColor}, transparent 70%)`,
+            }}
+          />
+          <motion.h3
+            className="font-display text-lg font-bold tracking-wider text-foreground relative z-10"
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            transition={{ delay: 2.4 + index * 0.4 }}
+          >
+            {name}
+          </motion.h3>
+          <motion.p
+            className="font-display text-xs tracking-[0.3em] text-muted-foreground mt-1 uppercase relative z-10"
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            transition={{ delay: 2.6 + index * 0.4 }}
+          >
+            {role}
+          </motion.p>
+
+          {/* Sold info or decorative dots */}
+          {isSold && teamName && price ? (
+            <motion.div
+              initial={{ opacity: 0, scale: 0.5 }}
+              animate={{ opacity: 1, scale: 1 }}
+              className="mt-3 bg-secondary rounded-lg py-1.5 px-3 relative z-10"
+            >
+              <span className="font-display text-xs" style={{ color: teamColor }}>{teamName}</span>
+              <span className="font-display text-xs text-accent ml-2">{formatPriceCompact(price)}</span>
+            </motion.div>
+          ) : (
+            <motion.div
+              className="flex justify-center gap-1.5 mt-3"
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              transition={{ delay: 2.8 + index * 0.4 }}
+            >
+              {[0, 1, 2].map((i) => (
+                <motion.div
+                  key={i}
+                  className="w-1.5 h-1.5 rounded-full bg-accent"
+                  animate={{ opacity: [0.3, 1, 0.3] }}
+                  transition={{ duration: 1.5, repeat: Infinity, delay: i * 0.2 }}
+                />
+              ))}
+            </motion.div>
+          )}
+        </div>
+      </div>
+    </motion.div>
+  );
+};
+
+export default CaptainCard;
 ````
 
 ## File: components/live/UnsoldFeedback.tsx
@@ -5979,8 +6743,8 @@ export function UnsoldFeedback({ player, isVisible, currentView = "auction" }: U
                     onClick={() => setIsDismissed(true)}
                     className="fixed inset-0 z-[200] flex flex-col items-center justify-center px-4 py-6 md:px-12 md:py-10 sm:px-8 sm:py-8 cursor-pointer overflow-hidden"
                 >
-                    {/* Dark Navy Overlay with Blur */}
-                    <div className="absolute inset-0 bg-slate-950/90 backdrop-blur-xl" />
+                    {/* Overlay with Blur */}
+                    <div className="absolute inset-0 bg-slate-50/90 dark:bg-slate-950/90 backdrop-blur-xl" />
 
                     {/* Radial Red Glow */}
                     <motion.div
@@ -5991,14 +6755,14 @@ export function UnsoldFeedback({ player, isVisible, currentView = "auction" }: U
                     />
 
                     {/* Content Container */}
-                    <div className="relative z-10 flex flex-col items-center text-center max-w-4xl w-full">
+                    <div className="relative z-10 flex flex-col items-center justify-center text-center max-w-4xl w-full max-h-[85vh]">
 
                         {/* 1. Photo Card Drop */}
                         <motion.div
                             initial={{ scale: 0.3, rotateX: 45, opacity: 0, y: -50 }}
                             animate={{ scale: 1, rotateX: 0, opacity: 1, y: 0 }}
                             transition={{ type: "spring", stiffness: 200, damping: 20, delay: 0.1 }}
-                            className="relative w-[200px] h-[250px] sm:w-[256px] sm:h-[320px] rounded-2xl overflow-hidden border-2 border-rose-500/60 shadow-[0_0_30px_rgba(244,63,94,0.4)] bg-slate-900 flex-shrink-0"
+                            className="relative w-[180px] sm:w-[256px] aspect-[4/5] rounded-2xl overflow-hidden border-2 border-rose-500/60 shadow-[0_0_30px_rgba(244,63,94,0.4)] bg-slate-100 dark:bg-slate-900 flex-shrink-0"
                         >
                             {/* Pulsing Rose Shadow Animation over the card */}
                             <motion.div
@@ -6009,10 +6773,10 @@ export function UnsoldFeedback({ player, isVisible, currentView = "auction" }: U
 
                             {/* Photo */}
                             {player.photo_url ? (
-                                <img src={player.photo_url} alt={player.name} className="absolute inset-0 w-full h-full object-cover object-top" />
+                                <img src={player.photo_url} alt={player.name} className="absolute inset-0 w-full h-full object-contain object-top" />
                             ) : (
-                                <div className="absolute inset-0 flex items-center justify-center bg-gradient-to-br from-slate-800 to-slate-900">
-                                    <span className="text-6xl font-heading font-bold text-slate-700 uppercase">{player.name.charAt(0)}</span>
+                                <div className="absolute inset-0 flex items-center justify-center bg-gradient-to-br from-slate-200 to-slate-300 dark:from-slate-800 dark:to-slate-900">
+                                    <span className="text-6xl font-heading font-bold text-slate-400 dark:text-slate-700 uppercase">{player.name.charAt(0)}</span>
                                 </div>
                             )}
 
@@ -6039,7 +6803,7 @@ export function UnsoldFeedback({ player, isVisible, currentView = "auction" }: U
                             initial={{ y: 30, opacity: 0, scale: 0.9 }}
                             animate={{ y: 0, opacity: 1, scale: 1 }}
                             transition={{ type: "spring", stiffness: 300, damping: 25, delay: 0.25 }}
-                            className="text-3xl sm:text-4xl md:text-5xl font-heading font-black text-rose-50 uppercase tracking-tighter mt-6 md:mt-8 drop-shadow-[0_0_15px_rgba(244,63,94,0.3)]"
+                            className="text-3xl sm:text-4xl md:text-5xl font-heading font-black text-rose-950 dark:text-rose-50 uppercase tracking-tighter mt-6 md:mt-8 drop-shadow-[0_0_15px_rgba(244,63,94,0.3)]"
                         >
                             {player.name}
                         </motion.h1>
@@ -6051,7 +6815,10 @@ export function UnsoldFeedback({ player, isVisible, currentView = "auction" }: U
                             transition={{ type: "spring", stiffness: 400, damping: 15, delay: 0.35 }}
                             className="mt-2"
                         >
-                            <div className="text-6xl sm:text-7xl md:text-9xl font-black italic tracking-tighter text-rose-500 uppercase leading-none drop-shadow-[0_0_20px_rgba(244,63,94,0.6)]">
+                            <div 
+                                className="font-black italic tracking-tighter text-rose-500 uppercase leading-none drop-shadow-[0_0_20px_rgba(244,63,94,0.6)]"
+                                style={{ fontSize: "clamp(3.5rem, 14vw, 8rem)" }}
+                            >
                                 UNSOLD
                             </div>
                         </motion.div>
@@ -6079,7 +6846,7 @@ export function UnsoldFeedback({ player, isVisible, currentView = "auction" }: U
                             initial={{ opacity: 0 }}
                             animate={{ opacity: 0.5 }}
                             transition={{ delay: 1.5, duration: 1 }}
-                            className="absolute -bottom-12 sm:-bottom-16 text-white text-xs sm:text-sm font-medium tracking-widest uppercase italic"
+                            className="absolute -bottom-12 sm:-bottom-16 text-slate-800 dark:text-white text-xs sm:text-sm font-medium tracking-widest uppercase italic"
                         >
                             Tap anywhere to dismiss
                         </motion.div>
@@ -6088,6 +6855,44 @@ export function UnsoldFeedback({ player, isVisible, currentView = "auction" }: U
                 </motion.div>
             )}
         </AnimatePresence>
+    );
+}
+````
+
+## File: components/live/ViewSquadsPanel.tsx
+````typescript
+"use client";
+
+import { Team, Player, Auction } from "@/lib/hooks/useAuctionState";
+import { TeamListCard } from "@/components/live/TeamListCard";
+import { Shield } from "lucide-react";
+
+interface ViewSquadsPanelProps {
+    auction: Auction;
+    teams: Team[];
+    players: Player[];
+    onTeamSelect: (team: Team) => void;
+}
+
+export function ViewSquadsPanel({ auction, teams, players, onTeamSelect }: ViewSquadsPanelProps) {
+    return (
+        <div className="flex flex-col gap-3 h-full">
+            <div className="flex items-center gap-2 text-emerald-600 dark:text-emerald-500 font-bold text-xs uppercase tracking-widest px-1">
+                <Shield size={14} />
+                Select a Franchise
+            </div>
+            <div className="flex-1 overflow-y-auto space-y-2 pr-1">
+                {teams.map((team) => (
+                    <TeamListCard
+                        key={team.id}
+                        team={team}
+                        players={players}
+                        minPlayers={auction.settings.min_players}
+                        onClick={() => onTeamSelect(team)}
+                    />
+                ))}
+            </div>
+        </div>
     );
 }
 ````
@@ -6177,7 +6982,7 @@ export function PlayerAvatar({
             <img
               src={photoUrl}
               alt={name}
-              className="w-full h-full object-cover"
+              className="w-full h-full object-contain object-top"
               onError={() => setImageError(true)}
             />
             {/* Role overlay on hover */}
@@ -6200,6 +7005,444 @@ export function PlayerAvatar({
       </div>
     </div>
   );
+}
+````
+
+## File: components/team/TeamRoster.tsx
+````typescript
+"use client";
+
+import { useState, useEffect, useMemo } from "react";
+import { motion, AnimatePresence } from "framer-motion";
+import { Card } from "@/components/ui/card";
+import { TeamLogo } from "@/components/TeamLogo";
+import { Users, PanelRightClose, PanelRightOpen } from "lucide-react";
+import { formatPrice, formatPriceCompact } from "@/lib/utils";
+import { Player, Team, Auction } from "@/lib/hooks/useAuctionState";
+import {
+    getTeamPlayers,
+    groupPlayersByRole,
+    getCaptain,
+    getMVP,
+    computeTeamStats,
+} from "@/lib/shared/playerUtils";
+import { TeamFormation } from "@/components/live/TeamFormation";
+import { TeamRosterHeader } from "@/components/team/TeamRosterHeader";
+import { TeamStarPlayers } from "@/components/team/TeamStarPlayers";
+
+interface TeamRosterProps {
+    auction: Auction;
+    teams: Team[];
+    players: Player[];
+    mode: "live" | "recap";
+    /** Externally controlled selected team (optional — used by live page sidebar) */
+    selectedTeamId?: string | null;
+    onTeamSelect?: (teamId: string) => void;
+}
+
+export default function TeamRoster({
+    auction,
+    teams,
+    players,
+    mode,
+    selectedTeamId: externalSelectedTeamId,
+    onTeamSelect,
+}: TeamRosterProps) {
+    const [internalSelectedTeamId, setInternalSelectedTeamId] = useState<string | null>(null);
+    const [isSquadPanelOpen, setIsSquadPanelOpen] = useState(false);
+    const [activeTab, setActiveTab] = useState<"highlights" | "rosters">("highlights");
+
+    // Use external selection if provided, otherwise internal
+    const selectedTeamId = externalSelectedTeamId !== undefined ? externalSelectedTeamId : internalSelectedTeamId;
+    const setSelectedTeamId = (id: string) => {
+        if (onTeamSelect) onTeamSelect(id);
+        else setInternalSelectedTeamId(id);
+    };
+
+    useEffect(() => {
+        if (mode === "live") {
+            setIsSquadPanelOpen(window.innerWidth >= 1024);
+        } else {
+            setIsSquadPanelOpen(true);
+        }
+    }, [mode]);
+
+    useEffect(() => {
+        if (teams.length > 0 && !selectedTeamId) {
+            setSelectedTeamId(teams[0].id);
+        }
+    }, [teams, selectedTeamId]);
+
+    const selectedTeam = teams.find((t) => t.id === selectedTeamId) || null;
+
+    const teamPlayers = useMemo(
+        () => (selectedTeamId ? getTeamPlayers(players, selectedTeamId) : []),
+        [players, selectedTeamId],
+    );
+
+    const groupedPlayers = useMemo(
+        () => groupPlayersByRole(teamPlayers, auction.sport_type),
+        [teamPlayers, auction.sport_type],
+    );
+
+    const captain = useMemo(() => getCaptain(teamPlayers), [teamPlayers]);
+    const mvp = useMemo(() => getMVP(teamPlayers), [teamPlayers]);
+    const stats = useMemo(
+        () =>
+            selectedTeam
+                ? computeTeamStats(selectedTeam, teamPlayers)
+                : { totalSpend: 0, avgPerPlayer: 0, signings: 0 },
+        [selectedTeam, teamPlayers],
+    );
+
+    return (
+        <div className="flex flex-col gap-6">
+            {/* Team Selector Pills */}
+            <div className="flex overflow-x-auto pb-4 -mx-4 px-4 sm:mx-0 sm:px-0 custom-scrollbar gap-3 snap-x">
+                {teams.map((team) => {
+                    const count = getTeamPlayers(players, team.id).length;
+                    const isActive = selectedTeamId === team.id;
+                    return (
+                        <button
+                            key={team.id}
+                            onClick={() => setSelectedTeamId(team.id)}
+                            className={`flex-shrink-0 flex items-center gap-3 px-4 py-3 rounded-xl transition-all border snap-center whitespace-nowrap ${isActive
+                                ? "bg-emerald-500 border-emerald-400 shadow-lg shadow-emerald-500/20"
+                                : "bg-white/60 dark:bg-slate-900/40 border-slate-300 dark:border-slate-700 hover:border-slate-400 dark:hover:border-slate-500"
+                                }`}
+                        >
+                            <TeamLogo name={team.name} logoUrl={team.logo_url} size="sm" />
+                            <div className="text-left">
+                                <div className={`font-bold text-sm ${isActive ? "text-slate-950" : "text-slate-800 dark:text-white"}`}>
+                                    {team.name}
+                                </div>
+                                <div className={`text-[10px] font-black uppercase tracking-widest flex gap-2 mt-0.5 ${isActive ? "text-emerald-950/70" : "text-slate-500"}`}>
+                                    <span>{count} players</span>
+                                    <span>•</span>
+                                    <span className={isActive ? "text-emerald-950 font-mono" : "text-emerald-500 font-mono"}>
+                                        {formatPriceCompact(team.purse_remaining)} left
+                                    </span>
+                                </div>
+                            </div>
+                        </button>
+                    );
+                })}
+            </div>
+
+            {/* Main Content Area */}
+            <div className="w-full">
+                <Card className="bg-white/60 dark:bg-slate-900/40 border-slate-200 dark:border-slate-800 rounded-3xl min-h-[600px] backdrop-blur-xl overflow-hidden">
+                    {selectedTeam ? (
+                        <div className="flex flex-col h-full min-h-0">
+                            {/* Header with Centered Tabs */}
+                            <div className="relative">
+                                <TeamRosterHeader
+                                    team={selectedTeam}
+                                    signings={stats.signings}
+                                    totalSpend={stats.totalSpend}
+                                    mode={mode}
+                                />
+
+                                {/* Absolute Centered Toggle */}
+                                <div className="absolute inset-0 pointer-events-none flex items-center justify-center pt-2">
+                                    <div className="bg-slate-100 dark:bg-slate-900 border border-slate-300 dark:border-slate-800 p-1 rounded-full flex items-center pointer-events-auto shadow-2xl">
+                                        <button
+                                            onClick={() => setActiveTab("highlights")}
+                                            className={`px-5 py-1.5 rounded-full text-[10px] font-black uppercase tracking-widest transition-all ${activeTab === "highlights"
+                                                ? "bg-emerald-500 text-slate-950"
+                                                : "text-slate-400 hover:text-slate-200"
+                                                }`}
+                                        >
+                                            Highlights
+                                        </button>
+                                        <button
+                                            onClick={() => setActiveTab("rosters")}
+                                            className={`px-5 py-1.5 rounded-full text-[10px] font-black uppercase tracking-widest transition-all ${activeTab === "rosters"
+                                                ? "bg-emerald-500 text-slate-950"
+                                                : "text-slate-400 hover:text-slate-200"
+                                                }`}
+                                        >
+                                            Final Rosters
+                                        </button>
+                                    </div>
+                                </div>
+                            </div>
+
+                            {activeTab === "highlights" ? (
+                                <div className="flex-1 flex flex-col lg:flex-row gap-4 p-4 sm:p-6 overflow-hidden min-h-0 justify-center">
+                                    {/* Formation Container - Constrained width */}
+                                    <div className="w-full lg:max-w-[550px] xl:max-w-[750px] min-h-[250px] lg:min-h-0 flex flex-col overflow-y-auto lg:overflow-hidden rounded-2xl bg-white dark:bg-slate-950 border border-slate-200 dark:border-white/5">
+                                        <div className="flex items-center justify-end p-2 lg:hidden">
+                                            <button
+                                                onClick={() => setIsSquadPanelOpen(!isSquadPanelOpen)}
+                                                className={`flex items-center gap-1.5 font-bold text-xs uppercase tracking-widest ${isSquadPanelOpen ? "text-emerald-400" : "text-slate-500"
+                                                    }`}
+                                            >
+                                                {isSquadPanelOpen ? <PanelRightClose size={18} /> : <PanelRightOpen size={18} />}
+                                                <span>Squad</span>
+                                            </button>
+                                        </div>
+                                        <TeamFormation
+                                            groupedPlayers={groupedPlayers}
+                                            captain={captain}
+                                            sportType={auction.sport_type}
+                                        />
+                                    </div>
+
+                                    {/* Star Players Side Panel */}
+                                    <AnimatePresence mode="wait">
+                                        {isSquadPanelOpen && (
+                                            <motion.div
+                                                initial={mode === "live" ? { width: 0, opacity: 0 } : false}
+                                                animate={{ width: "auto", opacity: 1 }}
+                                                exit={{ width: 0, opacity: 0 }}
+                                                className="lg:w-[520px] xl:w-[560px] flex-shrink-0 overflow-y-auto custom-scrollbar"
+                                            >
+                                                <div className="w-fluid space-y-4 pt-2">
+                                                    <div className="text-[20px] font-black text-slate-500 uppercase tracking-widest px-2">
+                                                        Team Star Players
+                                                    </div>
+                                                    <TeamStarPlayers captain={captain} mvp={mvp} />
+                                                </div>
+                                            </motion.div>
+                                        )}
+                                    </AnimatePresence>
+                                </div>
+                            ) : (
+                                <div className="flex-1 p-4 sm:p-6 overflow-y-auto">
+                                    <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-3">
+                                        {teamPlayers.map(player => (
+                                            <div key={player.id} className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl overflow-hidden shadow-sm flex flex-col">
+                                                {/* Image – fixed aspect ratio */}
+                                                <div className="aspect-square bg-slate-100 dark:bg-slate-800 overflow-hidden relative">
+                                                    {player.photo_url ? (
+                                                        <img src={player.photo_url} alt={player.name} className="w-full h-full object-cover object-top" />
+                                                    ) : (
+                                                        <div className="w-full h-full flex items-center justify-center font-heading font-black text-slate-300 dark:text-slate-700 text-4xl">
+                                                            {player.name.charAt(0)}
+                                                        </div>
+                                                    )}
+                                                    {player.is_captain && (
+                                                        <div className="absolute top-2 right-2 bg-amber-500 text-amber-950 text-[9px] font-black px-1.5 py-0.5 rounded-sm uppercase shadow">C</div>
+                                                    )}
+                                                </div>
+                                                {/* Info */}
+                                                <div className="p-2.5 flex flex-col gap-0.5">
+                                                    <div className="font-bold text-xs text-slate-800 dark:text-white truncate uppercase tracking-tight font-heading">
+                                                        {player.name}
+                                                    </div>
+                                                    <div className="text-[9px] font-black text-slate-500 uppercase tracking-widest">
+                                                        {player.role}
+                                                    </div>
+                                                    <div className="text-xs font-mono font-bold text-emerald-500 mt-1">
+                                                        <div>{formatPrice(player.sold_price)}</div>
+                                                        <div className="text-[9px] text-emerald-600/70 dark:text-emerald-500/70 font-medium italic">
+                                                            ({formatPriceCompact(player.sold_price)})
+                                                        </div>
+                                                    </div>
+                                                </div>
+                                            </div>
+                                        ))}
+                                    </div>
+                                </div>
+                            )}
+                        </div>
+                    ) : (
+                        <div className="w-full h-full flex flex-col items-center justify-center text-slate-500 p-12">
+                            <Users size={48} className="opacity-10 mb-4" />
+                            <p className="text-sm italic font-bold uppercase tracking-widest">
+                                Select a team to view their final roster
+                            </p>
+                        </div>
+                    )}
+                    {/* //: (
+//                         <div className="w-full h-full flex flex-col items-center justify-center text-slate-500 p-12">
+//                             <Users size={48} className="opacity-10 mb-4" />
+//                             <p className="text-sm italic font-bold uppercase tracking-widest">
+//                                 Select a team to view their final roster
+//                             </p>
+//                         </div>
+//                     )} */}
+                </Card>
+            </div>
+        </div>
+    );
+}
+````
+
+## File: components/team/TeamRosterHeader.tsx
+````typescript
+"use client";
+
+import { motion } from "framer-motion";
+import { TeamLogo } from "@/components/TeamLogo";
+import { UserCheck, Wallet, TrendingUp } from "lucide-react";
+import { formatPrice, formatPriceCompact } from "@/lib/utils";
+import { Team } from "@/lib/hooks/useAuctionState";
+
+interface TeamRosterHeaderProps {
+    team: Team;
+    signings: number;
+    totalSpend: number;
+    mode: "live" | "recap";
+}
+
+export function TeamRosterHeader({ team, signings, totalSpend, mode }: TeamRosterHeaderProps) {
+    return (
+        <div className="flex flex-col sm:flex-row items-center justify-between bg-white/60 dark:bg-slate-900/60 backdrop-blur-md p-5 sm:p-6 border-b border-slate-300 dark:border-slate-800 gap-4 flex-shrink-0">
+            <div className="flex items-center gap-5">
+                <motion.div
+                    initial={mode === "live" ? { scale: 0.8, opacity: 0 } : false}
+                    animate={{ scale: 1, opacity: 1 }}
+                    transition={{ type: "spring", bounce: 0.5 }}
+                >
+                    <TeamLogo
+                        name={team.name}
+                        logoUrl={team.logo_url}
+                        size="lg"
+                    />
+                </motion.div>
+                <div>
+                    <h2 className="text-2xl sm:text-3xl font-heading font-bold text-slate-900 dark:text-white uppercase tracking-tighter">
+                        {team.name}
+                    </h2>
+                    <div className="flex items-center gap-3 mt-1">
+                        <span className="text-amber-600 dark:text-amber-400 font-bold text-sm tracking-widest uppercase">
+                            {team.manager}
+                        </span>
+                        <div className="h-1 w-1 rounded-full bg-slate-300 dark:bg-slate-700" />
+                        <div className="flex items-center gap-1.5 text-slate-500 dark:text-slate-400 text-xs font-bold uppercase tracking-wider">
+                            <UserCheck size={14} className="text-emerald-600 dark:text-emerald-500" />
+                            {signings} Signings
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <div className="grid grid-cols-2 gap-3">
+                <div className="bg-slate-100/60 dark:bg-slate-950/60 rounded-xl p-3 border border-slate-300/50 dark:border-slate-800/50 min-w-[130px]">
+                    <div className="flex items-center gap-1.5 text-[10px] font-black text-slate-600 dark:text-slate-500 uppercase tracking-widest mb-1">
+                        <Wallet size={12} className="text-emerald-600 dark:text-emerald-500" />
+                        Remaining
+                    </div>
+                    <div className="text-lg sm:text-xl font-mono font-bold text-emerald-400">
+                        {formatPrice(team.purse_remaining)}
+                    </div>
+                    <div className="text-[10px] text-emerald-500/70 font-medium italic">
+                        ({formatPriceCompact(team.purse_remaining)})
+                    </div>
+                </div>
+                <div className="bg-slate-100/60 dark:bg-slate-950/60 rounded-xl p-3 border border-slate-300/50 dark:border-slate-800/50 min-w-[130px]">
+                    <div className="flex items-center gap-1.5 text-[10px] font-black text-slate-600 dark:text-slate-500 uppercase tracking-widest mb-1">
+                        <TrendingUp size={12} className="text-amber-600 dark:text-amber-500" />
+                        Total Spend
+                    </div>
+                    <div className="text-lg sm:text-xl font-mono font-bold text-amber-400">
+                        {formatPrice(totalSpend)}
+                    </div>
+                    <div className="text-[10px] text-amber-500/70 font-medium italic">
+                        ({formatPriceCompact(totalSpend)})
+                    </div>
+                </div>
+            </div>
+        </div>
+    );
+}
+````
+
+## File: components/team/TeamStarPlayers.tsx
+````typescript
+"use client";
+
+import { Player } from "@/lib/hooks/useAuctionState";
+import { Crown, Sparkles } from "lucide-react";
+import { formatPrice, formatPriceCompact } from "@/lib/utils";
+
+interface TeamStarPlayersProps {
+    captain: Player | null;
+    mvp: Player | null;
+}
+
+export function TeamStarPlayers({ captain, mvp }: TeamStarPlayersProps) {
+    return (
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-5 pt-4 pb-5">
+            {/* Captain Card */}
+            <div className="relative rounded-2xl border-2 border-amber-500/30 bg-gradient-to-br from-amber-100/40 dark:from-amber-950/30 to-slate-50/60 dark:to-slate-900/40 overflow-visible h-[200px]">
+                {captain ? (
+                    <>
+                        {/* Top Title Pill — straddles top edge */}
+                        <div className="absolute top-0 left-1/2 -translate-x-1/2 -translate-y-1/2 z-20 flex items-center gap-1.5 bg-amber-50 dark:bg-slate-900 border border-amber-400 dark:border-amber-600 px-3 py-1 rounded-full shadow-md whitespace-nowrap">
+                            <Crown size={10} fill="currentColor" className="text-amber-500" />
+                            <span className="text-[8px] font-black text-amber-600 dark:text-amber-400 uppercase tracking-[0.25em]">Captain</span>
+                        </div>
+
+                        {/* Rectangle photo — clipped inside the div */}
+                        <div className="absolute inset-0 rounded-[inherit] overflow-hidden pointer-events-none">
+                            {captain.photo_url ? (
+                                <img
+                                    src={captain.photo_url}
+                                    alt={captain.name}
+                                    className="w-full h-full object-contain object-center"
+                                />
+                            ) : (
+                                <div className="w-full h-full flex items-center justify-center font-heading font-black text-amber-300/20 dark:text-amber-800/20 text-[6rem]">
+                                    {captain.name.charAt(0)}
+                                </div>
+                            )}
+                        </div>
+
+                        {/* Bottom Price Pill — straddles bottom edge */}
+                        <div className="absolute bottom-0 left-1/2 -translate-x-1/2 translate-y-1/2 z-20 flex flex-col items-center bg-white/90 dark:bg-slate-900/90 backdrop-blur-md border border-amber-400/50 dark:border-amber-600/50 px-3 py-1 rounded-xl shadow-lg whitespace-nowrap">
+                            <span className="text-xs font-mono font-bold text-amber-600 dark:text-amber-400">{formatPrice(captain.sold_price)}</span>
+                            <span className="text-[8px] text-amber-500/70 font-medium italic leading-tight">({formatPriceCompact(captain.sold_price)})</span>
+                        </div>
+                    </>
+                ) : (
+                    <div className="absolute inset-0 flex flex-col items-center justify-center text-slate-500 dark:text-slate-600 text-sm italic">
+                        No captain assigned
+                    </div>
+                )}
+            </div>
+
+            {/* MVP Card */}
+            <div className="relative rounded-2xl border-2 border-emerald-500/30 bg-gradient-to-br from-emerald-100/40 dark:from-emerald-950/30 to-slate-50/60 dark:to-slate-900/40 overflow-visible h-[200px]">
+                {mvp ? (
+                    <>
+                        {/* Top Title Pill — straddles top edge */}
+                        <div className="absolute top-0 left-1/2 -translate-x-1/2 -translate-y-1/2 z-20 flex items-center gap-1.5 bg-emerald-50 dark:bg-slate-900 border border-emerald-400 dark:border-emerald-600 px-3 py-1 rounded-full shadow-md whitespace-nowrap">
+                            <Sparkles size={10} fill="currentColor" className="text-emerald-500" />
+                            <span className="text-[8px] font-black text-emerald-600 dark:text-emerald-400 uppercase tracking-[0.25em]">Most Valuable</span>
+                        </div>
+
+                        {/* Rectangle photo — clipped inside the div */}
+                        <div className="absolute inset-0 rounded-[inherit] overflow-hidden pointer-events-none">
+                            {mvp.photo_url ? (
+                                <img
+                                    src={mvp.photo_url}
+                                    alt={mvp.name}
+                                    className="w-full h-full object-contain object-center"
+                                />
+                            ) : (
+                                <div className="w-full h-full flex items-center justify-center font-heading font-black text-emerald-300/20 dark:text-emerald-800/20 text-[6rem]">
+                                    {mvp.name.charAt(0)}
+                                </div>
+                            )}
+                        </div>
+
+                        {/* Bottom Price Pill — straddles bottom edge */}
+                        <div className="absolute bottom-0 left-1/2 -translate-x-1/2 translate-y-1/2 z-20 flex flex-col items-center bg-white/90 dark:bg-slate-900/90 backdrop-blur-md border border-emerald-400/50 dark:border-emerald-600/50 px-3 py-1 rounded-xl shadow-lg whitespace-nowrap">
+                            <span className="text-xs font-mono font-bold text-emerald-600 dark:text-emerald-400">{formatPrice(mvp.sold_price)}</span>
+                            <span className="text-[8px] text-emerald-500/70 font-medium italic leading-tight">({formatPriceCompact(mvp.sold_price)})</span>
+                        </div>
+                    </>
+                ) : (
+                    <div className="absolute inset-0 flex flex-col items-center justify-center text-slate-500 dark:text-slate-600 text-sm italic">
+                        No non-captain signings
+                    </div>
+                )}
+            </div>
+        </div>
+    );
 }
 ````
 
@@ -6255,6 +7498,99 @@ export function TeamLogo({
         <span className={sizeConfig.text}>{initials}</span>
       )}
     </div>
+  );
+}
+````
+
+## File: components/ThemeProvider.tsx
+````typescript
+"use client";
+
+import { createContext, useContext, useEffect, useState } from "react";
+
+type Theme = "light" | "dark";
+
+interface ThemeContextType {
+  theme: Theme;
+  toggleTheme: () => void;
+}
+
+const ThemeContext = createContext<ThemeContextType>({
+  theme: "dark",
+  toggleTheme: () => {},
+});
+
+export function useTheme() {
+  return useContext(ThemeContext);
+}
+
+export function ThemeProvider({ children }: { children: React.ReactNode }) {
+  const [theme, setTheme] = useState<Theme>("dark");
+  const [mounted, setMounted] = useState(false);
+
+  useEffect(() => {
+    // Read persisted theme or fallback to system preference
+    const stored = localStorage.getItem("theme") as Theme | null;
+    if (stored === "light" || stored === "dark") {
+      setTheme(stored);
+    } else if (window.matchMedia("(prefers-color-scheme: light)").matches) {
+      setTheme("light");
+    } else {
+      setTheme("dark");
+    }
+    setMounted(true);
+  }, []);
+
+  useEffect(() => {
+    if (!mounted) return;
+    const root = document.documentElement;
+    if (theme === "dark") {
+      root.classList.add("dark");
+    } else {
+      root.classList.remove("dark");
+    }
+    localStorage.setItem("theme", theme);
+  }, [theme, mounted]);
+
+  const toggleTheme = () => {
+    setTheme((prev) => (prev === "dark" ? "light" : "dark"));
+  };
+
+  return (
+    <ThemeContext.Provider value={{ theme, toggleTheme }}>
+      {children}
+    </ThemeContext.Provider>
+  );
+}
+````
+
+## File: components/ThemeToggle.tsx
+````typescript
+"use client";
+
+import { useTheme } from "@/components/ThemeProvider";
+import { Sun, Moon } from "lucide-react";
+
+export function ThemeToggle() {
+  const { theme, toggleTheme } = useTheme();
+
+  return (
+    <button
+      onClick={toggleTheme}
+      className="relative flex items-center justify-center h-9 w-9 rounded-lg border transition-all
+        bg-white/10 dark:bg-slate-800/60 border-slate-300 dark:border-slate-700
+        hover:bg-slate-200 dark:hover:bg-slate-700
+        text-slate-700 dark:text-slate-300
+        shadow-sm backdrop-blur-sm"
+      aria-label={`Switch to ${theme === "dark" ? "light" : "dark"} mode`}
+      title={`Switch to ${theme === "dark" ? "light" : "dark"} mode`}
+    >
+      {theme === "dark" ? (
+        <Sun size={16} strokeWidth={2.5} className="text-amber-400" />
+      ) : (
+        <Moon size={16} strokeWidth={2.5} className="text-slate-600" />
+      )}
+    </button>
   );
 }
 ````
@@ -6886,8 +8222,13 @@ export type AuctionSettings = {
     min_players: number;
     max_players: number;
     base_price: number;
-    increment: number;
+    increment?: number;
     captain_base_price?: number;
+    tier1_increment?: number;
+    tier1_threshold?: number;
+    tier2_increment?: number;
+    tier2_threshold?: number;
+    tier3_increment?: number;
 };
 
 export type Auction = {
@@ -6916,9 +8257,10 @@ export type Player = {
     role: string;
     photo_url: string | null;
     is_captain: boolean;
+    is_blind_bid: boolean;
     sold_team_id: string | null;
     sold_price: number | null;
-    status: "sold" | "live" | "upcoming"; // Computed field
+    status: "sold" | "live" | "upcoming" | "unsold" | "blind_reserved" | "upcoming_phase2" | "unsold_final"; // DB enum values
 };
 
 export type AuctionState = {
@@ -7260,6 +8602,41 @@ export function splitName(name: string): { firstName: string; lastName: string }
         lastName: parts[parts.length - 1],
     };
 }
+
+// ─── Team-level Convenience Utilities ───────────────────────────────
+export function groupPlayersByTeam(
+    players: Player[],
+): Record<string, Player[]> {
+    return players.reduce(
+        (acc, p) => {
+            if (p.sold_team_id) {
+                if (!acc[p.sold_team_id]) acc[p.sold_team_id] = [];
+                acc[p.sold_team_id].push(p);
+            }
+            return acc;
+        },
+        {} as Record<string, Player[]>,
+    );
+}
+
+export function calculateTeamSpend(players: Player[], teamId: string): number {
+    return getTeamPlayers(players, teamId).reduce(
+        (sum, p) => sum + (p.sold_price || 0),
+        0,
+    );
+}
+
+export function getTeamCaptain(players: Player[], teamId: string): Player | null {
+    return getTeamPlayers(players, teamId).find((p) => p.is_captain) || null;
+}
+
+export function getTeamMVP(players: Player[], teamId: string): Player | null {
+    const teamPlayers = getTeamPlayers(players, teamId).filter((p) => !p.is_captain);
+    if (teamPlayers.length === 0) return null;
+    return [...teamPlayers].sort(
+        (a, b) => (b.sold_price || 0) - (a.sold_price || 0),
+    )[0];
+}
 ````
 
 ## File: lib/supabase.ts
@@ -7293,16 +8670,89 @@ export function formatPrice(amount: number | null | undefined): string {
 }
 
 export function formatPriceCompact(amount: number | null | undefined): string {
-  if (amount == null) return "₹0";
+  if (amount == null || amount === 0) return "₹0.00";
 
-  if (amount >= 10000000) {
-    return `₹${+(amount / 10000000).toFixed(2)}Cr`;
-  } else if (amount >= 100000) {
-    return `₹${+(amount / 100000).toFixed(2)}L`;
-  } else if (amount >= 1000) {
-    return `₹${+(amount / 1000).toFixed(2)}K`;
+  // Use absolute value for comparison to handle potential negatives
+  const absAmount = Math.abs(amount);
+
+  if (absAmount >= 10000000) {
+    return `₹${(amount / 10000000).toFixed(2)} Cr`;
+  } else if (absAmount >= 100000) {
+    return `₹${(amount / 100000).toFixed(2)} L`;
+  } else if (absAmount >= 1000) {
+    return `₹${(amount / 1000).toFixed(2)} K`;
   }
-  return `₹${amount.toLocaleString("en-IN")}`;
+  
+  return `₹${amount.toFixed(2)}`;
+}
+
+// ─── Indian Currency: Number to Words ───
+
+const ones = ['', 'One', 'Two', 'Three', 'Four', 'Five', 'Six', 'Seven', 'Eight', 'Nine',
+  'Ten', 'Eleven', 'Twelve', 'Thirteen', 'Fourteen', 'Fifteen', 'Sixteen', 'Seventeen', 'Eighteen', 'Nineteen'];
+const tens = ['', '', 'Twenty', 'Thirty', 'Forty', 'Fifty', 'Sixty', 'Seventy', 'Eighty', 'Ninety'];
+
+function twoDigitWords(n: number): string {
+  if (n < 20) return ones[n];
+  return (tens[Math.floor(n / 10)] + (n % 10 ? ' ' + ones[n % 10] : '')).trim();
+}
+
+function threeDigitWords(n: number): string {
+  if (n === 0) return '';
+  if (n < 100) return twoDigitWords(n);
+  return ones[Math.floor(n / 100)] + ' Hundred' + (n % 100 ? ' ' + twoDigitWords(n % 100) : '');
+}
+
+/**
+ * Convert a number to Indian currency words.
+ * e.g. 2500000 -> "Twenty Five Lakhs"
+ *      15000   -> "Fifteen Thousand"
+ *      10250000 -> "One Crore Two Lakh Fifty Thousand"
+ */
+export function numberToIndianWords(num: number | null | undefined): string {
+  if (num == null || isNaN(num) || num === 0) return 'Zero';
+  if (num < 0) return 'Minus ' + numberToIndianWords(Math.abs(num));
+
+  const ones = ['', 'One', 'Two', 'Three', 'Four', 'Five', 'Six', 'Seven', 'Eight', 'Nine', 'Ten', 'Eleven', 'Twelve', 'Thirteen', 'Fourteen', 'Fifteen', 'Sixteen', 'Seventeen', 'Eighteen', 'Nineteen'];
+  const tens = ['', '', 'Twenty', 'Thirty', 'Forty', 'Fifty', 'Sixty', 'Seventy', 'Eighty', 'Ninety'];
+
+  const helper = (n: number): string => {
+    if (n < 20) return ones[n];
+    if (n < 100) return (tens[Math.floor(n / 10)] + (n % 10 !== 0 ? ' ' + ones[n % 10] : '')).trim();
+    if (n < 1000) return (ones[Math.floor(n / 100)] + ' Hundred' + (n % 100 !== 0 ? ' ' + helper(n % 100) : '')).trim();
+    return '';
+  };
+
+  let remainder = Math.round(num);
+  const parts: string[] = [];
+
+  // 1. Crores (Recursive to handle 100, 1000+ Crores)
+  if (remainder >= 10000000) {
+    const crores = Math.floor(remainder / 10000000);
+    parts.push(numberToIndianWords(crores) + (crores === 1 ? ' Crore' : ' Crores'));
+    remainder %= 10000000;
+  }
+
+  // 2. Lakhs
+  if (remainder >= 100000) {
+    const lakhs = Math.floor(remainder / 100000);
+    parts.push(helper(lakhs) + (lakhs === 1 ? ' Lakh' : ' Lakhs'));
+    remainder %= 100000;
+  }
+
+  // 3. Thousands
+  if (remainder >= 1000) {
+    const thousands = Math.floor(remainder / 1000);
+    parts.push(helper(thousands) + ' Thousand');
+    remainder %= 1000;
+  }
+
+  // 4. Remaining Hundreds/Tens/Ones
+  if (remainder > 0) {
+    parts.push(helper(remainder));
+  }
+
+  return parts.join(' ').trim();
 }
 ````
 
@@ -11996,7 +13446,681 @@ $$;
 ALTER TYPE public.player_status ADD VALUE IF NOT EXISTS 'unsold_final';
 ````
 
-## File: supabase/migrations/0032_admin_authorization_checks.sql
+## File: supabase/migrations/0033_fix_phase2_loop.sql
+````sql
+-- 0033_fix_phase2_loop.sql
+-- Fix the logic in next_player and undo_sale to prevent infinite loops at the end of Phase 1 and Phase 2.
+-- The previous logic relied solely on the presence of upcoming_phase2 players to identify Phase 2,
+-- causing Phase 2 to revert to Phase 1 logic once all its players were processed.
+
+create or replace function public.next_player(p_auction_id uuid)
+returns public.auction_state
+language plpgsql
+security definer
+as $$
+declare
+  v_state public.auction_state;
+  v_player_id uuid;
+  v_upcoming_count integer;
+  v_upcoming_phase2_count integer;
+  v_unsold_count integer;
+begin
+  -- Authorization check: only admins can call this function
+  if not exists (select 1 from public.profiles where id = auth.uid() and role = 'admin') then
+    raise exception 'Unauthorized: Only admins can draw next player';
+  end if;
+
+  select *
+    into v_state
+  from public.auction_state
+  where auction_id = p_auction_id
+  for update;
+
+  if not found then
+    insert into public.auction_state (auction_id, phase)
+    values (p_auction_id, 'phase1'::public.auction_phase)
+    returning * into v_state;
+  end if;
+
+  -- Count available players to determine context
+  select count(*) into v_upcoming_count from public.players where auction_id = p_auction_id and status = 'upcoming';
+  select count(*) into v_upcoming_phase2_count from public.players where auction_id = p_auction_id and status = 'upcoming_phase2';
+  select count(*) into v_unsold_count from public.players where auction_id = p_auction_id and status = 'unsold';
+
+  -- PHASE 1 Execution
+  if v_state.phase in ('captain_round', 'idle', 'phase1') or 
+     (v_state.phase::text like 'completed%' and v_upcoming_count > 0) or
+     (v_state.phase::text like 'completed%' and v_upcoming_count = 0 and v_upcoming_phase2_count = 0 and v_unsold_count > 0) then
+
+    if v_upcoming_count = 0 then
+      -- Finished Phase 1
+      update public.auction_state
+         set phase = 'phase_1_complete'::public.auction_phase,
+             current_player_id = null,
+             current_bid = null,
+             leading_team_id = null,
+             previous_bid = null,
+             previous_leading_team_id = null,
+             show_undo_notice = false
+       where id = v_state.id
+       returning * into v_state;
+      return v_state;
+    end if;
+
+    select id
+      into v_player_id
+    from public.players
+    where auction_id = p_auction_id
+      and status = 'upcoming'
+    order by random()
+    limit 1;
+
+    update public.auction_state
+       set phase = 'phase1'::public.auction_phase
+     where id = v_state.id;
+
+  -- PHASE 2 Execution
+  elsif v_state.phase in ('phase_2_hype', 'phase2') or 
+        (v_state.phase::text like 'completed%' and v_upcoming_phase2_count > 0) or
+        (v_state.phase::text like 'completed%' and v_upcoming_count = 0 and v_upcoming_phase2_count = 0 and v_unsold_count = 0) then
+
+    if v_upcoming_phase2_count = 0 then
+      -- Finished Phase 2
+      update public.auction_state
+         set phase = 'phase_2_complete'::public.auction_phase,
+             current_player_id = null,
+             current_bid = null,
+             leading_team_id = null,
+             previous_bid = null,
+             previous_leading_team_id = null,
+             show_undo_notice = false
+       where id = v_state.id
+       returning * into v_state;
+      return v_state;
+    end if;
+
+    select id
+      into v_player_id
+    from public.players
+    where auction_id = p_auction_id
+      and status = 'upcoming_phase2'
+    order by random()
+    limit 1;
+
+    update public.auction_state
+       set phase = 'phase2'::public.auction_phase
+     where id = v_state.id;
+  end if;
+
+  if v_player_id is not null then
+    update public.players
+      set status = 'live'::public.player_status
+    where id = v_player_id;
+
+    update public.auction_state
+       set 
+           previous_player_id = v_state.current_player_id, 
+           current_player_id = v_player_id,
+           current_bid = null,
+           leading_team_id = null,
+           previous_bid = null,
+           previous_leading_team_id = null,
+           show_undo_notice = false
+     where id = v_state.id
+     returning * into v_state;
+  end if;
+
+  return v_state;
+end;
+$$;
+
+
+create or replace function public.undo_sale(p_auction_id uuid)
+returns public.auction_state
+language plpgsql
+security definer
+as $$
+declare
+  v_state public.auction_state;
+  v_player public.players;
+  v_target_player_id uuid;
+begin
+  -- Authorization check: only admins can call this function
+  if not exists (select 1 from public.profiles where id = auth.uid() and role = 'admin') then
+    raise exception 'Unauthorized: Only admins can undo sales';
+  end if;
+
+  select *
+    into v_state
+  from public.auction_state
+  where auction_id = p_auction_id
+  for update;
+
+  if not found then
+    raise exception 'No auction context available.';
+  end if;
+
+  if v_state.phase::text not in ('phase1', 'phase2', 'completed_sale', 'completed_unsold') then
+    raise exception 'Undo Sale is not permitted in the current phase.';
+  end if;
+
+  if (v_state.phase::text = 'phase1' or v_state.phase::text = 'phase2') and v_state.current_bid is not null then
+    raise exception 'Undo Sale is not permitted after a new bid has started.';
+  end if;
+
+  if v_state.phase::text like 'completed%' then
+    v_target_player_id := v_state.current_player_id;
+  else
+    v_target_player_id := v_state.previous_player_id;
+  end if;
+
+  if v_target_player_id is null then
+    raise exception 'No sold player context available for undo.';
+  end if;
+
+  select * into v_player from public.players where id = v_target_player_id for update;
+
+  -- Restore Purse/Slots if it was sold
+  if v_player.status = 'sold' then
+    update public.teams
+       set purse_remaining = purse_remaining + v_player.sold_price,
+           slots_remaining = slots_remaining + 1
+     where id = v_player.sold_team_id;
+  end if;
+
+  -- Restore player to LIVE
+  update public.players
+     set status = 'live'::public.player_status,
+         sold_price = null,
+         sold_team_id = null
+   where id = v_target_player_id;
+
+  if v_state.phase::text like 'completed%' then
+    -- SCENARIO A: Undoing during the 3.5s window
+    update public.auction_state
+       set phase = (case when v_state.phase::text in ('completed_unsold', 'completed_sale') then 
+                      (case when exists(select 1 from public.players where status in ('upcoming_phase2', 'unsold_final') and auction_id=p_auction_id) then 'phase2' else 'phase1' end)
+                    else 'phase1' end)::public.auction_phase,
+           current_bid = null,
+           leading_team_id = null,
+           previous_bid = null,
+           previous_leading_team_id = null,
+           current_player_id = v_target_player_id, 
+           previous_player_id = null,
+           show_undo_notice = true
+     where id = v_state.id
+     returning * into v_state;
+
+  else
+    -- SCENARIO B: Undoing AFTER next_player has been drawn
+    -- If a new player was drawn, move them back to upcoming
+    if v_state.current_player_id is not null then
+      update public.players
+         set status = (case when v_state.phase::text in ('phase2', 'phase_2_complete', 'phase_2_hype') or exists(select 1 from public.players where status in ('upcoming_phase2', 'unsold_final') and auction_id=p_auction_id) then 'upcoming_phase2' else 'upcoming' end)::public.player_status
+       where id = v_state.current_player_id;
+    end if;
+
+    update public.auction_state
+       set current_player_id = v_target_player_id,
+           previous_player_id = null,
+           current_bid = null,
+           leading_team_id = null,
+           previous_bid = null,
+           previous_leading_team_id = null,
+           show_undo_notice = true
+     where id = v_state.id
+     returning * into v_state;
+  end if;
+
+  return v_state;
+end;
+$$;
+````
+
+## File: supabase/migrations/0034_blind_bids_extension.sql
+````sql
+-- 0034_blind_bids_extension.sql
+-- Extends the auction system with Blind Bid support for regular players.
+-- Adds a 'blind_reserved' player status and a 'blind_bid_round' auction phase.
+-- Creates RPCs for starting the blind bid round and matching blind bid players.
+-- Updates next_player to exclude blind_reserved players from normal draws.
+
+-- 1. Add new enum values
+ALTER TYPE public.player_status ADD VALUE IF NOT EXISTS 'blind_reserved';
+ALTER TYPE public.auction_phase ADD VALUE IF NOT EXISTS 'blind_bid_round';
+
+-- 2. RPC to start the blind bid round
+create or replace function public.start_blind_bid_round(p_auction_id uuid)
+returns public.auction_state
+language plpgsql
+security definer
+as $$
+declare
+  v_state public.auction_state;
+begin
+  -- Authorization check
+  if not exists (select 1 from public.profiles where id = auth.uid() and role = 'admin') then
+    raise exception 'Unauthorized: Only admins can start blind bid round';
+  end if;
+
+  select *
+    into v_state
+  from public.auction_state
+  where auction_id = p_auction_id
+  for update;
+
+  if not found then
+    raise exception 'Auction state not found for id %', p_auction_id;
+  end if;
+
+  -- Verify there are blind_reserved players
+  if not exists (select 1 from public.players where auction_id = p_auction_id and status = 'blind_reserved') then
+    raise exception 'No blind bid players have been reserved for this auction';
+  end if;
+
+  update public.auction_state
+     set phase = 'blind_bid_round'::public.auction_phase,
+         current_player_id = null,
+         current_bid = null,
+         leading_team_id = null,
+         previous_bid = null,
+         previous_leading_team_id = null,
+         show_undo_notice = false
+   where id = v_state.id
+   returning * into v_state;
+
+  return v_state;
+end;
+$$;
+
+-- 3. RPC to match a blind bid player to a team (mirrors match_captain_blind_bid)
+create or replace function public.match_player_blind_bid(
+  p_auction_id uuid,
+  p_team_id uuid,
+  p_player_id uuid,
+  p_price numeric
+)
+returns void
+language plpgsql
+security definer
+as $$
+declare
+  v_auction public.auctions;
+  v_team public.teams;
+  v_player public.players;
+  v_base_price numeric(12,2);
+  v_remaining_slots_after integer;
+  v_required_money numeric(12,2);
+begin
+  -- Authorization check
+  if not exists (select 1 from public.profiles where id = auth.uid() and role = 'admin') then
+    raise exception 'Unauthorized: Only admins can assign blind bid players';
+  end if;
+
+  if p_price < 0 then
+    raise exception 'Blind bid price cannot be negative';
+  end if;
+
+  select *
+    into v_auction
+  from public.auctions
+  where id = p_auction_id
+  for update;
+
+  if not found then
+    raise exception 'Auction % not found', p_auction_id;
+  end if;
+
+  v_base_price := (v_auction.settings ->> 'base_price')::numeric;
+
+  select *
+    into v_team
+  from public.teams
+  where id = p_team_id
+    and auction_id = p_auction_id
+  for update;
+
+  if not found then
+    raise exception 'Team % not found for auction %', p_team_id, p_auction_id;
+  end if;
+
+  select *
+    into v_player
+  from public.players
+  where id = p_player_id
+    and auction_id = p_auction_id
+  for update;
+
+  if not found then
+    raise exception 'Player % not found for auction %', p_player_id, p_auction_id;
+  end if;
+
+  -- Must be a blind_reserved player
+  if v_player.status <> 'blind_reserved' then
+    raise exception 'Player % is not marked as blind_reserved', v_player.name;
+  end if;
+
+  -- Cannot be a captain
+  if v_player.is_captain then
+    raise exception 'Captains cannot be assigned as blind bid players';
+  end if;
+
+  if v_team.slots_remaining <= 0 then
+    raise exception 'Team % has no remaining slots', p_team_id;
+  end if;
+
+  if v_team.purse_remaining < p_price then
+    raise exception 'Blind bid price exceeds team purse for team %', p_team_id;
+  end if;
+
+  -- Minimum squad constraint
+  v_remaining_slots_after := v_team.slots_remaining - 1;
+  v_required_money := v_remaining_slots_after * v_base_price;
+
+  if (v_team.purse_remaining - p_price) < v_required_money then
+    raise exception 'Minimum squad rule violated for team % when assigning blind bid player', p_team_id;
+  end if;
+
+  -- Execute assignment
+  update public.players
+     set status = 'sold'::public.player_status,
+         sold_price = p_price,
+         sold_team_id = p_team_id
+   where id = p_player_id;
+
+  update public.teams
+     set purse_remaining = v_team.purse_remaining - p_price,
+         slots_remaining = v_team.slots_remaining - 1
+   where id = p_team_id;
+end;
+$$;
+
+-- 4. Update next_player to exclude blind_reserved players from draws
+-- This re-creates next_player with the blind_reserved exclusion added
+create or replace function public.next_player(p_auction_id uuid)
+returns public.auction_state
+language plpgsql
+security definer
+as $$
+declare
+  v_state public.auction_state;
+  v_player_id uuid;
+  v_upcoming_count integer;
+  v_upcoming_phase2_count integer;
+  v_unsold_count integer;
+begin
+  -- Authorization check: only admins can call this function
+  if not exists (select 1 from public.profiles where id = auth.uid() and role = 'admin') then
+    raise exception 'Unauthorized: Only admins can draw next player';
+  end if;
+
+  select *
+    into v_state
+  from public.auction_state
+  where auction_id = p_auction_id
+  for update;
+
+  if not found then
+    insert into public.auction_state (auction_id, phase)
+    values (p_auction_id, 'phase1'::public.auction_phase)
+    returning * into v_state;
+  end if;
+
+  -- Count available players (blind_reserved are excluded automatically by status filter)
+  select count(*) into v_upcoming_count from public.players where auction_id = p_auction_id and status = 'upcoming' and is_captain = false;
+  select count(*) into v_upcoming_phase2_count from public.players where auction_id = p_auction_id and status = 'upcoming_phase2';
+  select count(*) into v_unsold_count from public.players where auction_id = p_auction_id and status = 'unsold';
+
+  -- PHASE 1 Execution
+  if v_state.phase in ('captain_round', 'idle', 'phase1', 'blind_bid_round') or 
+     (v_state.phase::text like 'completed%' and v_upcoming_count > 0) or
+     (v_state.phase::text like 'completed%' and v_upcoming_count = 0 and v_upcoming_phase2_count = 0 and v_unsold_count > 0) then
+
+    if v_upcoming_count = 0 then
+      -- Finished Phase 1
+      update public.auction_state
+         set phase = 'phase_1_complete'::public.auction_phase,
+             current_player_id = null,
+             current_bid = null,
+             leading_team_id = null,
+             previous_bid = null,
+             previous_leading_team_id = null,
+             show_undo_notice = false
+       where id = v_state.id
+       returning * into v_state;
+      return v_state;
+    end if;
+
+    select id
+      into v_player_id
+    from public.players
+    where auction_id = p_auction_id
+      and status = 'upcoming'
+      and is_captain = false
+    order by random()
+    limit 1;
+
+    update public.auction_state
+       set phase = 'phase1'::public.auction_phase
+     where id = v_state.id;
+
+  -- PHASE 2 Execution
+  elsif v_state.phase in ('phase_2_hype', 'phase2') or 
+        (v_state.phase::text like 'completed%' and v_upcoming_phase2_count > 0) or
+        (v_state.phase::text like 'completed%' and v_upcoming_count = 0 and v_upcoming_phase2_count = 0 and v_unsold_count = 0) then
+
+    if v_upcoming_phase2_count = 0 then
+      -- Finished Phase 2
+      update public.auction_state
+         set phase = 'phase_2_complete'::public.auction_phase,
+             current_player_id = null,
+             current_bid = null,
+             leading_team_id = null,
+             previous_bid = null,
+             previous_leading_team_id = null,
+             show_undo_notice = false
+       where id = v_state.id
+       returning * into v_state;
+      return v_state;
+    end if;
+
+    select id
+      into v_player_id
+    from public.players
+    where auction_id = p_auction_id
+      and status = 'upcoming_phase2'
+    order by random()
+    limit 1;
+
+    update public.auction_state
+       set phase = 'phase2'::public.auction_phase
+     where id = v_state.id;
+  end if;
+
+  if v_player_id is not null then
+    update public.players
+      set status = 'live'::public.player_status
+    where id = v_player_id;
+
+    update public.auction_state
+       set 
+           previous_player_id = v_state.current_player_id, 
+           current_player_id = v_player_id,
+           current_bid = null,
+           leading_team_id = null,
+           previous_bid = null,
+           previous_leading_team_id = null,
+           show_undo_notice = false
+     where id = v_state.id
+     returning * into v_state;
+  end if;
+
+  return v_state;
+end;
+$$;
+````
+
+## File: supabase/migrations/0035_dynamic_increments.sql
+````sql
+-- 0035_dynamic_increments.sql
+-- Replaces the static increment validation in execute_bid with dynamic tier-based increments.
+-- Tier thresholds and increment values are read from auction.settings JSONB:
+--   tier1_threshold, tier1_increment, tier2_threshold, tier2_increment, tier3_increment
+-- Falls back to the legacy static 'increment' field if tiers are not configured.
+
+drop function if exists public.execute_bid(uuid, uuid, numeric(12,2));
+
+create or replace function public.execute_bid(
+  p_auction_id uuid,
+  p_team_id uuid,
+  p_next_bid numeric(12,2)
+)
+returns public.auction_state
+language plpgsql
+security definer
+as $$
+declare
+  v_state public.auction_state;
+  v_auction public.auctions;
+  v_team public.teams;
+  v_base_price numeric(12,2);
+  v_active_bid numeric(12,2);
+  v_dynamic_incr numeric(12,2);
+  v_tier1_threshold numeric(12,2);
+  v_tier2_threshold numeric(12,2);
+  v_remaining_slots_after integer;
+  v_required_money numeric(12,2);
+begin
+  -- 1. Lock the auction state to prevent race conditions
+  select *
+    into v_state
+  from public.auction_state
+  where auction_id = p_auction_id
+  for update;
+
+  if not found then
+    raise exception 'Auction state not found for id %', p_auction_id;
+  end if;
+
+  -- 2. Validate active player
+  if v_state.current_player_id is null then
+    raise exception 'No active player for this auction';
+  end if;
+
+  -- 3. Get auction settings and status
+  select *
+    into v_auction
+  from public.auctions
+  where id = p_auction_id
+  for update;
+
+  if v_auction.status != 'live' then
+    raise exception 'Auction is not in live status';
+  end if;
+
+  v_base_price := (v_auction.settings ->> 'base_price')::numeric;
+
+  if v_base_price is null then
+    raise exception 'Base price not configured for auction';
+  end if;
+
+  -- 4. Compute dynamic increment
+  v_active_bid := coalesce(v_state.current_bid, v_base_price);
+
+  -- Read tier configuration from settings (falls back to legacy 'increment' if tiers not set)
+  v_tier1_threshold := (v_auction.settings ->> 'tier1_threshold')::numeric;
+  v_tier2_threshold := (v_auction.settings ->> 'tier2_threshold')::numeric;
+
+  if v_tier1_threshold is not null and v_tier2_threshold is not null then
+    -- Dynamic tier-based increments
+    if v_active_bid < v_tier1_threshold then
+      v_dynamic_incr := (v_auction.settings ->> 'tier1_increment')::numeric;
+    elsif v_active_bid < v_tier2_threshold then
+      v_dynamic_incr := (v_auction.settings ->> 'tier2_increment')::numeric;
+    else
+      v_dynamic_incr := (v_auction.settings ->> 'tier3_increment')::numeric;
+    end if;
+
+    if v_dynamic_incr is null or v_dynamic_incr <= 0 then
+      raise exception 'Invalid increment configuration for current bid tier';
+    end if;
+  else
+    -- Legacy fallback: static increment
+    v_dynamic_incr := (v_auction.settings ->> 'increment')::numeric;
+    if v_dynamic_incr is null then
+      raise exception 'Increment not configured for auction';
+    end if;
+  end if;
+
+  -- 5. Validate team and leading status
+  if v_state.leading_team_id = p_team_id then
+    raise exception 'Team is already leading the bid';
+  end if;
+
+  select *
+    into v_team
+  from public.teams
+  where id = p_team_id
+    and auction_id = p_auction_id
+  for update;
+
+  if not found then
+    raise exception 'Team not found or does not belong to this auction';
+  end if;
+
+  -- 6. Validate bid amount
+  if v_state.leading_team_id is null then
+    -- First bid: must be at least base price
+    if p_next_bid < v_base_price then
+      raise exception 'First bid must be at least base price (%)', v_base_price;
+    end if;
+    -- First bid must equal base_price or base_price + N*increment
+    if (p_next_bid - v_base_price) % v_dynamic_incr != 0 then
+      raise exception 'Initial bid must be in increments of % above base price', v_dynamic_incr;
+    end if;
+  else
+    -- Subsequent bids
+    if p_next_bid <= coalesce(v_state.current_bid, 0) then
+      raise exception 'Bid amount must be higher than current bid (%)', coalesce(v_state.current_bid, 0);
+    end if;
+    if (p_next_bid - coalesce(v_state.current_bid, 0)) != v_dynamic_incr then
+      raise exception 'Bid must increment by exactly % (dynamic tier increment)', v_dynamic_incr;
+    end if;
+  end if;
+
+  -- 7. Purse and Slot checks
+  if v_team.purse_remaining < p_next_bid then
+    raise exception 'Insufficient purse remaining';
+  end if;
+
+  if v_team.slots_remaining <= 0 then
+    raise exception 'No slots remaining';
+  end if;
+
+  -- 8. Minimum squad constraint
+  v_remaining_slots_after := v_team.slots_remaining - 1;
+  v_required_money := v_remaining_slots_after * v_base_price;
+
+  if (v_team.purse_remaining - p_next_bid) < v_required_money then
+    raise exception 'Insufficient funds to maintain minimum squad requirement';
+  end if;
+
+  -- 9. Atomic update
+  update public.auction_state
+     set previous_bid = current_bid,
+         previous_leading_team_id = leading_team_id,
+         current_bid = p_next_bid,
+         leading_team_id = p_team_id,
+         show_undo_notice = false
+   where auction_id = p_auction_id
+   returning * into v_state;
+
+  return v_state;
+end;
+$$;
+````
+
+## File: supabase/migrations/0036_admin_authorization_checks.sql
 ````sql
 -- 0032_admin_authorization_checks.sql
 -- Add authorization checks to all admin-only RPC functions
@@ -12310,6 +14434,146 @@ begin
            previous_bid = null,
            previous_leading_team_id = null,
            show_undo_notice = true
+     where id = v_state.id
+     returning * into v_state;
+  end if;
+
+  return v_state;
+end;
+$$;
+````
+
+## File: supabase/migrations/0037_add_is_blind_bid.sql
+````sql
+-- Add is_blind_bid to players table to easily identify blind bid players
+-- even after they have been sold and their status changes from 'blind_reserved' to 'sold'.
+
+ALTER TABLE players ADD COLUMN IF NOT EXISTS is_blind_bid BOOLEAN DEFAULT FALSE;
+
+-- Update existing blind_reserved players to true for data integrity
+UPDATE players SET is_blind_bid = TRUE WHERE status = 'blind_reserved';
+````
+
+## File: supabase/migrations/0038_fix_next_player.sql
+````sql
+-- Migration 0038: Fix next_player RPC which was accidentally reverted by 0036
+-- 0036 added admin auth checks but overwrote the next_player logic from 0034.
+-- This combined version includes both the admin checks AND the blind_bid_round logic.
+
+create or replace function public.next_player(p_auction_id uuid)
+returns public.auction_state
+language plpgsql
+security definer
+as $$
+declare
+  v_state public.auction_state;
+  v_player_id uuid;
+  v_upcoming_count integer;
+  v_upcoming_phase2_count integer;
+  v_unsold_count integer;
+begin
+  -- Authorization check: only admins can call this function
+  if not exists (select 1 from public.profiles where id = auth.uid() and role = 'admin') then
+    raise exception 'Unauthorized: Only admins can draw next player';
+  end if;
+
+  select *
+    into v_state
+  from public.auction_state
+  where auction_id = p_auction_id
+  for update;
+
+  if not found then
+    insert into public.auction_state (auction_id, phase)
+    values (p_auction_id, 'phase1'::public.auction_phase)
+    returning * into v_state;
+  end if;
+
+  -- Count available players (blind_reserved are excluded automatically by status filter)
+  select count(*) into v_upcoming_count from public.players where auction_id = p_auction_id and status = 'upcoming' and is_captain = false;
+  select count(*) into v_upcoming_phase2_count from public.players where auction_id = p_auction_id and status = 'upcoming_phase2';
+  select count(*) into v_unsold_count from public.players where auction_id = p_auction_id and status = 'unsold';
+
+  -- PHASE 1 Execution
+  if v_state.phase in ('captain_round', 'idle', 'phase1', 'blind_bid_round') or 
+     (v_state.phase::text like 'completed%' and v_upcoming_count > 0) or
+     (v_state.phase::text like 'completed%' and v_upcoming_count = 0 and v_upcoming_phase2_count = 0 and v_unsold_count > 0) then
+
+    if v_upcoming_count = 0 then
+      -- Finished Phase 1
+      update public.auction_state
+         set phase = 'phase_1_complete'::public.auction_phase,
+             current_player_id = null,
+             current_bid = null,
+             leading_team_id = null,
+             previous_bid = null,
+             previous_leading_team_id = null,
+             show_undo_notice = false
+       where id = v_state.id
+       returning * into v_state;
+      return v_state;
+    end if;
+
+    select id
+      into v_player_id
+    from public.players
+    where auction_id = p_auction_id
+      and status = 'upcoming'
+      and is_captain = false
+    order by random()
+    limit 1;
+
+    update public.auction_state
+       set phase = 'phase1'::public.auction_phase
+     where id = v_state.id;
+
+  -- PHASE 2 Execution
+  elsif v_state.phase in ('phase_2_hype', 'phase2') or 
+        (v_state.phase::text like 'completed%' and v_upcoming_phase2_count > 0) or
+        (v_state.phase::text like 'completed%' and v_upcoming_count = 0 and v_upcoming_phase2_count = 0 and v_unsold_count = 0) then
+
+    if v_upcoming_phase2_count = 0 then
+      -- Finished Phase 2
+      update public.auction_state
+         set phase = 'phase_2_complete'::public.auction_phase,
+             current_player_id = null,
+             current_bid = null,
+             leading_team_id = null,
+             previous_bid = null,
+             previous_leading_team_id = null,
+             show_undo_notice = false
+       where id = v_state.id
+       returning * into v_state;
+      return v_state;
+    end if;
+
+    select id
+      into v_player_id
+    from public.players
+    where auction_id = p_auction_id
+      and status = 'upcoming_phase2'
+    order by random()
+    limit 1;
+
+    update public.auction_state
+       set phase = 'phase2'::public.auction_phase
+     where id = v_state.id;
+  end if;
+
+  if v_player_id is not null then
+    update public.players
+      set status = 'live'::public.player_status
+    where id = v_player_id;
+
+    update public.auction_state
+       set 
+           previous_player_id = v_state.current_player_id, 
+           current_player_id = v_player_id,
+           current_bid = null,
+           leading_team_id = null,
+           previous_bid = null,
+           previous_leading_team_id = null,
+           show_undo_notice = false
      where id = v_state.id
      returning * into v_state;
   end if;

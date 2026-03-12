@@ -313,7 +313,7 @@ export default function VerifyAuctionPage({ params }: { params: Promise<{ id: st
                             </div>
                         </div>
 
-                        <Card className="border-slate-200 dark:border-slate-800 bg-white/60 dark:bg-slate-900/60 p-2 shadow-2xl overflow-hidden flex flex-col max-h-fit md:max-h-[calc(100vh-400px)]">
+                        <Card className="border-slate-200 dark:border-slate-800 bg-white/60 dark:bg-slate-900/60 p-2 shadow-2xl overflow-hidden flex flex-col md:max-h-[calc(100vh-400px)]">
                             <div className="overflow-y-auto pr-1 space-y-2 p-2 custom-scrollbar max-h-[600px]">
                                 {displayedPlayers.length === 0 ? (
                                     <div className="flex flex-col items-center justify-center py-12 text-center space-y-4">
