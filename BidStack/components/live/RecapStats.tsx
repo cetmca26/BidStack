@@ -74,7 +74,7 @@ export function RecapStats({ teams, players, sportType }: RecapStatsProps) {
                         <Trophy size={18} strokeWidth={3} />
                         Auction MVP
                     </div>
-                    <h2 className="text-3xl sm:text-4xl md:text-5xl font-black text-white italic tracking-tighter uppercase mb-4">The Golden Signing</h2>
+                    <h2 className="text-3xl sm:text-4xl md:text-5xl font-black text-slate-800 dark:text-white italic tracking-tighter uppercase mb-4">The Golden Signing</h2>
                 </motion.div>
 
                 {mvp && (
@@ -83,39 +83,43 @@ export function RecapStats({ teams, players, sportType }: RecapStatsProps) {
                         className="relative group cursor-pointer"
                     >
                         <div className="absolute inset-0 bg-amber-500/20 blur-3xl rounded-full group-hover:bg-amber-500/40 transition-all duration-500" />
-                        <Card className="relative bg-slate-900/40 backdrop-blur-xl border-2 border-amber-500/50 p-6 sm:p-8 rounded-[30px] shadow-2xl flex flex-col items-center">
-                            <PlayerAvatar
-                                id={mvp.id}
-                                name={mvp.name}
-                                role={mvp.role}
-                                photoUrl={mvp.photo_url}
-                                size="lg"
-                            />
-                            <div className="mt-4 sm:mt-6 text-center">
-                                <h3 className="text-2xl sm:text-3xl md:text-4xl font-black text-white italic uppercase tracking-tighter">{mvp.name}</h3>
-                                <div className="text-amber-500 font-bold uppercase tracking-widest text-xs sm:text-sm mt-1">{mvp.role}</div>
-
-                                <div className="mt-4 sm:mt-6 flex items-center justify-center gap-2 sm:gap-4">
-                                    <div className="h-0.5 w-8 sm:w-12 bg-slate-800" />
-                                    <div className="text-xl sm:text-2xl md:text-3xl font-mono font-black text-white">
-                                        {formatPrice(mvp.sold_price)}
-                                    </div>
-                                    <div className="h-0.5 w-8 sm:w-12 bg-slate-800" />
+                        <Card className="relative bg-white dark:bg-slate-900 border-2 border-emerald-500/30 dark:border-emerald-500/50 rounded-[30px] shadow-2xl flex flex-col items-center overflow-hidden min-h-[400px] sm:min-h-[450px]">
+                            {/* Team Stamp */}
+                            {mvp.sold_team_id && (
+                                <div className="absolute top-4 right-4 z-20 flex items-center justify-center bg-white/80 dark:bg-slate-900/80 backdrop-blur-md p-1.5 rounded-full border border-slate-200 dark:border-slate-800 shadow-lg">
+                                    <TeamLogo
+                                        name={teams.find(t => t.id === mvp.sold_team_id)?.name || ""}
+                                        logoUrl={teams.find(t => t.id === mvp.sold_team_id)?.logo_url}
+                                        size="sm"
+                                    />
                                 </div>
+                            )}
 
-                                {mvp.sold_team_id && (
-                                    <div className="mt-4 sm:mt-6 flex items-center gap-2 justify-center bg-slate-950/60 px-3 py-1.5 sm:px-4 sm:py-2 rounded-full border border-slate-800 w-fit mx-auto">
-                                        <span className="text-[8px] sm:text-[10px] font-black text-slate-500 uppercase tracking-widest hidden sm:inline">Signed By</span>
-                                        <TeamLogo
-                                            name={teams.find(t => t.id === mvp.sold_team_id)?.name || ""}
-                                            logoUrl={teams.find(t => t.id === mvp.sold_team_id)?.logo_url}
-                                            size="sm"
-                                        />
-                                        <span className="text-xs sm:text-sm font-bold text-slate-200">
-                                            {teams.find(t => t.id === mvp.sold_team_id)?.name}
-                                        </span>
+                            {/* Full Height Player Image Background */}
+                            <div className="absolute inset-0 pointer-events-none">
+                                {mvp.photo_url ? (
+                                    <img src={mvp.photo_url} alt={mvp.name} className="w-full h-[85%] object-contain object-bottom opacity-60 sm:opacity-80 mix-blend-luminosity dark:mix-blend-lighten" />
+                                ) : (
+                                    <div className="w-full h-[85%] flex items-center justify-center font-heading font-black text-slate-300 dark:text-slate-800 text-[10rem] opacity-70">
+                                        {mvp.name.charAt(0)}
                                     </div>
                                 )}
+                                <div className="absolute inset-0 bg-gradient-to-t from-white via-white/60 dark:from-slate-900 dark:via-slate-900/60 to-transparent" />
+                            </div>
+
+                            {/* Content overlay */}
+                            <div className="relative z-10 w-full flex flex-col items-center p-6 sm:p-8 flex-1 justify-end">
+                                <div className="mt-auto flex items-center justify-center gap-2 sm:gap-4 bg-white/60 dark:bg-slate-900/60 backdrop-blur-md rounded-2xl p-4 border border-slate-200 dark:border-slate-800 shadow-xl w-full max-w-[80%] mx-auto">
+                                    <div className="flex flex-col items-center gap-1">
+                                        <div className="text-2xl sm:text-3xl md:text-4xl font-mono font-black text-emerald-600 dark:text-emerald-400 leading-none">
+                                            {formatPrice(mvp.sold_price)}
+                                        </div>
+                                        <div className="text-xs sm:text-sm font-bold text-slate-500 tracking-wider italic">
+                                            ({formatPriceCompact(mvp.sold_price)})
+                                        </div>
+                                    </div>
+                                </div>
+
                             </div>
                         </Card>
                     </motion.div>
@@ -126,20 +130,47 @@ export function RecapStats({ teams, players, sportType }: RecapStatsProps) {
             <section className="grid grid-cols-2 md:grid-cols-4 gap-3 sm:gap-4 md:gap-6">
                 {roleMvps.map(({ role, player }) => (
                     <motion.div key={role} variants={item}>
-                        <Card className="bg-slate-900/40 border-slate-800 p-4 sm:p-6 rounded-[20px] sm:rounded-3xl flex flex-col items-center text-center hover:border-emerald-500/50 transition-colors group h-full">
-                            <div className="text-[8px] sm:text-[10px] font-black text-slate-500 uppercase tracking-widest mb-4 sm:mb-6 group-hover:text-emerald-500 transition-colors">
-                                Best {role}
+                        <Card className="relative bg-white dark:bg-slate-900 border-slate-200 dark:border-slate-800 rounded-[20px] sm:rounded-3xl flex flex-col items-center text-center hover:border-emerald-500/50 transition-colors group h-full overflow-visible min-h-[250px] sm:min-h-[300px] mb-4">
+                            {/* Team Stamp */}
+                            {player.sold_team_id && (
+                                <div className="absolute top-3 right-3 z-30 flex items-center justify-center bg-white/80 dark:bg-slate-900/80 backdrop-blur-md p-1 rounded-full border border-slate-200 dark:border-slate-800 shadow-md scale-90 sm:scale-100">
+                                    <TeamLogo
+                                        name={teams.find(t => t.id === player.sold_team_id)?.name || ""}
+                                        logoUrl={teams.find(t => t.id === player.sold_team_id)?.logo_url}
+                                        size="sm"
+                                    />
+                                </div>
+                            )}
+
+                            {/* Full Height Player Image Background */}
+                            <div className="absolute inset-0 pointer-events-none rounded-[inherit] overflow-hidden">
+                                {player.photo_url ? (
+                                    <img src={player.photo_url} alt={player.name} className="w-full h-[85%] object-contain object-bottom opacity-15 sm:opacity-85 mix-blend-luminosity dark:mix-blend-lighten" />
+                                ) : (
+                                    <div className="w-full h-[85%] flex items-center justify-center font-heading font-black text-slate-300 dark:text-slate-800 text-[6rem] opacity-20">
+                                        {player.name.charAt(0)}
+                                    </div>
+                                )}
+                                <div className="absolute inset-0 bg-gradient-to-t from-white via-white/60 dark:from-slate-900 dark:via-slate-900/60 to-transparent" />
                             </div>
-                            <PlayerAvatar
-                                id={player.id}
-                                name={player.name}
-                                role={player.role}
-                                photoUrl={player.photo_url}
-                                size="md"
-                            />
-                            <h4 className="mt-3 sm:mt-4 text-sm sm:text-base md:text-lg font-bold text-white uppercase italic truncate w-full px-2">{player.name}</h4>
-                            <div className="mt-1 sm:mt-2 text-xs sm:text-sm font-mono text-emerald-500 font-bold">
-                                {formatPrice(player.sold_price)}
+
+                            {/* Content overlay */}
+                            <div className="relative z-10 w-full flex flex-col items-center p-4 sm:p-6 flex-1 justify-end pb-8">
+                                <div className="mt-auto w-full flex flex-col items-center gap-2">
+                                    <div className="text-xs sm:text-sm font-mono text-emerald-600 dark:text-emerald-400 font-bold bg-white/80 dark:bg-slate-950/80 px-2 sm:px-3 py-1 sm:py-1.5 rounded-lg border border-slate-200 dark:border-slate-800 shadow-sm w-full">
+                                        <div className="flex flex-col items-center gap-0.5">
+                                            <span>{formatPrice(player.sold_price)}</span>
+                                            <span className="text-[9px] text-slate-500 dark:text-slate-400 font-medium italic">
+                                                ({formatPriceCompact(player.sold_price)})
+                                            </span>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                            
+                            {/* Bottom Title Pill */}
+                            <div className="absolute bottom-0 translate-y-1/2 z-20 text-[8px] sm:text-[10px] font-black text-emerald-600 dark:text-emerald-500 uppercase tracking-widest group-hover:scale-110 transition-transform bg-white dark:bg-slate-900 px-3 py-1 rounded-full shadow-md border border-slate-200 dark:border-slate-700 w-auto whitespace-nowrap">
+                                Best {role}
                             </div>
                         </Card>
                     </motion.div>
@@ -157,38 +188,55 @@ export function RecapStats({ teams, players, sportType }: RecapStatsProps) {
                 </motion.div>
 
                 <motion.div variants={item} className="h-full">
-                    <Card className="h-full bg-slate-900 border-slate-800 p-4 sm:p-6 rounded-[24px] sm:rounded-[32px] flex flex-col justify-center items-center text-center border-2">
+                    <Card className="h-full bg-white dark:bg-slate-900 border-slate-200 dark:border-slate-800 p-4 sm:p-6 rounded-[24px] sm:rounded-[32px] flex flex-col justify-center items-center text-center border-2">
                         <Target size={24} strokeWidth={2.5} className="mb-2 sm:mb-4 text-emerald-500" />
                         <div className="text-[8px] sm:text-[10px] font-black uppercase tracking-widest text-slate-500">Gross Expenditure</div>
-                        <div className="text-3xl sm:text-4xl font-black mt-1 text-white font-mono leading-none">
+                        <div className="text-3xl sm:text-4xl font-black mt-1 text-slate-900 dark:text-white font-mono leading-none">
                             {formatPriceCompact(soldPlayers.reduce((s, p) => s + (p.sold_price || 0), 0))}
                         </div>
                     </Card>
                 </motion.div>
 
                 <motion.div variants={item} className="h-full">
-                    <Card className="h-full bg-blue-600 text-white p-4 sm:p-6 rounded-[24px] sm:rounded-[32px] flex flex-col justify-center items-center text-center shadow-lg shadow-blue-900/20">
-                        <Star size={24} strokeWidth={2.5} className="mb-2 sm:mb-4" />
-                        <div className="text-[8px] sm:text-[10px] font-black uppercase tracking-widest opacity-80">Top Captain Pick</div>
-                        {mostValuableCaptain ? (
-                            <>
-                                <div className="mt-2 sm:mt-4 mb-2">
-                                    <PlayerAvatar
-                                        id={mostValuableCaptain.id}
-                                        name={mostValuableCaptain.name}
-                                        role={mostValuableCaptain.role}
-                                        photoUrl={mostValuableCaptain.photo_url}
-                                        size="md"
-                                    />
-                                </div>
-                                <div className="text-xl sm:text-2xl font-black mt-1 uppercase italic tracking-tighter truncate w-full px-2">
-                                    {mostValuableCaptain.name}
-                                </div>
-                                <div className="text-xs sm:text-sm font-bold opacity-90 mt-1">{formatPrice(mostValuableCaptain.sold_price)}</div>
-                            </>
-                        ) : (
-                            <div className="text-xl sm:text-2xl font-black mt-1 uppercase italic tracking-tighter">N/A</div>
+                    <Card className="relative h-full bg-blue-200 border border-blue-200 text-white rounded-[24px] sm:rounded-[32px] flex flex-col items-center text-center shadow-lg shadow-blue-500/80 overflow-visible min-h-[300px] mb-4">
+                        {/* Team Stamp */}
+                        {mostValuableCaptain?.sold_team_id && (
+                            <div className="absolute top-4 right-4 z-30 flex items-center justify-center bg-white/80 dark:bg-blue-900/80 backdrop-blur-md p-1.5 rounded-full border border-white/50 shadow-lg">
+                                <TeamLogo
+                                    name={teams.find(t => t.id === mostValuableCaptain.sold_team_id)?.name || ""}
+                                    logoUrl={teams.find(t => t.id === mostValuableCaptain.sold_team_id)?.logo_url}
+                                    size="sm"
+                                />
+                            </div>
                         )}
+
+                        <div className="absolute inset-0 pointer-events-none rounded-[inherit] overflow-hidden">
+                            {mostValuableCaptain?.photo_url ? (
+                                <img src={mostValuableCaptain.photo_url} alt={mostValuableCaptain.name} className="w-full h-[85%] object-contain object-bottom opacity-90 mix-blend-luminosity" />
+                            ) : null}
+                            <div className="absolute inset-0 bg-gradient-to-t from-blue-800/60 via-blue-600/20 to-transparent" />
+                        </div>
+
+                        <div className="relative z-10 w-full flex flex-col items-center p-4 sm:p-6 flex-1 justify-end h-full pb-8">
+                            {mostValuableCaptain ? (
+                                <div className="mt-auto w-full flex flex-col items-center gap-2">
+                                    <div className="bg-blue-950/60 backdrop-blur-md border border-white/20 rounded-xl p-2 w-full flex flex-col items-center gap-0.5 shadow-xl">
+                                        <span className="text-sm sm:text-base font-bold text-white drop-shadow-sm">{formatPrice(mostValuableCaptain.sold_price)}</span>
+                                        <span className="text-[10px] text-blue-100 font-medium italic drop-shadow-sm">({formatPriceCompact(mostValuableCaptain.sold_price)})</span>
+                                    </div>
+                                </div>
+                            ) : (
+                                <div className="mt-auto flex flex-col items-center gap-2">
+                                    <div className="text-xl sm:text-2xl font-black text-blue-900 uppercase italic tracking-tighter">N/A</div>
+                                </div>
+                            )}
+                        </div>
+                        
+                        {/* Bottom Title Pill */}
+                        <div className="absolute bottom-0 translate-y-1/2 z-20 flex items-center gap-1.5 bg-blue-100 border border-blue-300 shadow-md px-3 py-1 rounded-full whitespace-nowrap">
+                            <Star size={12} strokeWidth={2.5} className="text-amber-500 drop-shadow-sm" />
+                            <div className="text-[8px] sm:text-[10px] font-black uppercase tracking-widest text-blue-900">Top Captain Pick</div>
+                        </div>
                     </Card>
                 </motion.div>
             </section>

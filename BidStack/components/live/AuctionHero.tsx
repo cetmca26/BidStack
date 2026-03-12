@@ -1,6 +1,7 @@
 "use client"
 
 import { motion } from "framer-motion"
+import { formatPriceCompact } from "@/lib/utils"
 
 export default function AuctionHero({
     player,
@@ -10,7 +11,7 @@ export default function AuctionHero({
 }: any) {
 
     return (
-        <div className="relative w-full h-full grid grid-cols-1 md:grid-cols-2 overflow-hidden rounded-2xl bg-[#03070a]">
+        <div className="relative w-full h-full grid grid-cols-1 md:grid-cols-2 overflow-hidden rounded-2xl bg-white dark:bg-[#03070a] shadow-lg border border-slate-200 dark:border-slate-800">
 
             {/* LEFT SIDE — PLAYER IMAGE */}
             <div className="relative h-full min-h-[200px] md:min-h-0 w-full overflow-hidden">
@@ -18,12 +19,12 @@ export default function AuctionHero({
                 <img
                     src={player.photo_url}
                     alt={player.name}
-                    className="absolute inset-0 w-full h-full object-cover object-top"
+                    className="absolute inset-0 w-full h-full object-contain object-top"
                 />
 
                 {/* gradient fade — bottom on mobile, right on desktop */}
-                <div className="absolute inset-0 bg-gradient-to-b md:bg-gradient-to-r from-transparent via-transparent to-[#03070a]" />
-                <div className="absolute inset-0 bg-gradient-to-r from-black/40 via-transparent to-transparent hidden md:block" />
+                <div className="absolute inset-0 bg-gradient-to-b md:bg-gradient-to-r from-transparent via-transparent to-white dark:to-[#03070a]" />
+                <div className="absolute inset-0 bg-gradient-to-r from-white/40 dark:from-black/40 via-transparent to-transparent hidden md:block" />
 
             </div>
 
@@ -39,17 +40,17 @@ export default function AuctionHero({
 
 
                 {/* PLAYER NAME */}
-                <h1 className="text-[clamp(2rem,1.5rem+3vw,4.5rem)] font-extrabold italic text-white leading-[0.9] tracking-tight">
+                <h1 className="text-[clamp(2rem,1.5rem+3vw,4.5rem)] font-extrabold italic text-slate-900 dark:text-white leading-[0.9] tracking-tight">
                     {player.name}
                 </h1>
 
 
                 {/* BASE PRICE */}
-                <div className="flex items-center gap-4 text-sm text-slate-400 tracking-widest">
+                <div className="flex items-center gap-4 text-sm text-slate-500 dark:text-slate-400 tracking-widest">
 
                     BASE PRICE
 
-                    <div className="h-[1px] w-16 md:w-24 bg-slate-700" />
+                    <div className="h-[1px] w-16 md:w-24 bg-slate-300 dark:bg-slate-700" />
 
                     ₹{basePrice.toLocaleString("en-IN")}
 
@@ -74,8 +75,13 @@ export default function AuctionHero({
                             CURRENT BID
                         </div>
 
-                        <div className="text-[clamp(1.75rem,1.5rem+2vw,3rem)] font-black italic text-black tracking-tight">
-                            ₹{bid.toLocaleString("en-IN")}
+                        <div className="flex flex-col justify-end mt-1">
+                            <div className="text-[clamp(1.75rem,1.5rem+2vw,3rem)] font-black italic text-black tracking-tight leading-none">
+                                ₹{bid.toLocaleString("en-IN")}
+                            </div>
+                            <div className="text-sm font-bold text-black/60 italic tracking-wider mt-1">
+                                {formatPriceCompact(bid)}
+                            </div>
                         </div>
 
 

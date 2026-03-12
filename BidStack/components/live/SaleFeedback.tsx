@@ -3,7 +3,7 @@
 import { useEffect, useState } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { Player, Team } from "@/lib/hooks/useAuctionState";
-import { formatPrice } from "@/lib/utils";
+import { formatPrice, formatPriceCompact } from "@/lib/utils";
 import { Gavel } from "lucide-react";
 
 interface SaleFeedbackProps {
@@ -39,8 +39,8 @@ export function SaleFeedback({ player, team, price, isVisible, currentView = "au
                     onClick={() => setIsDismissed(true)}
                     className="fixed inset-0 z-[200] flex flex-col items-center justify-center px-4 py-6 md:px-12 md:py-10 sm:px-8 sm:py-8 cursor-pointer overflow-hidden"
                 >
-                    {/* Dark Navy Overlay with Blur */}
-                    <div className="absolute inset-0 bg-slate-950/90 backdrop-blur-xl" />
+                    {/* Overlay with Blur */}
+                    <div className="absolute inset-0 bg-slate-50/90 dark:bg-slate-950/90 backdrop-blur-xl" />
 
                     {/* Radial Green Glow */}
                     <motion.div
@@ -70,14 +70,14 @@ export function SaleFeedback({ player, team, price, isVisible, currentView = "au
                     </div>
 
                     {/* Content Container */}
-                    <div className="relative z-10 flex flex-col items-center text-center max-w-4xl w-full">
+                    <div className="relative z-10 flex flex-col items-center justify-center text-center max-w-4xl w-full max-h-[85vh]">
 
                         {/* 1. Photo Card Drop */}
                         <motion.div
                             initial={{ scale: 0.3, rotateX: 45, opacity: 0, y: -50 }}
                             animate={{ scale: 1, rotateX: 0, opacity: 1, y: 0 }}
                             transition={{ type: "spring", stiffness: 200, damping: 20, delay: 0.1 }}
-                            className="relative w-[200px] h-[250px] sm:w-[256px] sm:h-[320px] rounded-2xl overflow-hidden border-2 border-emerald-500/60 shadow-[0_0_30px_rgba(16,185,129,0.4)] bg-slate-900 flex-shrink-0"
+                            className="relative w-[180px] sm:w-[256px] aspect-[4/5] rounded-2xl overflow-hidden border-2 border-emerald-500/60 shadow-[0_0_30px_rgba(16,185,129,0.4)] bg-slate-100 dark:bg-slate-900 flex-shrink-0"
                         >
                             {/* Pulsing Emerald Shadow Animation over the card */}
                             <motion.div
@@ -88,10 +88,10 @@ export function SaleFeedback({ player, team, price, isVisible, currentView = "au
 
                             {/* Photo */}
                             {player.photo_url ? (
-                                <img src={player.photo_url} alt={player.name} className="absolute inset-0 w-full h-full object-cover object-top" />
+                                <img src={player.photo_url} alt={player.name} className="absolute inset-0 w-full h-full object-contain object-top" />
                             ) : (
-                                <div className="absolute inset-0 flex items-center justify-center bg-gradient-to-br from-slate-800 to-slate-900">
-                                    <span className="text-6xl font-heading font-bold text-slate-700 uppercase">{player.name.charAt(0)}</span>
+                                <div className="absolute inset-0 flex items-center justify-center bg-gradient-to-br from-slate-200 to-slate-300 dark:from-slate-800 dark:to-slate-900">
+                                    <span className="text-6xl font-heading font-bold text-slate-400 dark:text-slate-700 uppercase">{player.name.charAt(0)}</span>
                                 </div>
                             )}
 
@@ -118,7 +118,7 @@ export function SaleFeedback({ player, team, price, isVisible, currentView = "au
                             initial={{ y: 30, opacity: 0, scale: 0.9 }}
                             animate={{ y: 0, opacity: 1, scale: 1 }}
                             transition={{ type: "spring", stiffness: 300, damping: 25, delay: 0.25 }}
-                            className="text-3xl sm:text-4xl md:text-5xl font-heading font-black text-white uppercase tracking-tighter mt-6 md:mt-8 drop-shadow-[0_0_15px_rgba(16,185,129,0.5)]"
+                            className="text-3xl sm:text-4xl md:text-5xl font-heading font-black text-slate-900 dark:text-white uppercase tracking-tighter mt-6 md:mt-8 drop-shadow-[0_0_15px_rgba(16,185,129,0.5)]"
                         >
                             {player.name}
                         </motion.h1>
@@ -133,7 +133,8 @@ export function SaleFeedback({ player, team, price, isVisible, currentView = "au
                             <motion.div
                                 animate={{ textShadow: ["0 0 20px rgba(16,185,129,0.4)", "0 0 60px rgba(16,185,129,0.9)", "0 0 20px rgba(16,185,129,0.4)"] }}
                                 transition={{ repeat: Infinity, duration: 2, ease: "easeInOut" }}
-                                className="text-6xl sm:text-7xl md:text-9xl font-black italic tracking-tighter text-white uppercase leading-none"
+                                className="font-black italic tracking-tighter text-emerald-600 dark:text-white uppercase leading-none"
+                                style={{ fontSize: "clamp(4rem, 15vw, 8rem)" }}
                             >
                                 SOLD!
                             </motion.div>
@@ -151,7 +152,7 @@ export function SaleFeedback({ player, team, price, isVisible, currentView = "au
                                 <div className="text-emerald-400 font-bold uppercase tracking-[0.3em] text-[10px] sm:text-xs">
                                     New Signing For
                                 </div>
-                                <div className="text-2xl sm:text-3xl font-black text-white uppercase tracking-tight mt-1 px-4 text-center">
+                                <div className="text-2xl sm:text-3xl font-black text-slate-900 dark:text-white uppercase tracking-tight mt-1 px-4 text-center">
                                     {team.name}
                                 </div>
                             </div>
@@ -170,8 +171,11 @@ export function SaleFeedback({ player, team, price, isVisible, currentView = "au
                                         <Gavel size={14} />
                                         Final Hammer Price
                                     </div>
-                                    <div className="text-4xl sm:text-5xl font-mono font-black text-slate-950 tracking-tight">
+                                    <div className="text-4xl sm:text-5xl font-mono font-black text-slate-950 tracking-tight text-center">
                                         {formatPrice(price)}
+                                        <div className="text-lg sm:text-xl text-slate-800/80 -mt-1 font-sans italic tracking-wider">
+                                            ({formatPriceCompact(price)})
+                                        </div>
                                     </div>
                                 </div>
                             </div>
@@ -182,7 +186,7 @@ export function SaleFeedback({ player, team, price, isVisible, currentView = "au
                             initial={{ opacity: 0 }}
                             animate={{ opacity: 0.5 }}
                             transition={{ delay: 1.5, duration: 1 }}
-                            className="absolute -bottom-12 sm:-bottom-16 text-white text-xs sm:text-sm font-medium tracking-widest uppercase italic"
+                            className="absolute -bottom-12 sm:-bottom-16 text-slate-800 dark:text-white text-xs sm:text-sm font-medium tracking-widest uppercase italic"
                         >
                             Tap anywhere to dismiss
                         </motion.div>

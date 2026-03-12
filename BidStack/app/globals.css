@@ -47,6 +47,14 @@
   --radius-3xl: calc(var(--radius) + 12px);
   --radius-4xl: calc(var(--radius) + 16px);
 
+  /* Semantic Surface Tokens */
+  --color-surface: var(--surface);
+  --color-surface-alt: var(--surface-alt);
+  --color-on-surface: var(--on-surface);
+  --color-on-surface-muted: var(--on-surface-muted);
+  --color-brand: var(--brand);
+  --color-border-ui: var(--border-ui);
+
   /* Fluid Typography Scale */
   --font-size-xs: clamp(0.65rem, 0.6rem + 0.25vw, 0.75rem);
   --font-size-sm: clamp(0.75rem, 0.7rem + 0.25vw, 0.875rem);
@@ -78,6 +86,14 @@
   --secondary: #5A6B7F;
   --border: #7A8B9F;
   --radius: 0.625rem;
+
+  /* Semantic Surface Tokens — Light */
+  --surface: #ffffff;
+  --surface-alt: #f0f3f6;
+  --on-surface: #252D33;
+  --on-surface-muted: #5A6B7F;
+  --brand: #E6A850;
+  --border-ui: #7A8B9F;
   --background: oklch(1 0 0);
   --foreground: oklch(0.13 0.028 261.692);
   /* ... existing colors ... */
@@ -124,6 +140,14 @@
 }
 
 .dark {
+  /* Semantic Surface Tokens — Dark */
+  --surface: #0f172a;
+  --surface-alt: #1e293b;
+  --on-surface: #EAEBEC;
+  --on-surface-muted: #94a3b8;
+  --brand: #E6A850;
+  --border-ui: #334155;
+
   --background: oklch(0.13 0.028 261.692);
   --foreground: oklch(0.985 0.002 247.839);
   --card: oklch(0.21 0.034 264.665);
@@ -160,6 +184,15 @@
 @layer base {
   * {
     @apply border-border outline-ring/50;
+    scrollbar-width: none;
+    /* Firefox */
+    -ms-overflow-style: none;
+    /* IE/Edge */
+  }
+
+  *::-webkit-scrollbar {
+    display: none;
+    /* Chrome, Safari, Edge */
   }
 
   body {
@@ -206,7 +239,7 @@
 
   @media (min-width: 1280px) {
     .container-fluid {
-      max-width: 1440px;
+      max-width: 1280px;
     }
   }
 

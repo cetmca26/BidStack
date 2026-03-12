@@ -22,7 +22,11 @@ export function BiddingPIP({ player, leadingTeam, currentBid, phase = "bidding" 
             initial={{ x: 100, opacity: 0 }}
             animate={{ x: 0, opacity: 1 }}
             exit={{ x: 100, opacity: 0 }}
-            className={`fixed top-6 right-6 z-[100] w-64 h-24 bg-slate-900/80 backdrop-blur-xl border rounded-2xl shadow-2xl overflow-hidden transition-colors duration-500 
+            drag
+            dragMomentum={false}
+            dragElastic={0.1}
+            whileDrag={{ scale: 1.05, cursor: "grabbing" }}
+            className={`fixed top-28 right-6 md:right-10 z-[100] w-64 h-24 bg-white/90 dark:bg-slate-900/80 backdrop-blur-xl border rounded-2xl shadow-2xl overflow-hidden transition-colors duration-500 cursor-grab touch-none select-none
                 ${phase === "sold" ? "border-emerald-500 shadow-emerald-500/40" :
                     phase === "unsold" ? "border-rose-500 shadow-rose-500/40" :
                         "border-emerald-500/50 shadow-emerald-900/40"}`}
@@ -41,7 +45,7 @@ export function BiddingPIP({ player, leadingTeam, currentBid, phase = "bidding" 
                         photoUrl={player.photo_url}
                         size="md"
                     />
-                    <div className="absolute -bottom-1 -right-1 bg-emerald-500 text-slate-950 p-1 rounded-full shadow-lg">
+                    <div className="absolute -bottom-1 -right-1 bg-emerald-500 text-white dark:text-slate-950 p-1 rounded-full shadow-lg">
                         <Gavel size={10} strokeWidth={3} />
                     </div>
                 </div>
@@ -53,7 +57,7 @@ export function BiddingPIP({ player, leadingTeam, currentBid, phase = "bidding" 
                                 <TrendingUp size={10} />
                                 Live Bid
                             </div>
-                            <div className="text-sm font-black text-white truncate italic uppercase tracking-tighter">
+                            <div className="text-sm font-black text-slate-900 dark:text-white truncate italic uppercase tracking-tighter">
                                 {player.name}
                             </div>
                             <div className="flex items-center justify-between mt-1">
@@ -70,7 +74,7 @@ export function BiddingPIP({ player, leadingTeam, currentBid, phase = "bidding" 
                                 <Trophy size={10} />
                                 Sold To {leadingTeam?.name}
                             </div>
-                            <div className="text-sm font-black text-white truncate italic uppercase tracking-tighter">
+                            <div className="text-sm font-black text-slate-900 dark:text-white truncate italic uppercase tracking-tighter">
                                 {player.name}
                             </div>
                             <div className="flex items-center justify-between mt-1">
@@ -98,7 +102,7 @@ export function BiddingPIP({ player, leadingTeam, currentBid, phase = "bidding" 
             {/* Leading Team Bar */}
             {phase === "bidding" && (
                 <div className="absolute bottom-0 left-0 right-0 h-4 bg-emerald-500 flex items-center px-3">
-                    <span className="text-[8px] font-black text-slate-950 uppercase tracking-[0.2em] truncate">
+                    <span className="text-[8px] font-black text-white dark:text-slate-950 uppercase tracking-[0.2em] truncate">
                         {leadingTeam ? `Leading: ${leadingTeam.name}` : "Awaiting Bids"}
                     </span>
                 </div>
