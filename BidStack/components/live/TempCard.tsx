@@ -54,7 +54,7 @@ const CaptainCard = ({ name, role, image, teamColor, index, teamName, price, isS
         </motion.div>
 
         {/* Player image */}
-        <div className="relative h-72 overflow-hidden">
+        <div className="relative aspect-[4/5] overflow-hidden">
           <motion.div
             className="absolute inset-0 z-10"
             style={{
@@ -64,7 +64,7 @@ const CaptainCard = ({ name, role, image, teamColor, index, teamName, price, isS
           <motion.img
             src={image}
             alt={name}
-            className="w-full h-full object-cover object-top"
+            className="w-full h-full object-contain object-top"
             whileHover={{ scale: 1.1 }}
             transition={{ duration: 0.5 }}
           />

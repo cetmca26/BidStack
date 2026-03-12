@@ -126,7 +126,7 @@ export default function CaptainDeck({ players, teams }: CaptainDeckProps) {
 
         {/* Revealed cards grid */}
         {shuffleComplete && (
-          <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-4 sm:gap-6 w-full">
+          <div className="flex flex-wrap justify-center place-items-center gap-4 sm:gap-6 w-full max-w-[1400px] mx-auto">
             {captains.map((captain, index) => {
               const matchedTeam = teams.find((t) => t.captain_id === captain.id);
               const isRevealed = index <= revealedIndex;
@@ -134,7 +134,7 @@ export default function CaptainDeck({ players, teams }: CaptainDeckProps) {
               return (
                 <motion.div
                   key={captain.id}
-                  className="w-full flex justify-center"
+                  className="flex justify-center shrink-0 w-[140px] sm:w-[180px] lg:w-[220px]"
                   initial={{ opacity: 0, scale: 0.3, y: -100 }}
                   animate={
                     isRevealed

@@ -5,7 +5,7 @@ import { motion, AnimatePresence } from "framer-motion";
 import { Card } from "@/components/ui/card";
 import { TeamLogo } from "@/components/TeamLogo";
 import { Users, PanelRightClose, PanelRightOpen } from "lucide-react";
-import { formatPrice } from "@/lib/utils";
+import { formatPrice, formatPriceCompact } from "@/lib/utils";
 import { Player, Team, Auction } from "@/lib/hooks/useAuctionState";
 import {
     getTeamPlayers,
@@ -108,7 +108,7 @@ export default function TeamRoster({
                                     <span>{count} players</span>
                                     <span>•</span>
                                     <span className={isActive ? "text-emerald-950 font-mono" : "text-emerald-500 font-mono"}>
-                                        {formatPrice(team.purse_remaining)} left
+                                        {formatPriceCompact(team.purse_remaining)} left
                                     </span>
                                 </div>
                             </div>
@@ -218,7 +218,10 @@ export default function TeamRoster({
                                                         {player.role}
                                                     </div>
                                                     <div className="text-xs font-mono font-bold text-emerald-500 mt-1">
-                                                        {formatPrice(player.sold_price)}
+                                                        <div>{formatPrice(player.sold_price)}</div>
+                                                        <div className="text-[10px] text-emerald-600/70 dark:text-emerald-500/70 font-medium italic">
+                                                            ({formatPriceCompact(player.sold_price)})
+                                                        </div>
                                                     </div>
                                                 </div>
                                                 {player.is_captain && (

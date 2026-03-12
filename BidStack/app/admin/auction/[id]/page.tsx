@@ -597,7 +597,7 @@ export default function AdminAuctionPage({ params }: { params: Promise<{ id: str
                 Categorize Players
               </h2>
             </div>
-            <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-3 max-h-[600px] overflow-y-auto pr-2 pb-2">
+            <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-3 max-h-[600px] overflow-y-auto pr-2 pb-16">
               {players.filter(p => p.status === "upcoming" || p.status === "blind_reserved" || (p.is_captain && p.status !== "sold")).map(p => {
                 const category = getPlayerCategory(p);
                 return (

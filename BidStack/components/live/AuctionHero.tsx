@@ -19,7 +19,7 @@ export default function AuctionHero({
                 <img
                     src={player.photo_url}
                     alt={player.name}
-                    className="absolute inset-0 w-full h-full object-cover object-top"
+                    className="absolute inset-0 w-full h-full object-contain object-top"
                 />
 
                 {/* gradient fade — bottom on mobile, right on desktop */}

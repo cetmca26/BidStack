@@ -45,14 +45,14 @@ export function UnsoldFeedback({ player, isVisible, currentView = "auction" }: U
                     />
 
                     {/* Content Container */}
-                    <div className="relative z-10 flex flex-col items-center text-center max-w-4xl w-full">
+                    <div className="relative z-10 flex flex-col items-center justify-center text-center max-w-4xl w-full max-h-[85vh]">
 
                         {/* 1. Photo Card Drop */}
                         <motion.div
                             initial={{ scale: 0.3, rotateX: 45, opacity: 0, y: -50 }}
                             animate={{ scale: 1, rotateX: 0, opacity: 1, y: 0 }}
                             transition={{ type: "spring", stiffness: 200, damping: 20, delay: 0.1 }}
-                            className="relative w-[200px] h-[250px] sm:w-[256px] sm:h-[320px] rounded-2xl overflow-hidden border-2 border-rose-500/60 shadow-[0_0_30px_rgba(244,63,94,0.4)] bg-slate-100 dark:bg-slate-900 flex-shrink-0"
+                            className="relative w-[180px] sm:w-[256px] aspect-[4/5] rounded-2xl overflow-hidden border-2 border-rose-500/60 shadow-[0_0_30px_rgba(244,63,94,0.4)] bg-slate-100 dark:bg-slate-900 flex-shrink-0"
                         >
                             {/* Pulsing Rose Shadow Animation over the card */}
                             <motion.div
@@ -63,7 +63,7 @@ export function UnsoldFeedback({ player, isVisible, currentView = "auction" }: U
 
                             {/* Photo */}
                             {player.photo_url ? (
-                                <img src={player.photo_url} alt={player.name} className="absolute inset-0 w-full h-full object-cover object-top" />
+                                <img src={player.photo_url} alt={player.name} className="absolute inset-0 w-full h-full object-contain object-top" />
                             ) : (
                                 <div className="absolute inset-0 flex items-center justify-center bg-gradient-to-br from-slate-200 to-slate-300 dark:from-slate-800 dark:to-slate-900">
                                     <span className="text-6xl font-heading font-bold text-slate-400 dark:text-slate-700 uppercase">{player.name.charAt(0)}</span>
@@ -105,7 +105,10 @@ export function UnsoldFeedback({ player, isVisible, currentView = "auction" }: U
                             transition={{ type: "spring", stiffness: 400, damping: 15, delay: 0.35 }}
                             className="mt-2"
                         >
-                            <div className="text-6xl sm:text-7xl md:text-9xl font-black italic tracking-tighter text-rose-500 uppercase leading-none drop-shadow-[0_0_20px_rgba(244,63,94,0.6)]">
+                            <div 
+                                className="font-black italic tracking-tighter text-rose-500 uppercase leading-none drop-shadow-[0_0_20px_rgba(244,63,94,0.6)]"
+                                style={{ fontSize: "clamp(3.5rem, 14vw, 8rem)" }}
+                            >
                                 UNSOLD
                             </div>
                         </motion.div>

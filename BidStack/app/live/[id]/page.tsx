@@ -223,8 +223,8 @@ export default function LiveAuctionPage({
                   ) : state?.phase === "blind_bid_round" ? (
                     <BlindBidReveal players={players} teams={teams} />
                   ) : currentPlayer && state?.current_bid !== null ? (
-                    <div className="h-full flex flex-col">
-                      <div className="flex-1 p-6">
+                    <div className="h-full w-full flex flex-col min-h-0">
+                      <div className="flex-1 p-4 sm:p-6 min-h-0 flex items-center justify-center w-full">
                         <AuctionHero
                           player={currentPlayer}
                           bid={state?.current_bid || auction.settings.base_price}

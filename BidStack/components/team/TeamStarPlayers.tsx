@@ -3,7 +3,7 @@
 import { Player } from "@/lib/hooks/useAuctionState";
 import { PlayerAvatar } from "@/components/PlayerAvatar";
 import { Crown, Sparkles } from "lucide-react";
-import { formatPrice } from "@/lib/utils";
+import { formatPrice, formatPriceCompact } from "@/lib/utils";
 
 interface TeamStarPlayersProps {
     captain: Player | null;
@@ -45,6 +45,9 @@ export function TeamStarPlayers({ captain, mvp }: TeamStarPlayersProps) {
                             <div className="px-3 py-1 rounded-full bg-white/80 dark:bg-slate-950/80 border border-amber-500/40 text-amber-600 dark:text-amber-400 font-mono font-bold text-sm inline-block max-w-full">
                                 <span className="truncate block">{formatPrice(captain.sold_price)}</span>
                             </div>
+                            <div className="text-[10px] text-amber-500/70 font-medium italic mt-1">
+                                ({formatPriceCompact(captain.sold_price)})
+                            </div>
                         </div>
                     </>
                 ) : (
@@ -84,6 +87,9 @@ export function TeamStarPlayers({ captain, mvp }: TeamStarPlayersProps) {
                             </div>
                             <div className="px-3 py-1 rounded-full bg-white/80 dark:bg-slate-950/80 border border-emerald-500/40 text-emerald-600 dark:text-emerald-400 font-mono font-bold text-sm inline-block max-w-full">
                                 <span className="truncate block">{formatPrice(mvp.sold_price)}</span>
+                            </div>
+                            <div className="text-[10px] text-emerald-500/70 font-medium italic mt-1">
+                                ({formatPriceCompact(mvp.sold_price)})
                             </div>
                         </div>
                     </>

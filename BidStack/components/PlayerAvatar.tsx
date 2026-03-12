@@ -81,7 +81,7 @@ export function PlayerAvatar({
             <img
               src={photoUrl}
               alt={name}
-              className="w-full h-full object-cover"
+              className="w-full h-full object-contain object-top"
               onError={() => setImageError(true)}
             />
             {/* Role overlay on hover */}

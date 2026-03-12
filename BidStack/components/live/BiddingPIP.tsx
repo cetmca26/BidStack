@@ -22,7 +22,7 @@ export function BiddingPIP({ player, leadingTeam, currentBid, phase = "bidding" 
             initial={{ x: 100, opacity: 0 }}
             animate={{ x: 0, opacity: 1 }}
             exit={{ x: 100, opacity: 0 }}
-            className={`fixed top-6 right-6 z-[100] w-64 h-24 bg-white/90 dark:bg-slate-900/80 backdrop-blur-xl border rounded-2xl shadow-2xl overflow-hidden transition-colors duration-500 
+            className={`fixed top-28 right-6 md:right-10 z-[100] w-64 h-24 bg-white/90 dark:bg-slate-900/80 backdrop-blur-xl border rounded-2xl shadow-2xl overflow-hidden transition-colors duration-500 
                 ${phase === "sold" ? "border-emerald-500 shadow-emerald-500/40" :
                     phase === "unsold" ? "border-rose-500 shadow-rose-500/40" :
                         "border-emerald-500/50 shadow-emerald-900/40"}`}

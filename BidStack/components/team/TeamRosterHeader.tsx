@@ -3,7 +3,7 @@
 import { motion } from "framer-motion";
 import { TeamLogo } from "@/components/TeamLogo";
 import { UserCheck, Wallet, TrendingUp } from "lucide-react";
-import { formatPrice } from "@/lib/utils";
+import { formatPrice, formatPriceCompact } from "@/lib/utils";
 import { Team } from "@/lib/hooks/useAuctionState";
 
 interface TeamRosterHeaderProps {
@@ -54,6 +54,9 @@ export function TeamRosterHeader({ team, signings, totalSpend, mode }: TeamRoste
                     <div className="text-lg sm:text-xl font-mono font-bold text-emerald-400">
                         {formatPrice(team.purse_remaining)}
                     </div>
+                    <div className="text-[10px] text-emerald-500/70 font-medium italic">
+                        ({formatPriceCompact(team.purse_remaining)})
+                    </div>
                 </div>
                 <div className="bg-slate-100/60 dark:bg-slate-950/60 rounded-xl p-3 border border-slate-300/50 dark:border-slate-800/50 min-w-[130px]">
                     <div className="flex items-center gap-1.5 text-[10px] font-black text-slate-600 dark:text-slate-500 uppercase tracking-widest mb-1">
@@ -62,6 +65,9 @@ export function TeamRosterHeader({ team, signings, totalSpend, mode }: TeamRoste
                     </div>
                     <div className="text-lg sm:text-xl font-mono font-bold text-amber-400">
                         {formatPrice(totalSpend)}
+                    </div>
+                    <div className="text-[10px] text-amber-500/70 font-medium italic">
+                        ({formatPriceCompact(totalSpend)})
                     </div>
                 </div>
             </div>
