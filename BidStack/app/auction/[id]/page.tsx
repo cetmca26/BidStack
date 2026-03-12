@@ -53,8 +53,10 @@ export default function AuctionDetailPage({ params }: { params: Promise<{ id: st
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
-  const [hasRegistered, setHasRegistered] = useState(false);
+  // const [hasRegistered, setHasRegistered] = useState(false);
 
+  /*
+  // Removing restriction to allow multiple registrations per device/IP
   useEffect(() => {
     if (typeof window !== "undefined") {
       const lockData = window.localStorage.getItem(`registered_${auctionId}`);
@@ -63,6 +65,7 @@ export default function AuctionDetailPage({ params }: { params: Promise<{ id: st
       }
     }
   }, [auctionId]);
+  */
 
   useEffect(() => {
     if (!auctionId) return;
@@ -138,6 +141,8 @@ export default function AuctionDetailPage({ params }: { params: Promise<{ id: st
     setPhotoError(null);
 
     try {
+      /*
+      // Removing IP fetching
       let ipAddress = null;
       try {
         const ipReq = await fetch("https://api.ipify.org?format=json");
@@ -146,6 +151,7 @@ export default function AuctionDetailPage({ params }: { params: Promise<{ id: st
       } catch (err) {
         console.warn("Could not fetch IP", err);
       }
+      */
 
       const playerId = crypto.randomUUID();
 
@@ -173,7 +179,7 @@ export default function AuctionDetailPage({ params }: { params: Promise<{ id: st
         name: name.trim(),
         role,
         phone_number: phoneNumber.trim(),
-        ip_address: ipAddress,
+        // ip_address: ipAddress,
         photo_url: photoUrl,
       });
 
@@ -190,10 +196,13 @@ export default function AuctionDetailPage({ params }: { params: Promise<{ id: st
         setPhoneNumber("");
         setPhotoFile(null);
         setPhotoPreview(null);
+        /*
+        // Removing local storage lock
         if (typeof window !== "undefined") {
           window.localStorage.setItem(`registered_${auctionId}`, "true");
         }
         setHasRegistered(true);
+        */
         const { data: playersData } = await supabase
           .from("players")
           .select("*")
@@ -310,11 +319,11 @@ export default function AuctionDetailPage({ params }: { params: Promise<{ id: st
                   View Final Rosters
                 </Button>
               </div>
-            ) : hasRegistered ? (
+            ) : /* hasRegistered ? (
               <div className="flex h-32 items-center justify-center rounded-lg border-2 px-4 text-center text-sm font-medium border-brand bg-brand/15 text-brand">
                 You have already submitted a registration for this auction.
               </div>
-            ) : !auction.is_registration_open ? (
+            ) : */ !auction.is_registration_open ? (
               <div className="flex h-32 items-center justify-center rounded-lg border-2 px-4 text-center text-sm font-medium border-brand bg-brand/15 text-on-surface">
                 Registration is currently closed.
               </div>
