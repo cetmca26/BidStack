@@ -159,7 +159,7 @@ export default function CaptainDeck({ players, teams }: CaptainDeckProps) {
                         teamName={matchedTeam?.name}
                         price={
                           matchedTeam && captain.sold_price
-                            ? Math.round(captain.sold_price / 100000)
+                            ? captain.sold_price
                             : undefined
                         }
                         isSold={!!matchedTeam}

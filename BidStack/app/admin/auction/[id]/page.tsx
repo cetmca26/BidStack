@@ -463,10 +463,10 @@ export default function AdminAuctionPage({ params }: { params: Promise<{ id: str
     const assignment = blindBidAssignments[teamId];
     if (!assignment || !assignment.playerId) return;
 
-    const matchPrice = assignment.amount ? Number(assignment.amount) : (auction?.settings?.base_price ?? 0);
+    const matchPrice = assignment.amount ? Number(assignment.amount) : 0;
     const minPrice = auction?.settings?.base_price ?? 0;
-    if (matchPrice < minPrice) {
-      alert(`Bid amount (₹${matchPrice.toLocaleString('en-IN')}) cannot be less than the base price (₹${minPrice.toLocaleString('en-IN')}).`);
+    if (matchPrice <= minPrice) {
+      alert(`Bid amount (₹${matchPrice.toLocaleString('en-IN')}) must be strictly greater than the base price (₹${minPrice.toLocaleString('en-IN')}).`);
       return;
     }
 
@@ -782,51 +782,66 @@ export default function AdminAuctionPage({ params }: { params: Promise<{ id: str
               Match Blind Bid Players to Teams
             </h2>
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-              {teams.map(team => (
-                <div key={`blind-${team.id}`} className="rounded-lg border border-slate-300 dark:border-slate-700 bg-slate-50/40 dark:bg-slate-800/40 p-4 space-y-3">
-                  <div className="font-semibold">{team.name}</div>
-                  <div className="text-xs text-slate-500 dark:text-slate-400">Purse: {formatPrice(team.purse_remaining)} · Slots: {team.slots_remaining}</div>
+              {teams.map(team => {
+                // Check if this team has already bought a blind bid player
+                const matchedPlayer = blindBidPlayers.find(p => p.sold_team_id === team.id && p.status === 'sold');
+                
+                if (matchedPlayer) {
+                  return (
+                    <div key={`matched-blind-${team.id}`} className="rounded-lg border border-emerald-300/50 dark:border-emerald-800/50 bg-emerald-50/20 dark:bg-emerald-950/20 p-4">
+                      <div className="font-semibold text-emerald-600 dark:text-emerald-400">✓ {team.name}</div>
+                      <div className="text-sm text-slate-600 dark:text-slate-300 mt-2">Player: <span className="text-slate-900 dark:text-white font-medium">{matchedPlayer?.name}</span></div>
+                      <div className="text-xs text-slate-500 dark:text-slate-400 mt-1">Bid Amount: {formatPrice(matchedPlayer?.sold_price)}</div>
+                    </div>
+                  );
+                }
 
-                  <div className="space-y-1">
-                    <Label className="text-xs text-slate-500 dark:text-slate-400">Select Player</Label>
-                    <select
-                      className="w-full bg-slate-50 dark:bg-slate-950 border border-slate-300 dark:border-slate-700 rounded px-2 py-1.5 text-sm outline-none focus:border-blue-500"
-                      value={blindBidAssignments[team.id]?.playerId || ""}
-                      onChange={(e: React.ChangeEvent<HTMLSelectElement>) => setBlindBidAssignments(prev => ({ ...prev, [team.id]: { ...prev[team.id], playerId: e.target.value, amount: prev[team.id]?.amount || '' } }))}
+                return (
+                  <div key={`blind-${team.id}`} className="rounded-lg border border-slate-300 dark:border-slate-700 bg-slate-50/40 dark:bg-slate-800/40 p-4 space-y-3">
+                    <div className="font-semibold">{team.name}</div>
+                    <div className="text-xs text-slate-500 dark:text-slate-400">Purse: {formatPrice(team.purse_remaining)} · Slots: {team.slots_remaining}</div>
+
+                    <div className="space-y-1">
+                      <Label className="text-xs text-slate-500 dark:text-slate-400">Select Player</Label>
+                      <select
+                        className="w-full bg-slate-50 dark:bg-slate-950 border border-slate-300 dark:border-slate-700 rounded px-2 py-1.5 text-sm outline-none focus:border-blue-500"
+                        value={blindBidAssignments[team.id]?.playerId || ""}
+                        onChange={(e: React.ChangeEvent<HTMLSelectElement>) => setBlindBidAssignments(prev => ({ ...prev, [team.id]: { ...prev[team.id], playerId: e.target.value, amount: prev[team.id]?.amount || '' } }))}
+                      >
+                        <option value="">-- Choose --</option>
+                        {unassignedBlindBids.map(p => <option key={p.id} value={p.id}>{p.name} ({p.role})</option>)}
+                      </select>
+                    </div>
+
+                    <div className="space-y-1">
+                      <Label className="text-xs text-slate-500 dark:text-slate-400">Winning Blind Bid</Label>
+                      <Input
+                        type="number"
+                        min={(auction?.settings?.base_price ?? 0) + 1}
+                        className="bg-slate-50 dark:bg-slate-950 h-8 text-sm"
+                        placeholder={`> ${auction?.settings?.base_price ?? 0}`}
+                        value={blindBidAssignments[team.id]?.amount ?? ''}
+                        onChange={(e: React.ChangeEvent<HTMLInputElement>) => setBlindBidAssignments(prev => ({ ...prev, [team.id]: { ...prev[team.id], amount: e.target.value } }))}
+                      />
+                      {Number(blindBidAssignments[team.id]?.amount) > 0 && (
+                        <p className="text-[10px] text-emerald-500 dark:text-emerald-400 italic mt-0.5">
+                          ₹{numberToIndianWords(Number(blindBidAssignments[team.id]?.amount))}
+                        </p>
+                      )}
+                    </div>
+
+                    <Button
+                      className="w-full mt-2"
+                      size="sm"
+                      variant="secondary"
+                      disabled={!blindBidAssignments[team.id]?.playerId || loadingAction === `blind_match_${team.id}`}
+                      onClick={() => handleMatchBlindBid(team.id)}
                     >
-                      <option value="">-- Choose --</option>
-                      {unassignedBlindBids.map(p => <option key={p.id} value={p.id}>{p.name} ({p.role})</option>)}
-                    </select>
+                      {loadingAction === `blind_match_${team.id}` ? "Matching..." : "Confirm & Match"}
+                    </Button>
                   </div>
-
-                  <div className="space-y-1">
-                    <Label className="text-xs text-slate-500 dark:text-slate-400">Winning Blind Bid</Label>
-                    <Input
-                      type="number"
-                      min={auction.settings.base_price}
-                      className="bg-slate-50 dark:bg-slate-950 h-8 text-sm"
-                      placeholder={`Min: ${auction.settings.base_price}`}
-                      value={blindBidAssignments[team.id]?.amount ?? ''}
-                      onChange={(e: React.ChangeEvent<HTMLInputElement>) => setBlindBidAssignments(prev => ({ ...prev, [team.id]: { ...prev[team.id], amount: e.target.value } }))}
-                    />
-                    {Number(blindBidAssignments[team.id]?.amount) > 0 && (
-                      <p className="text-[10px] text-emerald-500 dark:text-emerald-400 italic mt-0.5">
-                        ₹{numberToIndianWords(Number(blindBidAssignments[team.id]?.amount))}
-                      </p>
-                    )}
-                  </div>
-
-                  <Button
-                    className="w-full mt-2"
-                    size="sm"
-                    variant="secondary"
-                    disabled={!blindBidAssignments[team.id]?.playerId || loadingAction === `blind_match_${team.id}`}
-                    onClick={() => handleMatchBlindBid(team.id)}
-                  >
-                    {loadingAction === `blind_match_${team.id}` ? "Matching..." : "Confirm & Match"}
-                  </Button>
-                </div>
-              ))}
+                );
+              })}
             </div>
           </Card>
         </div>
@@ -838,7 +853,7 @@ export default function AdminAuctionPage({ params }: { params: Promise<{ id: str
     return (
       <div className="min-h-screen bg-gradient-to-br from-slate-100 via-slate-50 to-slate-100 dark:from-slate-950 dark:via-slate-900 dark:to-slate-950 p-6 flex flex-col items-center justify-center animate-in fade-in duration-500">
         <div className="text-center space-y-6 bg-white/50 dark:bg-slate-900/50 p-10 rounded-2xl border border-amber-300 dark:border-amber-800 shadow-2xl shadow-amber-200/20 dark:shadow-amber-900/20 max-w-xl">
-          <h2 className="text-3xl font-semibold text-amber-600 dark:text-amber-500 tracking-tight">Phase 1 Complete!</h2>
+          <h2 className="text-3xl font-semibold text-amber-600 dark:text-amber-500 tracking-tight">Auction pool finished</h2>
           <div className="text-slate-500 dark:text-slate-400 leading-relaxed text-sm space-y-2">
             <p>The primary upcoming player pool has been entirely exhausted.</p>
             <p><strong>({players.filter(p => p.status === "upcoming").length})</strong> players remain for drawing.</p>
@@ -856,7 +871,7 @@ export default function AdminAuctionPage({ params }: { params: Promise<{ id: str
     return (
       <div className="min-h-screen bg-gradient-to-br from-slate-100 via-slate-50 to-slate-100 dark:from-slate-950 dark:via-slate-900 dark:to-slate-950 p-6 flex flex-col items-center justify-center animate-in fade-in duration-500">
         <div className="text-center space-y-6 bg-white/50 dark:bg-slate-900/50 p-10 rounded-2xl border border-rose-300 dark:border-rose-800 shadow-2xl shadow-rose-200/20 dark:shadow-rose-900/20 max-w-xl">
-          <h2 className="text-3xl font-semibold text-rose-600 dark:text-rose-500 tracking-tight">Phase 2 Complete!</h2>
+          <h2 className="text-3xl font-semibold text-rose-600 dark:text-rose-500 tracking-tight">Auction complete</h2>
           <div className="text-slate-500 dark:text-slate-400 leading-relaxed text-sm space-y-2">
             <p>The entire player pool has been exhausted.</p>
             <p><strong>({finalUnsolds})</strong> players were never drawn after Phase 2.</p>
@@ -864,7 +879,7 @@ export default function AdminAuctionPage({ params }: { params: Promise<{ id: str
           </div>
           <div className="flex flex-col gap-3 mt-4">
             <Button size="lg" className="bg-emerald-600 hover:bg-emerald-500 text-white font-medium w-full" onClick={handleStartSlotFilling} disabled={loadingAction === "start_slot_filling"}>
-              {loadingAction === "start_slot_filling" ? "Starting..." : "Proceed to Slot Filling Phase"}
+              {loadingAction === "start_slot_filling" ? "Starting..." : "Proceed to Finalize Auction"}
             </Button>
           </div>
         </div>

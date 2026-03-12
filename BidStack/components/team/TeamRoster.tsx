@@ -86,7 +86,7 @@ export default function TeamRoster({
     return (
         <div className="flex flex-col gap-6">
             {/* Team Selector Pills */}
-            <div className="flex overflow-x-auto pb-4 -mx-4 px-4 sm:mx-0 sm:px-0 custom-scrollbar gap-3 snap-x">
+            <div className="flex flex-wrap gap-3 pb-4">
                 {teams.map((team) => {
                     const count = getTeamPlayers(players, team.id).length;
                     const isActive = selectedTeamId === team.id;
@@ -159,7 +159,7 @@ export default function TeamRoster({
                             {activeTab === "highlights" ? (
                                 <div className="flex-1 flex flex-col lg:flex-row gap-4 p-4 sm:p-6 overflow-hidden min-h-0 justify-center">
                                     {/* Formation Container - Constrained width */}
-                                    <div className="w-full lg:max-w-[550px] xl:max-w-[750px] min-h-[250px] lg:min-h-0 flex flex-col overflow-y-auto lg:overflow-hidden rounded-2xl bg-white dark:bg-slate-950 border border-slate-200 dark:border-white/5">
+                                    <div className="w-full lg:max-w-[550px] xl:max-w-[750px] min-h-[250px] lg:min-h-0 flex flex-col overflow-hidden rounded-2xl bg-white dark:bg-slate-950 border border-slate-200 dark:border-white/5">
                                         <div className="flex items-center justify-end p-2 lg:hidden">
                                             <button
                                                 onClick={() => setIsSquadPanelOpen(!isSquadPanelOpen)}

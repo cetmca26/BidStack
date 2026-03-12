@@ -68,7 +68,7 @@ export function PlayerRepository({ players, teams, onBack }: PlayerRepositoryPro
                 </div>
 
                 {/* Filter Pills */}
-                <div className="flex gap-2 overflow-x-auto">
+                <div className="flex gap-2 flex-wrap">
                     {filterPills.map((pill) => (
                         <button
                             key={pill.value}

@@ -15,7 +15,7 @@ export function RepositoryPanel({ players, onExpand }: RepositoryPanelProps) {
         .slice(0, 4);
 
     const soldCount = players.filter((p) => p.status === "sold").length;
-    const upcomingCount = players.filter((p) => p.status === "upcoming").length;
+    const upcomingCount = players.filter((p) => p.status === "upcoming" || p.status === "upcoming_phase2").length;
 
     return (
         <div className="flex flex-col gap-3 h-full">
@@ -49,7 +49,7 @@ export function RepositoryPanel({ players, onExpand }: RepositoryPanelProps) {
             {upcomingPlayers.length > 0 && (
                 <div className="space-y-1.5 mt-auto">
                     <div className="text-[10px] font-black text-slate-600 dark:text-slate-500 uppercase tracking-widest px-1">
-                        Next Up
+                        PLayer List
                     </div>
                     {upcomingPlayers.map((player) => (
                         <div

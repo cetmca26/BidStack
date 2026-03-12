@@ -67,7 +67,7 @@ export default function AuctionRecapPage({ params }: { params: Promise<{ id: str
                 </div>
             </header>
 
-            <main className="relative z-10 flex-1 max-w-7xl mx-auto w-full p-8 overflow-y-auto">
+            <main className="relative z-10 flex-1 max-w-7xl mx-auto w-full p-8">
                 <Tabs defaultValue="highlights" className="space-y-12">
                     <div className="flex justify-center">
                         <TabsList className="bg-slate-200/80 dark:bg-slate-900/80 border border-slate-300 dark:border-slate-800 p-1 h-14 rounded-2xl">
