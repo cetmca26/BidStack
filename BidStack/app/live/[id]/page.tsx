@@ -59,6 +59,8 @@ export default function LiveAuctionPage({
   const [lastUnsoldPlayer, setLastUnsoldPlayer] = useState<any>(null);
   const soldFeedbackStartTimeRef = useRef<number | null>(null);
   const unsoldFeedbackStartTimeRef = useRef<number | null>(null);
+  const prevPlayersRef = useRef<Player[]>([]);
+  const soldAnimationTimeoutRef = useRef<NodeJS.Timeout | null>(null);
 
   const currentView = selectedTeam ? "roster" : viewMode === "repository" ? "repository" : "auction";
 
@@ -112,6 +114,46 @@ export default function LiveAuctionPage({
       unsoldFeedbackStartTimeRef.current = null;
     }
   }, [state?.phase, state?.current_player_id, players]);
+
+  // Handle Captain & Blind Bid manual sold feedback
+  useEffect(() => {
+    if (state?.phase !== "captain_round" && state?.phase !== "blind_bid_round") {
+      prevPlayersRef.current = players;
+      return;
+    }
+
+    // Find any player who is now "sold" but wasn't sold in the previous render
+    const newlySoldPlayer = players.find(p => {
+      const isNowSold = p.status === "sold" && p.sold_team_id;
+      const prevP = prevPlayersRef.current.find(prev => prev.id === p.id);
+      const wasSoldBefore = prevP?.status === "sold" && prevP?.sold_team_id;
+      return isNowSold && !wasSoldBefore;
+    });
+
+    if (newlySoldPlayer && newlySoldPlayer.sold_team_id) {
+      const soldTeam = teams.find(t => t.id === newlySoldPlayer.sold_team_id);
+      if (soldTeam) {
+        setLastSoldPlayer(newlySoldPlayer);
+        setLastSoldTeam(soldTeam);
+        setLastSoldPrice(newlySoldPlayer.sold_price || 0);
+        setShowSoldAnimation(true);
+        soldFeedbackStartTimeRef.current = Date.now();
+        
+        // Auto-dismiss after 3.2 seconds
+        if (soldAnimationTimeoutRef.current) clearTimeout(soldAnimationTimeoutRef.current);
+        soldAnimationTimeoutRef.current = setTimeout(() => {
+          setShowSoldAnimation(false);
+          soldFeedbackStartTimeRef.current = null;
+        }, 3200);
+      }
+    }
+
+    prevPlayersRef.current = players;
+
+    return () => {
+      if (soldAnimationTimeoutRef.current) clearTimeout(soldAnimationTimeoutRef.current);
+    }
+  }, [players, teams, state?.phase]);
 
   // Redirect to recap on completion or slot filling
   useEffect(() => {
