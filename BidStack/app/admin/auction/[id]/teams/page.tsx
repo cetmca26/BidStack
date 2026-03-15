@@ -39,6 +39,7 @@ type Team = {
   purse_remaining: number;
   slots_remaining: number;
   captain_id: string | null;
+  sport: string | null;
 };
 
 type Player = {
@@ -179,6 +180,7 @@ export default function ManageTeamsPage({ params }: { params: Promise<{ id: stri
         logo_url: logoUrl,
         purse_remaining: auction.settings.purse,
         slots_remaining: auction.settings.max_players,
+        sport: auction.sport_type,
       });
       if (insertError) {
         setError(insertError.message);
