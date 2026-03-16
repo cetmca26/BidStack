@@ -465,8 +465,8 @@ export default function AdminAuctionPage({ params }: { params: Promise<{ id: str
 
     const matchPrice = assignment.amount ? Number(assignment.amount) : 0;
     const minPrice = auction?.settings?.base_price ?? 0;
-    if (matchPrice <= minPrice) {
-      alert(`Bid amount (₹${matchPrice.toLocaleString('en-IN')}) must be strictly greater than the base price (₹${minPrice.toLocaleString('en-IN')}).`);
+    if (matchPrice < minPrice) {
+      alert(`Bid amount (₹${matchPrice.toLocaleString('en-IN')}) cannot be less than the base price (₹${minPrice.toLocaleString('en-IN')}).`);
       return;
     }
 
@@ -587,7 +587,7 @@ export default function AdminAuctionPage({ params }: { params: Promise<{ id: str
                 </span>
                 <span className={`font-bold ${blindBidCountValid ? 'text-emerald-500' : 'text-rose-400'}`}>
                   Blind Bids: {blindBidPlayers.length}
-                </span>
+                </span>              
               </div>
               <Button
                 variant="default"
