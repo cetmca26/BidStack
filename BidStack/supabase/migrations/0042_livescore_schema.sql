@@ -259,7 +259,7 @@ CREATE POLICY "Admin write tournaments" ON public.ls_tournaments FOR ALL
   USING (EXISTS (SELECT 1 FROM public.profiles WHERE id = auth.uid() AND role = 'admin'));
 
 -- Tournament teams
-ALTER TABLE public.ls_tournament_teams ENABLE ROW SECURITY;
+ALTER TABLE public.ls_tournament_teams ENABLE ROW LEVEL SECURITY;
 CREATE POLICY "Public read tournament_teams" ON public.ls_tournament_teams FOR SELECT USING (true);
 CREATE POLICY "Admin write tournament_teams" ON public.ls_tournament_teams FOR ALL
   USING (EXISTS (SELECT 1 FROM public.profiles WHERE id = auth.uid() AND role = 'admin'));
